@@ -1,0 +1,389 @@
+import { useEffect, useState } from 'react'
+import { ArrowDown01Icon, Clock01Icon } from '@hugeicons/core-free-icons'
+import { useTranslation } from 'react-i18next'
+import type { AgentId } from '@shared/thread'
+import { Icon } from '@renderer/components/affect/app-shell'
+import { AgentMark } from '@renderer/components/agents/agent-mark'
+import { LimitViewSwitch } from '@renderer/components/plan-limit-view'
+import { PlanRings } from '@renderer/components/plan-rings'
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@renderer/components/ui/hover-card'
+import { countdown, planReset } from '@renderer/features/sidebar/plan-usage'
+import { useLimitView } from '@renderer/hooks/use-limit-view'
+import { limitLabel, longAgo, planAmount, planBalance, shortAgo } from '@renderer/lib/format'
+import { errorMessage } from '@renderer/lib/host'
+import { currentLocale } from '@renderer/lib/i18n'
+import { shownPercent } from '@renderer/lib/plan-limit'
+import type { LimitWay } from '@renderer/lib/plan-readings'
+import { useNow } from '@renderer/lib/use-now'
+import { agentsOn, isInstalled, useAgentsStore, usePlanReadings } from '@renderer/stores/agents'
+import { planLimitWays, readLimitsThrough } from '@renderer/stores/usage'
+import {
+  useHostName,
+  useShownHostAgents,
+  useWindowHost,
+  useWindowHostAway,
+} from '@renderer/stores/window-host'
+import {
+  planColumns,
+  ringStroke,
+  usageCards,
+  type CardRing,
+  type LimitRead,
+  type UsageCard,
+} from './plan-cards'
+
+const RINGS = 72
+/** A reading this old says on its card how long ago it was taken. */
+const STALE = 60 * 60_000
+
+/**
+ * The plans as they stand, across the page: a card per account that reports limits, as many to
+ * a row as leave the last row fullest, then one line for the agents with usage that report none.
+ * Past two full rows the rest folds away, so the page's own figures stay in view. They are the
+ * shown hosts', an account once however many computers it is signed in on, with its newest
+ * reading from any of them.
+ */
+export function PlanLimits({ used }: { used: Readonly<Record<string, readonly AgentId[]>> }) {
+  const host = useWindowHost()
+  // Each choice of hosts reads its limits afresh.
+  return <HostPlanLimits key={host.kind === 'all' ? '*' : (host.hostId ?? '')} used={used} />
+}
+
+function HostPlanLimits({ used }: { used: Readonly<Record<string, readonly AgentId[]>> }) {
+  const { t } = useTranslation('usage')
+  const now = useNow()
+  const shownHosts = useShownHostAgents()
+  const readings = usePlanReadings()
+  const away = useWindowHostAway() !== null
+  // Read afresh when the page opens, unless the host is away: an account once, through one of its
+  // computers; the host asks each agent at most once a minute.
+  const [toRead] = useState(() => {
+    if (away) return new Map<string, LimitWay[]>()
+    const shownKeys = new Set(
+      usageCards(shownHosts, readings, {}, {}, Date.now()).cards.map((c) => c.key),
+    )
+    return new Map([...planLimitWays()].filter(([key]) => shownKeys.has(key)))
+  })
+  const [reads, setReads] = useState<Partial<Record<string, LimitRead>>>(() =>
+    Object.fromEntries([...toRead.keys()].map((key) => [key, 'reading' as const])),
+  )
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    for (const [key, ways] of toRead) {
+      readLimitsThrough(ways).then(
+        () =>
+          setReads((was) => {
+            const next = { ...was }
+            delete next[key]
+            return next
+          }),
+        (error: unknown) => {
+          console.warn(`Could not read the plan limits: ${errorMessage(error)}`)
+          setReads((was) => ({ ...was, [key]: 'failed' }))
+        },
+      )
+    }
+  }, [toRead])
+  const { cards, unreported } = usageCards(shownHosts, readings, used, reads, now)
+  const named = shownHosts.length > 1
+  const read = Math.max(0, ...cards.map((card) => card.readAt ?? 0))
+  const names = new Intl.ListFormat(currentLocale(), { type: 'conjunction' }).format(
+    unreported.map((a) => a.name),
+  )
+  const columns = planColumns(cards.length)
+  const fold = columns * 2
+  const shown = open || cards.length <= fold ? cards : cards.slice(0, fold)
+  const hidden = cards.slice(fold)
+  const near = hidden.filter((card) =>
+    card.rings.some((ring) => ring.level === 'warn' || ring.level === 'bad'),
+  ).length
+  const head = [
+    cards.length > 0 ? t('limits.accounts', { count: cards.length }) : null,
+    read > 0 ? t('limits.read', { ago: longAgo(read, now) }) : null,
+  ].filter(Boolean)
+  return (
+    <section className="k-u-sec" aria-labelledby="plan-limits-title">
+      <header className="k-u-sec__head">
+        <h2 id="plan-limits-title">{t('limits.title')}</h2>
+        {head.length > 0 && <span>{head.join(' · ')}</span>}
+        {cards.length > 0 && <LimitViewSwitch className="ml-auto" />}
+      </header>
+      {cards.length === 0 ? (
+        <div className="k-u-card">
+          <p className="k-u-none">{t('limits.none')}</p>
+        </div>
+      ) : (
+        <div className="k-u-plans" data-cols={columns}>
+          {shown.map((card) => (
+            <PlanCard key={card.key} card={card} named={named} now={now} />
+          ))}
+        </div>
+      )}
+      {hidden.length > 0 && (
+        <button
+          type="button"
+          className="k-u-plans__more"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
+          {open ? t('limits.showFewer') : t('limits.showMore', { count: hidden.length })}
+          {!open && near > 0 && (
+            <span className="k-u-plans__near">{t('limits.near', { count: near })}</span>
+          )}
+          <Icon icon={ArrowDown01Icon} size={13} />
+        </button>
+      )}
+      {unreported.length > 0 && (
+        <p className="k-u-note">
+          {t('limits.notReported', { name: names, count: unreported.length })}
+        </p>
+      )}
+    </section>
+  )
+}
+
+/**
+ * An account's card: its mark, name and tier, then a ring per window beside a line per window,
+ * the longest outside and first, and with several computers shown, a line of those it is on. A
+ * reading over an hour old says how long ago it was taken, on that line or else beside the name.
+ * Hovered or focused, it lists when each window resets and what each computer calls the account.
+ */
+function PlanCard({ card, named, now }: { card: UsageCard; named: boolean; now: number }) {
+  const { t } = useTranslation('usage')
+  const hostName = useHostName()
+  const installed = useAgentsStore((s) => {
+    const agent = agentsOn(s, card.hostId).byId[card.agentId]
+    return agent ? isInstalled(agent) : true
+  })
+  const failed = card.state === 'failed'
+  const view = useLimitView()
+  const shortName = useShortWindow()
+  const where = [...new Set(card.places.map((place) => hostName(place.hostId)))]
+  // A balance's name and amount, in the locale's money format, for both the rows and the hero.
+  const balanceName = (label: string) =>
+    label === 'Prepaid balance'
+      ? t('limits.prepaidBalance')
+      : label === 'Extra usage'
+        ? t('limits.extraUsage')
+        : label
+  const balanceText = (balance: { amount: number; currency: string }) =>
+    planBalance(
+      balance.amount,
+      balance.currency,
+      balance.currency === 'credits'
+        ? t('limits.units.credits')
+        : balance.currency === 'requests'
+          ? t('limits.units.premiumRequests')
+          : balance.currency,
+    )
+  const balanceRows = (card.balances ?? []).map((balance) => (
+    <span key={`${balance.label}/${balance.currency}`} className="k-u-plan__balance">
+      <span>{balanceName(balance.label)}</span>
+      <b>{balanceText(balance)}</b>
+    </span>
+  ))
+  const age = !failed && card.readAt !== null && now - card.readAt > STALE && (
+    <span className="k-u-plan__age" title={t('limits.read', { ago: longAgo(card.readAt, now) })}>
+      <Icon icon={Clock01Icon} size={12} />
+      <span aria-hidden>{shortAgo(card.readAt, now)}</span>
+      <span className="sr-only">{t('limits.read', { ago: longAgo(card.readAt, now) })}</span>
+    </span>
+  )
+  const face = (
+    <>
+      <header>
+        <AgentMark agent={card.agentId} hostId={card.hostId} size={16} mono={!installed} />
+        <b>{card.name}</b>
+        {!named && age}
+        {failed ? (
+          <span className="k-u-tier k-u-tier--bad">{t('limits.failed')}</span>
+        ) : (
+          card.tier && <span className="k-u-tier">{card.tier}</span>
+        )}
+      </header>
+      {card.state === 'reading' ? (
+        <div aria-busy className="k-u-plan__body">
+          <span className="sr-only">{t('limits.reading')}</span>
+          <span aria-hidden className="k-u-rings--empty" data-reading />
+          <span aria-hidden className="k-u-plan__reading">
+            <span className="k-u-bone" style={{ width: '80%' }} />
+            <span className="k-u-bone" style={{ width: '60%' }} />
+            {balanceRows}
+          </span>
+        </div>
+      ) : card.rings.length === 0 && (card.balances?.length ?? 0) > 0 ? (
+        <div className="k-u-plan__body k-u-plan__body--balance">
+          {(card.balances ?? []).map((balance) => (
+            <span key={`${balance.label}/${balance.currency}`} className="k-u-balance">
+              <span className="k-u-balance__label">{balanceName(balance.label)}</span>
+              <span className="k-u-balance__amount">{balanceText(balance)}</span>
+            </span>
+          ))}
+        </div>
+      ) : card.rings.length === 0 ? (
+        <div className="k-u-plan__body">
+          <span aria-hidden className="k-u-rings--empty" />
+          <span className="flex min-w-0 flex-1 flex-col gap-1">
+            <span className="k-u-plan__none" data-failed={failed || undefined}>
+              {failed ? t('limits.neverRead') : t('limits.notYet')}
+            </span>
+            {balanceRows}
+          </span>
+        </div>
+      ) : (
+        <div className="k-u-plan__body">
+          <PlanRings
+            rings={[...card.rings].reverse().map((ring) => ({
+              id: ring.limit.window,
+              percent: shownPercent(ring.percent, view),
+              level: ring.level,
+            }))}
+            size={RINGS}
+            {...ringStroke(card.rings.length, RINGS)}
+            className="k-u-rings"
+          />
+          <div className="k-u-plan__lines">
+            {card.rings.map((ring) => {
+              const name = limitLabel(ring.limit)
+              const reset =
+                ring.limit.resetsAt === null ? null : planReset(ring.limit.resetsAt, now)
+              const unit =
+                ring.limit.amount?.unit === 'credits'
+                  ? t('limits.units.credits')
+                  : ring.limit.amount?.unit === 'requests'
+                    ? t('limits.units.premiumRequests')
+                    : ring.limit.amount?.unit
+              return (
+                <div key={ring.limit.window} className="k-u-plan__window">
+                  <span className="k-u-plan__line">
+                    <span aria-hidden className="k-u-plan__win">
+                      {shortName(ring.limit)}
+                    </span>
+                    <b aria-hidden className="k-num" data-level={ring.level}>
+                      {ring.reached && ring.limit.resetsAt! > now
+                        ? t('limits.backIn', { time: countdown(ring.limit.resetsAt! - now)! })
+                        : `${shownPercent(ring.percent, view)}%`}
+                    </b>
+                    {reset && <small aria-hidden>{reset}</small>}
+                    <span className="sr-only">
+                      {t(view === 'left' ? 'limits.windowLeft' : 'limits.windowUsed', {
+                        window: name,
+                        percent: shownPercent(ring.percent, view),
+                      })}
+                      {reset && ` ${reset}`}
+                    </span>
+                  </span>
+                  {ring.limit.amount && (
+                    <span className="k-u-plan__amount">
+                      {planAmount(
+                        ring.limit.amount.used,
+                        ring.limit.amount.total,
+                        ring.limit.amount.unit,
+                        unit ?? ring.limit.amount.unit,
+                      )}
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+            {balanceRows}
+            {failed && card.readAt !== null && (
+              <span className="k-u-plan__last">
+                {t('limits.lastRead', { ago: longAgo(card.readAt, now) })}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+      {named && (
+        <footer className="k-u-plan__foot">
+          <span className="k-u-plan__where">{where.join(' · ')}</span>
+          {age}
+        </footer>
+      )}
+    </>
+  )
+  if (card.rings.length === 0) {
+    return (
+      <article
+        aria-label={card.name}
+        className="k-u-card k-u-plan"
+        data-failed={failed || undefined}
+      >
+        {face}
+      </article>
+    )
+  }
+  return (
+    <HoverCard>
+      <HoverCardTrigger
+        delay={150}
+        closeDelay={100}
+        render={
+          <article
+            tabIndex={0}
+            aria-label={card.plan ? `${card.name}, ${card.plan}` : card.name}
+            className="k-u-card k-u-plan"
+            data-failed={failed || undefined}
+          />
+        }
+      >
+        {face}
+      </HoverCardTrigger>
+      <HoverCardContent side="bottom" align="start" sideOffset={6} className="w-72">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-baseline gap-x-3 gap-y-1.5 text-hint">
+          <span className="col-span-3 truncate font-medium text-primary">
+            {card.plan ? `${card.name} · ${card.plan}` : card.name}
+          </span>
+          {card.rings.map((ring) => (
+            <span key={ring.limit.window} className="contents">
+              <span className="truncate text-tertiary">{limitLabel(ring.limit)}</span>
+              <span className="text-right font-medium text-primary tabular-nums">
+                {shownPercent(ring.percent, view)}%
+              </span>
+              <span className="text-right whitespace-nowrap text-secondary">
+                {ring.limit.resetsAt === null ? '' : planReset(ring.limit.resetsAt, now)}
+              </span>
+            </span>
+          ))}
+          {card.places.length > 1 &&
+            card.places.map((place) => (
+              <span
+                key={`${place.hostId ?? ''}/${place.agentId}`}
+                className="col-span-3 truncate text-tertiary"
+              >
+                {`${hostName(place.hostId)} · ${place.agentName}`}
+              </span>
+            ))}
+        </div>
+      </HoverCardContent>
+    </HoverCard>
+  )
+}
+
+/** A window's short name for its line: 5h, 7d, 7d · Fable, 30d. */
+function useShortWindow(): (limit: CardRing['limit']) => string {
+  const { t, i18n } = useTranslation(['usage', 'composer'])
+  return (limit) => {
+    const known = `composer:usage.shortWindow.${limit.window}`
+    if (limit.window === 'rolling') return t('composer:usage.shortWindow.five_hour')
+    if (limit.window === 'weekly') return t('composer:usage.shortWindow.seven_day')
+    if (limit.window.startsWith('seven_day_')) {
+      const model = /^Weekly · (.+)$/.exec(limit.label)?.[1] ?? limitLabel(limit)
+      return t('usage:limits.weeklyOf', { model })
+    }
+    if (limit.window.startsWith('five_hour_')) {
+      const model = /^5-hour · (.+)$/.exec(limit.label)?.[1] ?? limitLabel(limit)
+      return t('usage:limits.fiveHourOf', { model })
+    }
+    if (i18n.exists(known)) return t(known as 'composer:usage.shortWindow.five_hour')
+    const counted = /^(\d+)_(minute|hour|day)$/.exec(limit.window)
+    if (counted) {
+      const unit = { minute: 'minutes', hour: 'hours', day: 'days' }[counted[2]!]!
+      return t(`usage:limits.short.${unit}` as 'usage:limits.short.hours', {
+        count: Number(counted[1]),
+      })
+    }
+    return limitLabel(limit)
+  }
+}

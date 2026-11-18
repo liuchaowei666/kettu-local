@@ -68,8 +68,8 @@ jobs:
           curl -sSL "https://github.com/KettuAI/Kettu/archive/refs/tags/v$BASE.tar.gz" | tar -xz -C app --strip-components=1
           cd app
           git init -q
-          git apply -v ../patches/local.patch
-          echo "applied local.patch onto v$BASE"
+          cp -R ../overlay/. .
+          echo "local changes in place for v$BASE"
 
       - name: Choose the version to publish
         if: steps.pick.outputs.skip == '0'

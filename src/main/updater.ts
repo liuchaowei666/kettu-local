@@ -14,7 +14,6 @@ import {
   GITHUB_SOURCE,
   SourceRun,
   SourcesFailed,
-  updaterUserAgent,
   type SourceChoice,
 } from './update-sources'
 import {
@@ -35,6 +34,11 @@ import {
 } from './update-state'
 
 const log = createLogger('updater')
+
+// Local build: updates come from this fork's own releases, through a mirror, instead of Kettu's
+// signed sources (which would install a stock build over this one).
+const LOCAL_FEED =
+  'https://ghproxy.net/https://github.com/liuchaowei666/kettu-local/releases/latest/download/'
 
 // electron-updater's code for an installer whose publisher is not the running app's.
 const INVALID_PUBLISHER = 'ERR_UPDATER_INVALID_SIGNATURE'
@@ -350,32 +354,19 @@ export class Updater {
   }
 
   private load(): Promise<AppUpdater> {
-    this.updater ??= Promise.all([loadAutoUpdater(), import('./update-provider')]).then(
-      async ([{ autoUpdater, CancellationToken, Provider }, { sourcesProvider }]) => {
+    this.updater ??= loadAutoUpdater().then(async ({ autoUpdater, CancellationToken }) => {
         // Automatic downloads depend on where the app runs.
         await this.located
         this.Token = CancellationToken
         const settings = this.deps.settings()
-        const current = app.getVersion()
         autoUpdater.logger = {
           info: (message?: unknown) => log.info(String(message)),
           warn: (message?: unknown) => log.warn(String(message)),
           error: (message?: unknown) => log.error(String(message)),
         }
         autoUpdater.setFeedURL({
-          provider: 'custom',
-          updateProvider: sourcesProvider(Provider, CancellationToken, {
-            current,
-            userAgent: updaterUserAgent(current, process.platform, process.arch),
-            log,
-            choice: () => this.sourceChoice(),
-            cachedList: () => this.deps.appState.get().updateSources,
-            saveList: (list) => this.deps.appState.update({ updateSources: list }),
-            checked: (run) => {
-              this.run = run
-            },
-            downloadSource: () => this.run?.current ?? null,
-          }),
+          provider: 'generic',
+          url: LOCAL_FEED,
         })
         autoUpdater.allowPrerelease = false
         autoUpdater.allowDowngrade = false
@@ -430,8 +421,7 @@ export class Updater {
         })
         void this.applyProxy(autoUpdater, settings)
         return autoUpdater
-      },
-    )
+      })
     this.updater.catch((error: unknown) => {
       log.error('Could not load electron-updater', error)
       this.updater = null
