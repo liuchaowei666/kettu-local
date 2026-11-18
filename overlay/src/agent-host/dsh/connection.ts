@@ -60,6 +60,7 @@ import type {
   SubagentStartedNotification,
 } from './protocol'
 import { readProvider } from './credentials'
+import { providerOf } from './local-models'
 
 const PENDING_EVENTS = 2_000
 const INITIALIZE_TIMEOUT_MS = 60_000
@@ -715,11 +716,10 @@ export class DshConnection implements AgentConnection {
   }
 
   private async handshake(session: Session, proc: Proc): Promise<void> {
-    // A Magpie routing-group model is served by the sdk profile's "magpie" route, which the
-    // harness only asks for when it is named here; everything else keeps the DeepSeek routes.
-    const provider = session.model.startsWith('group/')
-      ? 'magpie'
-      : ((await readProvider(this.context.env)) ?? 'deepseek-official')
+    // A model of a local provider (Magpie's gateway, or any other in local-models.json) is served
+    // by that provider's own route; everything else keeps the harness's DeepSeek routes.
+    const provider =
+      providerOf(session.model) ?? ((await readProvider(this.context.env)) ?? 'deepseek-official')
     const timeout = new Promise<never>((_, reject) =>
       setTimeout(
         () => reject(new Error('DeepSeek Harness did not start')),

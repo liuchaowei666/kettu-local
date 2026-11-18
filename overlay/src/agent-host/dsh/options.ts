@@ -3,16 +3,28 @@
 
 import type { ConfigOption } from '@shared/thread'
 import { t } from '../i18n'
+import { localConfig, localModels } from './local-models'
 
 export const CONFIG = { mode: 'mode', model: 'model', effort: 'effort' } as const
 
-/** The models dsh 0.2.2 lists for its DeepSeek routes, by id. */
-const MODELS = [
-  // Local: Magpie's DeepSeek routing group first, the official routes kept.
-  { id: 'group/deepseek-2', name: 'DeepSeek (Magpie)' },
+/** The DeepSeek routes dsh lists itself, which stay after the local providers' models. */
+const BUILT_IN = [
   { id: 'deepseek-flash', name: 'DeepSeek V4.1 Flash' },
   { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
 ] as const
+
+/**
+ * The models the menu offers: those of the local providers in %APPDATA%\Kettu\local-models.json
+ * first, then the harness's own DeepSeek routes. Adding a provider or a model is an edit of that
+ * file and a restart, with no new build of Kettu.
+ */
+export function models(): { id: string; name: string }[] {
+  const local = localModels().map((entry) => ({
+    id: entry.value,
+    name: entry.provider === 'magpie' ? entry.name : `${entry.name} · ${entry.provider}`,
+  }))
+  return [...local, ...BUILT_IN.map((model) => ({ id: model.id, name: model.name }))]
+}
 
 const EFFORTS = ['off', 'low', 'high', 'max'] as const
 
@@ -21,12 +33,14 @@ export const MODES = ['plan', 'read-only', 'workspace-write', 'danger-full-acces
 
 export type Mode = (typeof MODES)[number]
 
-export const DEFAULT_MODEL = 'group/deepseek-2'
+/** The model a new session starts on: the config's default, or the first local model. */
+export const DEFAULT_MODEL =
+  localConfig().defaultModel ?? localModels()[0]?.value ?? 'deepseek-flash'
 export const DEFAULT_EFFORT = 'high'
 export const DEFAULT_PRESET = 'workspace-write'
 
 export function isModel(value: string): boolean {
-  return MODELS.some((model) => model.id === value)
+  return models().some((model) => model.id === value)
 }
 
 export function isEffort(value: string): boolean {
@@ -72,7 +86,7 @@ export function configOptions(choices: Choices): ConfigOption[] {
       category: 'model',
       type: 'select',
       value: choices.model,
-      choices: MODELS.map((model) => ({ value: model.id, name: model.name, modelId: model.id })),
+      choices: models().map((model) => ({ value: model.id, name: model.name, modelId: model.id })),
       idleOnly: true,
     },
     {
