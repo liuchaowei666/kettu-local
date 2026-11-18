@@ -148,6 +148,51 @@ function HostPlanLimits({ used }: { used: Readonly<Record<string, readonly Agent
  * reading over an hour old says how long ago it was taken, on that line or else beside the name.
  * Hovered or focused, it lists when each window resets and what each computer calls the account.
  */
+
+/** The last two weeks of a balance, kept in this browser, drawn as a quiet sparkline. */
+function BalanceTrend({ keyName, amount }: { keyName: string; amount: number }) {
+  const storageKey = `kettu.balance.${keyName}`
+  const history = (() => {
+    const today = new Date().toISOString().slice(0, 10)
+    let points: { d: string; v: number }[] = []
+    try {
+      const raw = window.localStorage.getItem(storageKey)
+      if (raw) points = JSON.parse(raw) as { d: string; v: number }[]
+    } catch {
+      points = []
+    }
+    const last = points[points.length - 1]
+    if (!last || last.d !== today) points.push({ d: today, v: amount })
+    else last.v = amount
+    points = points.slice(-30)
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(points))
+    } catch {
+      // A browser that refuses storage simply shows no trend.
+    }
+    return points.slice(-14)
+  })()
+  if (history.length < 3) return null
+  const values = history.map((point) => point.v)
+  const low = Math.min(...values)
+  const high = Math.max(...values)
+  const span = high - low || 1
+  const width = 88
+  const height = 18
+  const points = values
+    .map((value, index) => {
+      const x = (index / (values.length - 1)) * width
+      const y = height - ((value - low) / span) * (height - 2) - 1
+      return `${x.toFixed(1)},${y.toFixed(1)}`
+    })
+    .join(' ')
+  return (
+    <svg className="k-u-balance__trend" viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
+      <polyline points={points} />
+    </svg>
+  )
+}
+
 function PlanCard({ card, named, now }: { card: UsageCard; named: boolean; now: number }) {
   const { t } = useTranslation('usage')
   const hostName = useHostName()
@@ -221,6 +266,10 @@ function PlanCard({ card, named, now }: { card: UsageCard; named: boolean; now: 
             >
               <span className="k-u-balance__label">{balanceName(balance.label)}</span>
               <span className="k-u-balance__amount">{balanceText(balance)}</span>
+              <BalanceTrend
+                keyName={`${card.agentId}:${balance.currency}`}
+                amount={balance.amount}
+              />
             </span>
           ))}
         </div>
