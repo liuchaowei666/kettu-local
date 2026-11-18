@@ -715,7 +715,11 @@ export class DshConnection implements AgentConnection {
   }
 
   private async handshake(session: Session, proc: Proc): Promise<void> {
-    const provider = (await readProvider(this.context.env)) ?? 'deepseek-official'
+    // A Magpie routing-group model is served by the sdk profile's "magpie" route, which the
+    // harness only asks for when it is named here; everything else keeps the DeepSeek routes.
+    const provider = session.model.startsWith('group/')
+      ? 'magpie'
+      : ((await readProvider(this.context.env)) ?? 'deepseek-official')
     const timeout = new Promise<never>((_, reject) =>
       setTimeout(
         () => reject(new Error('DeepSeek Harness did not start')),

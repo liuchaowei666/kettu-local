@@ -776,12 +776,17 @@ export class AgentManager {
       await Promise.all([...this.harnesses.values()].map((h) => this.detect(h)))
       this.noteStartMoves()
       // Local: read the DeepSeek balance once the host is up, so the usage page and the
-      // composer have it without opening the agent's settings first.
+      // composer have it without opening the agent's settings first, and keep it fresh.
       setTimeout(() => {
         try {
           void this.refreshBalance(this.slot('deepseek'), true).catch(() => {})
         } catch {}
       }, 3000).unref?.()
+      setInterval(() => {
+        try {
+          void this.refreshBalance(this.slot('deepseek'), true).catch(() => {})
+        } catch {}
+      }, 900000).unref?.()
     })()
     return this.detected
   }
