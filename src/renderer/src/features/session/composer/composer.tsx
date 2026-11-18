@@ -714,7 +714,17 @@ export function Composer({
             <span className="kettu-tray__group kettu-tray__group--end">
               <SpeedButton speed={session.speed} />
               {agent?.balance && agent.balance.balances.length > 0 && (
-                <span className="kettu-tray-balance" title="DeepSeek 余额">
+                <span
+                  className="kettu-tray-balance"
+                  data-tone={
+                    agent.balance.balances[0]!.amount < 2
+                      ? 'low'
+                      : agent.balance.balances[0]!.amount < 10
+                        ? 'warn'
+                        : 'ok'
+                  }
+                  title={`DeepSeek 余额 ${agent.balance.balances[0]!.currency === 'CNY' ? '¥' : '$'}${agent.balance.balances[0]!.amount.toFixed(2)}`}
+                >
                   <span className="kettu-tray-balance__amount">
                     {agent.balance.balances[0]!.currency === 'CNY' ? '¥' : '$'}
                     {agent.balance.balances[0]!.amount.toFixed(2)}

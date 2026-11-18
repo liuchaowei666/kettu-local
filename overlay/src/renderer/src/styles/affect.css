@@ -6579,3 +6579,9 @@ li[data-row-exit='dust'] > * {
     transition: none;
   }
 }
+
+/* The balance pill warms up as the balance runs down. */
+.kettu-tray-balance[data-tone='warn'] { color: var(--warning); }
+.kettu-tray-balance[data-tone='low'] { color: var(--danger); }
+.kettu-tray-balance[data-tone='warn']::before { background: var(--warning); }
+.kettu-tray-balance[data-tone='low']::before { background: var(--danger); }

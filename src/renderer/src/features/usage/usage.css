@@ -951,3 +951,9 @@
     animation: none;
   }
 }
+
+/* A balance running low says so in the figure itself. */
+.k-u-balance[data-tone='warn'] .k-u-balance__amount { color: var(--warning); }
+.k-u-balance[data-tone='low'] .k-u-balance__amount { color: var(--danger); }
+.k-u-balance[data-tone='warn'] .k-u-balance__label::before { background: var(--warning); }
+.k-u-balance[data-tone='low'] .k-u-balance__label::before { background: var(--danger); }

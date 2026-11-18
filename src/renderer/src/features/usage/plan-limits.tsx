@@ -214,7 +214,11 @@ function PlanCard({ card, named, now }: { card: UsageCard; named: boolean; now: 
       ) : card.rings.length === 0 && (card.balances?.length ?? 0) > 0 ? (
         <div className="k-u-plan__body k-u-plan__body--balance">
           {(card.balances ?? []).map((balance) => (
-            <span key={`${balance.label}/${balance.currency}`} className="k-u-balance">
+            <span
+              key={`${balance.label}/${balance.currency}`}
+              className="k-u-balance"
+              data-tone={balance.amount < 2 ? 'low' : balance.amount < 10 ? 'warn' : 'ok'}
+            >
               <span className="k-u-balance__label">{balanceName(balance.label)}</span>
               <span className="k-u-balance__amount">{balanceText(balance)}</span>
             </span>
