@@ -1,0 +1,372 @@
+import { app, BrowserWindow, dialog, type WebContents } from 'electron'
+import type { BusySession, BusyTerminal } from '@shared/host-control'
+import type { QuitRequest, UnsavedFile } from '@shared/ipc'
+import type { SettingsFile } from '@shared/settings'
+import { sendEvent } from './events'
+import { t } from './i18n'
+import { createLogger } from './log'
+import { currentWindow, hideOnClose, hidesOnClose, isHiddenOnClose } from './window'
+
+const log = createLogger('quit')
+
+const BUSY_TIMEOUT_MS = 2000
+// If installing an update does not quit the app, quit anyway: the hosts are already stopped.
+const INSTALL_FALLBACK_MS = 10_000
+
+export interface QuitDeps {
+  settings(): SettingsFile
+  busySessions(timeoutMs: number): Promise<BusySession[]>
+  busyTerminals(timeoutMs: number): Promise<BusyTerminal[]>
+  /** Stops both hosts and flushes every pending write. */
+  shutDown(): Promise<void>
+  installUpdate(): Promise<void>
+  /** Update on a read-only volume: moves the app to /Applications; false when it stays. */
+  moveApp(): Promise<boolean>
+}
+
+type Phase = 'idle' | 'asking' | 'stopping' | 'done'
+type QuitReason = Exclude<QuitRequest['reason'], 'close'> | 'move'
+
+/** Stop and go on, stay, or close the windows and keep the work running in the background. */
+export type QuitAnswer = boolean | 'background'
+
+interface PendingAnswer {
+  request: QuitRequest
+  webContents: WebContents | null
+  resolve(answer: QuitAnswer): void
+}
+
+/**
+ * Every way out of the app, including a restart to update: ask when agents or terminal
+ * commands are running or files have unsaved edits, then stop the hosts cleanly and flush state
+ * before quitting. On macOS it also asks before a window with unsaved edits closes.
+ */
+export class QuitFlow {
+  private phase: Phase = 'idle'
+  private nextId = 1
+  private pending: PendingAnswer | null = null
+  private systemShuttingDown = false
+  /** Each page's files with unsaved edits, as it last said. */
+  private readonly unsaved = new Map<number, UnsavedFile[]>()
+  /** A window the user agreed to close with its unsaved edits. */
+  private closing: BrowserWindow | null = null
+  /** The user chose to keep the work running: the windows close and the app stays. */
+  private background = false
+  /** How a restart starts the next run, asked for once it goes ahead. */
+  private relaunch: (() => Electron.RelaunchOptions) | null = null
+
+  constructor(private readonly deps: QuitDeps) {
+    app.on('before-quit', (event) => {
+      if (this.phase === 'done') return
+      event.preventDefault()
+      this.request('quit')
+    })
+  }
+
+  get quitting(): boolean {
+    return this.phase === 'done'
+  }
+
+  /** Whether the app stays without windows, as the setting or the user's answer to a quit says. */
+  get staysInBackground(): boolean {
+    return this.background || this.deps.settings().general.background
+  }
+
+  /** Quits and starts Kettu again with `relaunch`'s arguments, asking first as quitting does. */
+  restart(relaunch: () => Electron.RelaunchOptions): void {
+    if (this.phase !== 'idle') return
+    this.relaunch = relaunch
+    this.request('restart')
+  }
+
+  request(reason: QuitReason): void {
+    if (this.phase !== 'idle') return
+    void this.run(reason).catch((error: unknown) => {
+      log.error('Quit failed; quitting anyway', error)
+      this.phase = 'done'
+      app.quit()
+    })
+  }
+
+  /** The renderer's answer to `app:confirm-quit`. */
+  respond(id: number, answer: QuitAnswer): void {
+    if (this.pending?.request.id !== id) return
+    if (answer === 'background' && !this.pending.request.keepRunning) return
+    this.pending.resolve(answer)
+  }
+
+  /** The page had no listener for `app:confirm-quit`; ask natively instead. */
+  unhandled(id: number, webContents: WebContents): void {
+    if (this.pending?.request.id !== id || this.pending.webContents !== webContents) return
+    void this.askNatively(this.pending)
+  }
+
+  /**
+   * On Windows and Linux, closing the last window quits, so it goes through the flow first, unless
+   * Kettu runs in the background. Where the app stays, the page's unsaved edits would go, so that
+   * asks first. On macOS the last window hides instead, unless it has unsaved edits.
+   */
+  watchWindow(window: BrowserWindow): void {
+    // Coming back to a window ends a choice to keep running: closing it goes as the setting says.
+    this.background = false
+    const confirmUnsaved = (event: Electron.Event): void => {
+      if (this.unsaved.get(window.webContents.id)?.length) {
+        event.preventDefault()
+        void this.confirmClose(window)
+      }
+    }
+    if (process.platform === 'darwin') {
+      window.on('close', (event) => {
+        if (this.phase === 'done' || this.closing === window) return
+        // The last window hides with its page as it was, for the Dock icon or the menu to bring
+        // back; one with unsaved edits asks and closes as before.
+        if (hidesOnClose(window) && !this.unsaved.get(window.webContents.id)?.length) {
+          event.preventDefault()
+          hideOnClose(window)
+          return
+        }
+        confirmUnsaved(event)
+      })
+      return
+    }
+    window.on('close', (event) => {
+      if (this.phase === 'done' || this.closing === window) return
+      if (BrowserWindow.getAllWindows().filter((other) => !other.isDestroyed()).length > 1) return
+      if (this.staysInBackground) {
+        confirmUnsaved(event)
+        return
+      }
+      event.preventDefault()
+      this.request('quit')
+    })
+  }
+
+  /** A page's files with unsaved edits; they count until it changes them or goes away. */
+  setUnsaved(webContents: WebContents, files: UnsavedFile[]): void {
+    if (!this.unsaved.has(webContents.id)) {
+      webContents.once('destroyed', () => this.unsaved.delete(webContents.id))
+    }
+    this.unsaved.set(webContents.id, files)
+  }
+
+  private unsavedFiles(): UnsavedFile[] {
+    return [...this.unsaved.values()].flat()
+  }
+
+  /** The system is going down: no question would get an answer in time. */
+  systemShutdown(): void {
+    this.systemShuttingDown = true
+  }
+
+  private async confirmClose(window: BrowserWindow): Promise<void> {
+    if (this.phase !== 'idle') return
+    this.phase = 'asking'
+    const unsaved = this.unsaved.get(window.webContents.id) ?? []
+    const confirmed = await this.ask(
+      {
+        id: this.nextId++,
+        reason: 'close',
+        sessions: [],
+        terminals: [],
+        unsaved,
+        keepRunning: false,
+      },
+      window,
+    )
+    this.phase = 'idle'
+    if (!confirmed || window.isDestroyed()) return
+    this.closing = window
+    window.close()
+  }
+
+  private async run(reason: QuitReason): Promise<void> {
+    this.phase = 'asking'
+    if (!this.systemShuttingDown) {
+      // Unsaved edits are lost on quitting, so they ask whatever the setting says.
+      const unsaved = this.unsavedFiles()
+      const [sessions, terminals] = this.deps.settings().general.confirmQuitWhileRunning
+        ? await Promise.all([
+            this.deps.busySessions(BUSY_TIMEOUT_MS),
+            this.deps.busyTerminals(BUSY_TIMEOUT_MS),
+          ])
+        : [[], []]
+      if (sessions.length > 0 || terminals.length > 0 || unsaved.length > 0) {
+        const answer = await this.ask({
+          id: this.nextId++,
+          // Moving the app restarts it to update, so it asks the same question.
+          reason: reason === 'move' ? 'update' : reason,
+          sessions,
+          terminals,
+          unsaved,
+          // Closing the windows would lose unsaved edits, and a restart cannot wait.
+          keepRunning: reason === 'quit' && unsaved.length === 0,
+        })
+        if (answer === 'background') {
+          log.info('Quit turned into keeping the work running in the background')
+          this.phase = 'idle'
+          this.keepRunning()
+          return
+        }
+        if (!answer) {
+          log.info(`${reason === 'quit' ? 'Quit' : 'Restart'} cancelled`)
+          this.phase = 'idle'
+          return
+        }
+      }
+    }
+    this.phase = 'stopping'
+    // Before the hosts stop, so a failed move leaves the app as it was. The move fires before-quit,
+    // which is held while this runs, and opens the copy once this process has exited.
+    if (reason === 'move' && !(await this.deps.moveApp())) {
+      this.phase = 'idle'
+      return
+    }
+    const started = performance.now()
+    await this.deps.shutDown()
+    log.info(`Hosts stopped and state flushed in ${(performance.now() - started).toFixed(1)} ms`)
+    this.phase = 'done'
+    if (reason === 'update') {
+      setTimeout(() => app.quit(), INSTALL_FALLBACK_MS).unref()
+      await this.deps.installUpdate()
+    } else {
+      if (reason === 'restart') app.relaunch(this.relaunch?.())
+      app.quit()
+    }
+  }
+
+  /** Closes every window and leaves the hosts running, with the tray icon to come back from. */
+  private keepRunning(): void {
+    this.background = true
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.close()
+    }
+  }
+
+  private ask(request: QuitRequest, target?: BrowserWindow): Promise<QuitAnswer> {
+    return new Promise((resolve) => {
+      const window = target ?? shownWindow()
+      const webContents = window && !window.webContents.isDestroyed() ? window.webContents : null
+      // A page that goes away mid-question cannot answer; fall back to a native dialog.
+      const fallBack = (): void => {
+        if (this.pending === pending) void this.askNatively(pending)
+      }
+      const onNavigation = (
+        details: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>,
+      ): void => {
+        if (details.isMainFrame && !details.isSameDocument) fallBack()
+      }
+      const pending: PendingAnswer = {
+        request,
+        webContents,
+        resolve: (answer) => {
+          if (this.pending !== pending) return
+          this.pending = null
+          if (webContents && !webContents.isDestroyed()) {
+            webContents.off('destroyed', fallBack)
+            webContents.off('did-start-navigation', onNavigation)
+          }
+          resolve(answer)
+        },
+      }
+      this.pending = pending
+      if (!window || !webContents || webContents.isLoadingMainFrame()) {
+        void this.askNatively(pending)
+        return
+      }
+      webContents.once('destroyed', fallBack)
+      webContents.on('did-start-navigation', onNavigation)
+      if (window.isMinimized()) window.restore()
+      window.show()
+      window.focus()
+      sendEvent(webContents, 'app:confirm-quit', request)
+    })
+  }
+
+  private async askNatively(pending: PendingAnswer): Promise<void> {
+    pending.webContents = null
+    const { reason, sessions, terminals, unsaved, keepRunning } = pending.request
+    const window = shownWindow()
+    const buttons = [t('quit.cancel'), confirmLabel(reason, unsaved.length > 0, keepRunning)]
+    if (keepRunning) buttons.push(t('quit.keepRunning'))
+    const restarts = reason === 'update' || reason === 'restart'
+    const options: Electron.MessageBoxOptions = {
+      type: 'warning',
+      message:
+        reason === 'update'
+          ? t('quit.titleUpdate')
+          : reason === 'restart'
+            ? t('quit.titleRestart', { name: app.name })
+            : reason === 'close'
+              ? t('quit.titleClose')
+              : t('quit.titleQuit', { name: app.name }),
+      detail: describeWork(sessions, terminals, restarts, unsaved, reason, keepRunning),
+      buttons,
+      cancelId: 0,
+      // Stopping can lose work, so keeping it running is the default where it is offered.
+      defaultId: keepRunning ? 2 : 1,
+      noLink: true,
+    }
+    const { response } = window
+      ? await dialog.showMessageBox(window, options)
+      : await dialog.showMessageBox(options)
+    pending.resolve(response === 2 ? 'background' : response === 1)
+  }
+}
+
+/** The current window, unless closing hid it: then a question asks as with no window. */
+function shownWindow(): BrowserWindow | null {
+  const window = currentWindow()
+  return window && !isHiddenOnClose(window) ? window : null
+}
+
+function confirmLabel(
+  reason: QuitRequest['reason'],
+  unsaved: boolean,
+  keepRunning: boolean,
+): string {
+  if (keepRunning) return t('quit.stopAndQuit')
+  if (reason === 'close') return t('quit.closeWithoutSaving')
+  if (reason === 'update' || reason === 'restart') {
+    return unsaved ? t('quit.restartWithoutSaving') : t('quit.restart')
+  }
+  return unsaved ? t('quit.quitWithoutSaving') : t('quit.quit')
+}
+
+export function describeWork(
+  sessions: BusySession[],
+  terminals: BusyTerminal[],
+  update: boolean,
+  unsaved: UnsavedFile[] = [],
+  reason: QuitRequest['reason'] = update ? 'update' : 'quit',
+  keepRunning = false,
+): string {
+  const lines: string[] = []
+  const separator = t('quit.listSeparator')
+  if (sessions.length > 0) {
+    const names = sessions.map((session) => session.title ?? t('quit.untitledSession'))
+    lines.push(t('quit.sessionsWorking', { count: sessions.length, names: names.join(separator) }))
+  }
+  if (terminals.length > 0) {
+    const names = terminals.map((terminal) => terminal.title)
+    lines.push(
+      t('quit.terminalsRunning', { count: terminals.length, names: names.join(separator) }),
+    )
+  }
+  if (lines.length > 0) {
+    lines.push(
+      update ? t('quit.stopsForUpdate') : keepRunning ? t('quit.keepsRunning') : t('quit.stops'),
+    )
+  }
+  if (unsaved.length > 0) {
+    const names = unsaved.map((file) => file.path.slice(file.path.lastIndexOf('/') + 1))
+    lines.push(t('quit.filesUnsaved', { count: unsaved.length, names: names.join(separator) }))
+    lines.push(
+      reason === 'close'
+        ? t('quit.losesOnClose')
+        : reason === 'update' || reason === 'restart'
+          ? t('quit.losesOnRestart')
+          : t('quit.losesOnQuit'),
+    )
+  }
+  return lines.join('\n')
+}

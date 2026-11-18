@@ -1,0 +1,363 @@
+// What the GitHub CLI is asked for, and how its JSON maps to Kettu's pull request model.
+
+import {
+  GITHUB_ISSUE_URL,
+  GITHUB_LOGIN,
+  GITHUB_PULL_REQUEST_URL,
+  isRepositoryName,
+  type CheckRun,
+  type Issue,
+  type IssueLabel,
+  type PullRequest,
+  type PullRequestAuthor,
+  type PullRequestState,
+} from '@shared/git'
+import type { BranchPullRequest } from './api'
+
+const PULL_REQUEST_FIELDS =
+  'number,title,state,isDraft,url,headRefName,baseRefName,reviewDecision,mergeStateStatus,statusCheckRollup,updatedAt,author,createdAt,mergedAt,closedAt,additions,deletions,changedFiles'
+
+/** Arguments of `gh pr view` for the current branch, or for one pull request URL. */
+export function viewArgs(url?: string): string[] {
+  return ['pr', 'view', ...(url ? [url] : []), '--json', PULL_REQUEST_FIELDS]
+}
+
+export const LIST_ARGS = [
+  'pr',
+  'list',
+  '--state',
+  'all',
+  '--limit',
+  '50',
+  '--json',
+  'number,title,state,isDraft,url,headRefName,statusCheckRollup',
+]
+
+export const AUTH_STATUS_ARGS = ['auth', 'status', '--hostname', 'github.com']
+
+/** Arguments of `gh api` for a user, whose `avatar_url` the pull request card shows. */
+export function userArgs(login: string): string[] {
+  return ['api', '--hostname', 'github.com', `users/${login}`]
+}
+
+type Json = Record<string, unknown>
+
+function isObject(value: unknown): value is Json {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function text(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function pullRequestState(json: Json): PullRequestState {
+  switch (text(json.state).toUpperCase()) {
+    case 'MERGED':
+      return 'merged'
+    case 'CLOSED':
+      return 'closed'
+    default:
+      return json.isDraft === true ? 'draft' : 'open'
+  }
+}
+
+type CheckOutcome = 'passed' | 'failed' | 'pending'
+
+// CheckRun entries carry `status` and `conclusion`; StatusContext entries carry `state`.
+function checkOutcome(item: Json): CheckOutcome {
+  if (item.__typename === 'StatusContext' || (!('status' in item) && 'state' in item)) {
+    switch (text(item.state).toUpperCase()) {
+      case 'SUCCESS':
+        return 'passed'
+      case 'FAILURE':
+      case 'ERROR':
+        return 'failed'
+      default:
+        return 'pending'
+    }
+  }
+  if (text(item.status).toUpperCase() !== 'COMPLETED') return 'pending'
+  switch (text(item.conclusion).toUpperCase()) {
+    case 'SUCCESS':
+    case 'NEUTRAL':
+    case 'SKIPPED':
+      return 'passed'
+    case '':
+      return 'pending'
+    default:
+      // FAILURE, TIMED_OUT, CANCELLED, STARTUP_FAILURE, ACTION_REQUIRED, STALE
+      return 'failed'
+  }
+}
+
+const OUTCOME_ORDER: Record<CheckOutcome, number> = { failed: 0, pending: 1, passed: 2 }
+
+function isStatusContext(item: Json): boolean {
+  return item.__typename === 'StatusContext' || (!('status' in item) && 'state' in item)
+}
+
+// GitHub shows a workflow's check as "workflow / job".
+function checkName(item: Json): string {
+  if (isStatusContext(item)) return text(item.context) || 'status'
+  const name = text(item.name) || 'check'
+  const workflow = text(item.workflowName)
+  return workflow && workflow !== name ? `${workflow} / ${name}` : name
+}
+
+function httpsUrl(value: unknown): string | null {
+  const url = text(value)
+  return url.startsWith('https://') ? url : null
+}
+
+// A run that has not started reports 0001-01-01, which is not a time worth showing.
+function timeOf(value: unknown): number | null {
+  const time = Date.parse(text(value))
+  return Number.isNaN(time) || time <= 0 ? null : time
+}
+
+function checkRun(item: Json): CheckRun {
+  return {
+    name: checkName(item),
+    outcome: checkOutcome(item),
+    url: httpsUrl(isStatusContext(item) ? item.targetUrl : item.detailsUrl),
+    startedAt: timeOf(item.startedAt ?? item.createdAt),
+    completedAt: timeOf(item.completedAt),
+  }
+}
+
+/** Sums `statusCheckRollup`: any failure fails, else any pending run is pending. */
+export function summarizeChecks(rollup: unknown): PullRequest['checks'] {
+  const counts: Record<CheckOutcome, number> = { passed: 0, failed: 0, pending: 0 }
+  const runs: CheckRun[] = []
+  if (Array.isArray(rollup)) {
+    for (const item of rollup) {
+      if (!isObject(item)) continue
+      const run = checkRun(item)
+      counts[run.outcome]++
+      runs.push(run)
+    }
+  }
+  runs.sort(
+    (a, b) =>
+      OUTCOME_ORDER[a.outcome] - OUTCOME_ORDER[b.outcome] || a.name.localeCompare(b.name, 'en'),
+  )
+  let state: PullRequest['checks']['state'] = 'none'
+  if (counts.failed > 0) state = 'failing'
+  else if (counts.pending > 0) state = 'pending'
+  else if (counts.passed > 0) state = 'passing'
+  return { state, ...counts, runs }
+}
+
+function reviewOf(value: unknown): PullRequest['review'] {
+  switch (text(value).toUpperCase()) {
+    case 'APPROVED':
+      return 'approved'
+    case 'CHANGES_REQUESTED':
+      return 'changes_requested'
+    case 'REVIEW_REQUIRED':
+      return 'review_required'
+    default:
+      return null
+  }
+}
+
+function mergeableOf(value: unknown): PullRequest['mergeable'] {
+  switch (text(value).toUpperCase()) {
+    case 'CLEAN':
+    case 'HAS_HOOKS':
+    case 'UNSTABLE': // mergeable, with checks that are not required failing
+      return 'clean'
+    case 'DIRTY':
+      return 'conflicting'
+    case 'BLOCKED':
+    case 'BEHIND':
+    case 'DRAFT':
+      return 'blocked'
+    default:
+      return 'unknown'
+  }
+}
+
+// gh names a GitHub App's bot `app/<slug>`; its user on GitHub is `<slug>[bot]`.
+function authorOf(value: unknown): PullRequestAuthor | null {
+  if (!isObject(value)) return null
+  const app = /^app\/(.+)$/.exec(text(value.login))
+  const login = app ? `${app[1]}[bot]` : text(value.login)
+  if (!login) return null
+  return { login, name: text(value.name) || null, bot: app !== null || value.is_bot === true }
+}
+
+/** Maps the JSON of `gh pr view --json ...`; throws when it is not a pull request on github.com. */
+export function mapPullRequest(raw: unknown): PullRequest {
+  if (!isObject(raw)) throw new Error('Unexpected gh output: not a pull request object')
+  const url = text(raw.url)
+  const parts = GITHUB_PULL_REQUEST_URL.exec(url)
+  if (!parts) throw new Error(`Unexpected pull request URL: ${url || '(none)'}`)
+  const updatedAt = Date.parse(text(raw.updatedAt))
+  return {
+    url,
+    owner: parts[1]!,
+    repo: parts[2]!,
+    number: Number(parts[3]),
+    title: text(raw.title),
+    state: pullRequestState(raw),
+    head: text(raw.headRefName),
+    base: text(raw.baseRefName),
+    checks: summarizeChecks(raw.statusCheckRollup),
+    review: reviewOf(raw.reviewDecision),
+    mergeable: mergeableOf(raw.mergeStateStatus),
+    updatedAt: Number.isNaN(updatedAt) ? 0 : updatedAt,
+    author: authorOf(raw.author),
+    createdAt: timeOf(raw.createdAt) ?? 0,
+    mergedAt: timeOf(raw.mergedAt),
+    closedAt: timeOf(raw.closedAt),
+    additions: count(raw.additions),
+    deletions: count(raw.deletions),
+    changedFiles: count(raw.changedFiles),
+  }
+}
+
+function count(value: unknown): number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0
+}
+
+const ISSUE_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    issueOrPullRequest(number: $number) {
+      __typename
+      ... on Issue {
+        url number title state stateReason createdAt closedAt
+        author { __typename login ... on User { name } }
+        labels(first: 3) { totalCount nodes { name color } }
+        comments { totalCount }
+        closedByPullRequestsReferences(first: 1, includeClosedPrs: true) {
+          nodes { url number state isDraft }
+        }
+      }
+      ... on PullRequest { url }
+    }
+  }
+}`
+
+/** Arguments of `gh api graphql` for the issue at `url`, which matches GITHUB_ISSUE_URL. */
+export function issueArgs(url: string): string[] {
+  const parts = GITHUB_ISSUE_URL.exec(url)
+  if (!parts) throw new Error('Not a GitHub issue URL')
+  // -f keeps owner and repo strings even when they look like numbers; -F makes the number an Int.
+  return [
+    'api',
+    'graphql',
+    '--hostname',
+    'github.com',
+    '-f',
+    `query=${ISSUE_QUERY}`,
+    '-f',
+    `owner=${parts[1]}`,
+    '-f',
+    `repo=${parts[2]}`,
+    '-F',
+    `number=${parts[3]}`,
+  ]
+}
+
+function graphAuthor(value: unknown): PullRequestAuthor | null {
+  if (!isObject(value)) return null
+  const bot = value.__typename === 'Bot'
+  const login = bot ? `${text(value.login)}[bot]` : text(value.login)
+  if (!text(value.login) || !GITHUB_LOGIN.test(login)) return null
+  return { login, name: text(value.name) || null, bot }
+}
+
+function labelsOf(value: unknown): { labels: IssueLabel[]; labelCount: number } {
+  if (!isObject(value)) return { labels: [], labelCount: 0 }
+  const labels: IssueLabel[] = []
+  for (const node of Array.isArray(value.nodes) ? value.nodes : []) {
+    if (!isObject(node) || !text(node.name)) continue
+    const color = text(node.color)
+    labels.push({ name: text(node.name), color: /^[0-9a-f]{6}$/i.test(color) ? color : '' })
+  }
+  return { labels, labelCount: Math.max(count(value.totalCount), labels.length) }
+}
+
+function closedByOf(value: unknown): Issue['closedBy'] {
+  const nodes = isObject(value) && Array.isArray(value.nodes) ? value.nodes : []
+  const node: unknown = nodes[0]
+  if (!isObject(node) || !GITHUB_PULL_REQUEST_URL.test(text(node.url))) return null
+  if (typeof node.number !== 'number') return null
+  return { url: text(node.url), number: node.number, state: pullRequestState(node) }
+}
+
+/**
+ * Maps the answer to ISSUE_QUERY for `url`. A pull request under `/issues/` comes back as its
+ * `/pull/` URL, which the caller reads as a pull request; anything else throws.
+ */
+export function mapIssue(raw: unknown, url: string): Issue | { pullRequestUrl: string } {
+  const parts = GITHUB_ISSUE_URL.exec(url)
+  if (!parts || !isRepositoryName(parts[2]!)) throw new Error('Not a GitHub issue URL')
+  const data = isObject(raw) && isObject(raw.data) ? raw.data : null
+  const repository = data && isObject(data.repository) ? data.repository : null
+  const item =
+    repository && isObject(repository.issueOrPullRequest) ? repository.issueOrPullRequest : null
+  if (!item) throw new Error('GitHub has no issue at this address, or it cannot be read')
+  if (item.__typename === 'PullRequest') {
+    const pull = `https://github.com/${parts[1]}/${parts[2]}/pull/${parts[3]}`
+    return { pullRequestUrl: pull }
+  }
+  if (item.__typename !== 'Issue') throw new Error('Unexpected gh output: not an issue')
+  const closed = text(item.state).toUpperCase() === 'CLOSED'
+  const reason = text(item.stateReason).toUpperCase()
+  return {
+    url,
+    owner: parts[1]!,
+    repo: parts[2]!,
+    number: Number(parts[3]),
+    title: text(item.title),
+    state: !closed
+      ? 'open'
+      : reason === 'NOT_PLANNED' || reason === 'DUPLICATE'
+        ? 'not_planned'
+        : 'completed',
+    author: graphAuthor(item.author),
+    ...labelsOf(item.labels),
+    comments: isObject(item.comments) ? count(item.comments.totalCount) : 0,
+    createdAt: timeOf(item.createdAt) ?? 0,
+    closedAt: closed ? timeOf(item.closedAt) : null,
+    closedBy: closed ? closedByOf(item.closedByPullRequestsReferences) : null,
+  }
+}
+
+/** The `avatar_url` of `gh api users/<login>`, only when GitHub's avatar host serves it. */
+export function mapAvatarUrl(raw: unknown): string | null {
+  const url = isObject(raw) ? text(raw.avatar_url) : ''
+  return url.startsWith('https://avatars.githubusercontent.com/') ? url : null
+}
+
+/**
+ * Maps the JSON of `gh pr list` to a branch lookup. When several pull requests share a
+ * head branch, an open one wins over a closed one, then the first (newest) one.
+ */
+export function mapBranchPullRequests(raw: unknown): Map<string, BranchPullRequest> {
+  if (!Array.isArray(raw)) throw new Error('Unexpected gh output: not a pull request list')
+  const byBranch = new Map<string, BranchPullRequest>()
+  for (const item of raw) {
+    if (!isObject(item)) continue
+    const branch = text(item.headRefName)
+    const url = text(item.url)
+    const number = typeof item.number === 'number' ? item.number : NaN
+    if (!branch || !url || Number.isNaN(number)) continue
+    const state = pullRequestState(item)
+    const failing =
+      (state === 'open' || state === 'draft') &&
+      summarizeChecks(item.statusCheckRollup).state === 'failing'
+    const entry = { number, state, url, failing }
+    const existing = byBranch.get(branch)
+    const live = (state: PullRequestState): boolean => state === 'open' || state === 'draft'
+    if (!existing || (!live(existing.state) && live(entry.state))) byBranch.set(branch, entry)
+  }
+  return byBranch
+}
+
+/** How long to wait before asking again: checks that are running change quickly. */
+export function nextPollDelayMs(pr: PullRequest | null): number {
+  return pr?.checks.state === 'pending' ? 60_000 : 300_000
+}

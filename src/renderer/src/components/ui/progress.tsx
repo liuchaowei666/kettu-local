@@ -1,0 +1,83 @@
+import { Progress as ProgressPrimitive } from '@base-ui/react/progress'
+import { cn } from 'cn'
+import { LIMIT_FILL } from '@renderer/lib/plan-limit'
+
+const TONE = {
+  default: 'bg-primary',
+  success: 'bg-current text-tertiary',
+  checked: 'bg-current text-tertiary',
+  attention: 'bg-current text-warning',
+  destructive: 'bg-danger',
+  // A plan limit's bar, by limitLevel.
+  'limit-ok': LIMIT_FILL.ok,
+  'limit-warn': LIMIT_FILL.warn,
+  'limit-bad': LIMIT_FILL.bad,
+}
+
+function Progress({
+  className,
+  children,
+  value,
+  tone = 'default',
+  ...props
+}: ProgressPrimitive.Root.Props & { tone?: keyof typeof TONE }) {
+  return (
+    <ProgressPrimitive.Root
+      value={value}
+      data-slot="progress"
+      data-tone={tone}
+      className={cn('flex flex-wrap gap-3', className)}
+      {...props}
+    >
+      {children}
+      <ProgressTrack>
+        <ProgressIndicator className={TONE[tone]} />
+      </ProgressTrack>
+    </ProgressPrimitive.Root>
+  )
+}
+
+function ProgressTrack({ className, ...props }: ProgressPrimitive.Track.Props) {
+  return (
+    <ProgressPrimitive.Track
+      className={cn(
+        'relative flex h-1.25 w-full items-center overflow-x-hidden rounded-full bg-border-soft',
+        className,
+      )}
+      data-slot="progress-track"
+      {...props}
+    />
+  )
+}
+
+function ProgressIndicator({ className, ...props }: ProgressPrimitive.Indicator.Props) {
+  return (
+    <ProgressPrimitive.Indicator
+      data-slot="progress-indicator"
+      className={cn('h-full bg-primary transition-[width] duration-(--duration-base)', className)}
+      {...props}
+    />
+  )
+}
+
+function ProgressLabel({ className, ...props }: ProgressPrimitive.Label.Props) {
+  return (
+    <ProgressPrimitive.Label
+      className={cn('text-sm font-medium', className)}
+      data-slot="progress-label"
+      {...props}
+    />
+  )
+}
+
+function ProgressValue({ className, ...props }: ProgressPrimitive.Value.Props) {
+  return (
+    <ProgressPrimitive.Value
+      className={cn('ml-auto text-sm text-muted-foreground tabular-nums', className)}
+      data-slot="progress-value"
+      {...props}
+    />
+  )
+}
+
+export { Progress, ProgressTrack, ProgressIndicator, ProgressLabel, ProgressValue }

@@ -1,0 +1,1496 @@
+/* The Marketplace on affectUI's Integrations screen (components/affect/integrations.tsx), with the
+   hi-fi's listing, install form and Installed tab around it. Colors come from the shell's
+   variables and the theme's tokens; brand colors only from the --brand-* tokens. */
+
+.k-mkt-scroll {
+  position: relative;
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: none;
+  /* Integrations reflows its two columns by this name's width. */
+  container: ui-as-main / inline-size;
+}
+/* The top of the sheet drags the window, under the page's own controls. */
+.k-mkt-drag {
+  position: absolute;
+  z-index: 0;
+  inset: 0 0 auto;
+  height: 40px;
+}
+.k-mkt-scroll > .ui-as-integrations {
+  position: relative;
+}
+
+.k-mkt-mono {
+  font-family: var(--code-face);
+  font-size: 11.5px;
+}
+.k-mkt-scroll .ui-as-int-logo {
+  color: var(--ink);
+}
+/* Tiles: 30 px in a row as Integrations draws them, 64 px on an item's page, 20 px in "and N more" */
+.k-mkt-tile {
+  overflow: hidden;
+}
+.k-mkt-tile[data-size='big'] {
+  width: 64px;
+  height: 64px;
+  border-radius: 17px;
+}
+.k-mkt-tile[data-size='big'] svg {
+  width: 32px;
+  height: 32px;
+}
+.k-mkt-tile[data-size='small'] {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+}
+.k-mkt-tile[data-size='small'] svg {
+  width: 12px;
+  height: 12px;
+}
+/* A tile in a color keeps a hairline edge, so a dark one stays a tile on the dark theme */
+.k-mkt-scroll .k-mkt-tile[data-filled] {
+  box-shadow: inset 0 0 0 0.5px var(--line);
+}
+.k-mkt-tile__mark {
+  transform: scale(var(--mark-scale, 1));
+}
+.k-mkt-tile__logo {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  object-fit: contain;
+}
+.k-mkt-tile[data-size='big'] .k-mkt-tile__logo {
+  width: 46px;
+  height: 46px;
+  border-radius: 11px;
+}
+.k-mkt-tile[data-size='small'] .k-mkt-tile__logo {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+}
+/* What an agent keeps itself: the kind's glyph, muted, on the plain tile */
+.k-mkt-scroll .k-mkt-tile[data-quiet] {
+  color: var(--muted);
+}
+.k-mkt-tile[data-quiet] svg {
+  width: 16px;
+  height: 16px;
+}
+.k-mkt-tile[data-size='small'][data-quiet] svg {
+  width: 12px;
+  height: 12px;
+}
+.k-mkt-tile[data-size='big'][data-quiet] svg {
+  width: 30px;
+  height: 30px;
+}
+
+/* A row's name and line: the button that opens its listing */
+.k-mkt-open {
+  padding: 0;
+  text-align: left;
+  border-radius: 6px;
+}
+.k-mkt-open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+.ui-as-int-add:focus-visible,
+.k-mkt-icon-btn:focus-visible,
+.k-mkt-back:focus-visible,
+.k-mkt-agents__agent:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.ui-as-int-add[data-state='busy'] {
+  cursor: progress;
+}
+/* Installed: a green check on the success tint in place of Integrations' dark tile, which
+   outweighed the Install and Connect beside it. */
+.k-mkt-scroll .ui-as-int-add[data-state='on'] {
+  background: var(--success-tint);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--success) 22%, transparent);
+  color: var(--success);
+}
+.k-mkt-scroll .ui-as-int-add[data-state='on']:hover {
+  background: var(--success-tint);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--success) 40%, transparent);
+  color: var(--success);
+}
+/* Doubled, to outrank Integrations' gray badge whichever sheet comes later. */
+.ui-as-int-row__badge.k-mkt-official {
+  color: var(--accent);
+}
+.k-mkt-kind {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--chip);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--muted);
+}
+.k-mkt-add .ui-as-menu {
+  width: 264px;
+}
+
+/* Loading */
+.k-mkt-skeleton__tile {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+}
+.k-mkt-skeleton__mark {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+}
+.k-mkt-skeleton__big {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  border-radius: 17px;
+}
+.k-mkt-skeleton__title {
+  width: 120px;
+  height: 14px;
+}
+.k-mkt-skeleton__heading {
+  width: 200px;
+  height: 22px;
+}
+.k-mkt-skeleton__name {
+  width: 40%;
+  height: 12px;
+}
+.k-mkt-skeleton__line {
+  width: 70%;
+  height: 10px;
+}
+.k-mkt-skeleton .ui-as-int-row__text,
+.k-mkt-skeleton__lines {
+  gap: 6px;
+}
+.ui-as-int-row.k-mkt-skeleton:hover {
+  background: none;
+}
+
+/* The catalog the registry could not refresh */
+.k-mkt-stale {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 24px 0 0;
+  padding: 6px 6px 6px 14px;
+  border-radius: 10px;
+  background: var(--frame);
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--muted);
+}
+.k-mkt-stale > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.k-mkt-stale > button {
+  flex: none;
+}
+
+/* What could not be read, quietly over the sections */
+.k-mkt-notes {
+  display: grid;
+  gap: 8px;
+  margin-top: 24px;
+}
+.k-mkt-notes > .k-mkt-stale {
+  margin: 0;
+}
+.ui-as-int-section > .k-mkt-stale {
+  margin-top: 12px;
+}
+/* Hooks run commands by themselves: called out in the attention orange */
+.k-mkt-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 16px;
+  font-style: normal;
+  color: var(--attention);
+}
+.k-mkt-warn > svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+/* Install, in the popover of the add button or of the listing's Install */
+.k-mkt-install-pop {
+  width: 304px;
+  padding: 14px;
+}
+.k-mkt-install {
+  display: grid;
+  gap: 10px;
+}
+.k-mkt-install > b {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.k-mkt-install > span {
+  margin-top: -6px;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--muted);
+}
+.k-mkt-install__field {
+  display: grid;
+  gap: 6px;
+}
+.k-mkt-install__field > small {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+}
+.k-mkt-agents {
+  display: grid;
+  gap: 2px;
+  max-height: 228px;
+  overflow-y: auto;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 0.5px var(--line-strong);
+}
+.k-mkt-agents__agent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: var(--ink);
+  text-align: left;
+  transition: background-color 140ms ease;
+}
+.k-mkt-agents__agent:hover {
+  background: var(--hover);
+}
+.k-mkt-agents__agent[aria-checked='true'] {
+  background: var(--chip);
+  font-weight: 500;
+}
+.k-mkt-agents__agent[aria-checked='true']::after {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--ink);
+}
+.k-mkt-agents__all {
+  display: inline-flex;
+  gap: 2px;
+}
+.k-mkt-agents__name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.k-mkt-input-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.k-mkt-required {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--faint);
+}
+
+.k-mkt-install__empty {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--muted);
+}
+.k-mkt-agents__note {
+  margin-left: auto;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--faint);
+}
+.k-mkt-agents__agent[aria-checked='true']:has(.k-mkt-agents__note)::after {
+  margin-left: 8px;
+}
+.k-mkt-install .ui-ss-select.k-select {
+  width: 100%;
+}
+/* A bundle's form: what it runs, a switch row and a field with Choose beside it */
+.k-mkt-install__runs {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 0.5px var(--line-strong);
+  color: var(--muted);
+}
+.k-mkt-install__runs > svg {
+  flex: none;
+  margin-top: 2px;
+}
+.k-mkt-install__runs > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.k-mkt-install__runs small {
+  font-size: 11.5px;
+  color: var(--faint);
+}
+.k-mkt-install__runs code {
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.k-mkt-install__switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.k-mkt-install__switch > span {
+  display: grid;
+  gap: 2px;
+  font-size: 12.5px;
+}
+.k-mkt-install__switch small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.k-mkt-install__input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 6px;
+}
+.k-mkt-install__input > :only-child {
+  grid-column: 1 / -1;
+}
+.k-mkt-install__input > button {
+  margin-top: 29px;
+}
+.k-mkt-install__list {
+  display: grid;
+  gap: 6px;
+}
+.k-mkt-install__list .k-mkt-install__input {
+  grid-auto-flow: column;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-columns: auto;
+}
+.k-mkt-install__list .k-mkt-install__input:not(:first-child) > button {
+  margin-top: 0;
+}
+
+/* Connect: the wait while the user signs in at the service, the device code, and why it failed */
+.k-mkt-connect {
+  display: grid;
+  gap: 10px;
+}
+.k-mkt-connect > b {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.k-mkt-connect > small {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted);
+}
+.k-mkt-connect__wait {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--text);
+}
+.k-mkt-connect__wait > .ui-as-spinner {
+  flex: none;
+}
+.k-mkt-connect__code {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--frame);
+  font-family: var(--code-face);
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-align: center;
+  color: var(--ink);
+  user-select: all;
+}
+.k-mkt-connect__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.k-mkt-connect__error {
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
+/* A kept server's connection: green when connected, the attention orange when it needs you */
+.k-mkt-conn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  max-width: 220px;
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+.k-mkt-conn[data-state='connected'] > svg {
+  flex: none;
+  color: var(--success);
+}
+.k-mkt-conn[data-state='attention'] {
+  color: var(--attention);
+}
+.k-mkt-conn[data-state='error'] {
+  color: var(--danger);
+}
+.ui-buttonc.k-mkt-attention {
+  color: var(--attention);
+}
+
+/* A listing */
+.k-mkt-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 18px -6px;
+  padding: 4px 8px 4px 4px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+.k-mkt-back:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.k-mkt-head {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.k-mkt-head__title {
+  display: grid;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+.k-mkt-head__name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.k-mkt-head__name h1 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 24px;
+  line-height: 30px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.k-mkt-head__pub {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--text);
+}
+.k-mkt-head__trust {
+  color: var(--faint);
+}
+.k-mkt-head__line {
+  font-size: 13px;
+  color: var(--muted);
+}
+.k-mkt-head__act {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+}
+.k-mkt-head__on {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.k-mkt-head__on svg {
+  color: var(--success);
+}
+.k-mkt-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  color: var(--muted);
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+.k-mkt-icon-btn:hover,
+.k-mkt-icon-btn[aria-expanded='true'] {
+  background: var(--hover);
+  color: var(--ink);
+}
+.k-mkt-facts {
+  display: grid;
+  grid-template-columns: 1.5fr repeat(3, 1fr);
+  margin-top: 26px;
+  padding: 14px 0;
+  box-shadow:
+    inset 0 0.5px 0 var(--line),
+    inset 0 -0.5px 0 var(--line);
+}
+.k-mkt-facts > span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 0 16px;
+}
+.k-mkt-facts > span:first-child {
+  padding-left: 0;
+}
+.k-mkt-facts > span + span {
+  box-shadow: inset 0.5px 0 0 var(--line);
+}
+.k-mkt-facts small {
+  font-size: 11.5px;
+  color: var(--faint);
+}
+.k-mkt-facts b {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink);
+}
+.k-mkt-facts__agents {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.k-mkt-facts__text {
+  min-width: 0;
+  margin-left: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.k-mkt-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 32px;
+  margin-top: 26px;
+}
+.k-mkt-body__main h3 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.k-mkt-list {
+  display: grid;
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: var(--card-shadow);
+}
+.k-mkt-item {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+}
+.k-mkt-item + .k-mkt-item {
+  box-shadow: inset 0 0.5px 0 var(--line);
+}
+.k-mkt-item > svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--muted);
+}
+.k-mkt-item > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.k-mkt-item b {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.k-mkt-item small {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  color: var(--muted);
+}
+.k-mkt-side {
+  align-self: start;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--subtle);
+}
+.k-mkt-side dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px 14px;
+  margin: 0;
+  font-size: 12.5px;
+}
+.k-mkt-side dt {
+  color: var(--faint);
+}
+.k-mkt-side dd {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+}
+.k-mkt-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  border-radius: 4px;
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+}
+.k-mkt-link > span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.k-mkt-link > svg {
+  flex: none;
+  color: var(--muted);
+}
+.k-mkt-link:hover {
+  text-decoration-color: currentColor;
+}
+.k-mkt-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.k-mkt-listing .ui-as-empty {
+  margin-top: 8px;
+}
+
+.k-mkt-body__main > * + * {
+  margin-top: 26px;
+}
+.k-mkt-about {
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--ink);
+}
+
+/* Installed: the directory's rows under section titles that carry a count */
+.k-mkt-count {
+  margin-left: 8px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.k-mkt-section-note {
+  margin: 2px 0 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--muted);
+}
+.k-mkt-kettu-tile {
+  flex: none;
+  border-radius: 8px;
+}
+.k-mkt-error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+/* Why Kettu's server does not run, under its row */
+.k-mkt-problem-note {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 10px 10px 10px 14px;
+  border-radius: 10px;
+  background: var(--danger-tint);
+}
+.k-mkt-problem-note > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.k-mkt-problem-note b {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.k-mkt-problem-note small {
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--muted);
+}
+.k-mkt-problem-note small.k-mkt-error {
+  color: var(--danger);
+}
+.k-mkt-scroll .ui-as-int-section > .ui-as-empty {
+  margin-top: 12px;
+}
+/* The agents' switches for Kettu's own server, in its popover */
+.k-mkt-switches {
+  display: grid;
+  gap: 2px;
+  margin: 0 -4px;
+}
+.k-mkt-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px;
+  font-size: 13px;
+  color: var(--ink);
+}
+.k-mkt-switch-row[data-disabled] {
+  color: var(--muted);
+}
+.k-mkt-switch-row > svg {
+  flex: none;
+}
+.k-mkt-switch-row__text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.k-mkt-switch-row__text small {
+  font-size: 11.5px;
+  line-height: 15px;
+  color: var(--faint);
+}
+
+/* A row's controls at its end: a switch and a button beside it */
+.k-mkt-row-end {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+/* A plugin's installs on its page: Settings' card of rows */
+.k-mkt-card {
+  border-radius: 12px;
+}
+.k-mkt-thing {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.k-mkt-thing > .ui-sg-label {
+  min-width: 0;
+}
+.k-mkt-thing__name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+/* A folder of the agents' own skills: its path, and the agents that read it */
+.k-mkt-group {
+  margin-top: 18px;
+}
+.k-mkt-group + .k-mkt-group {
+  margin-top: 26px;
+}
+.k-mkt-group__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--text);
+}
+.k-mkt-group__head .k-mkt-mono {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.k-mkt-group__agents {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  font-weight: 400;
+  color: var(--muted);
+}
+.k-mkt-group__agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.k-mkt-group > .ui-as-int-grid {
+  margin-top: 6px;
+}
+.k-mkt-quiet {
+  flex: none;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--faint);
+}
+.k-mkt-path {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Dialogs: a value of a server added by hand, and Clear in a key's field */
+.kettu-sd .k-mkt-values__label {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.kettu-sd .k-mkt-value {
+  display: grid;
+  gap: 4px;
+}
+.kettu-sd .k-mkt-value__fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+}
+.kettu-sd .k-mkt-value__secret {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.kettu-sd .k-mkt-clear {
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  pointer-events: auto;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+.kettu-sd .k-mkt-clear:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.kettu-sd .k-mkt-clear:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+@container ui-as-main (max-width: 760px) {
+  .k-mkt-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .k-mkt-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 14px;
+  }
+  .k-mkt-facts > span:nth-child(odd) {
+    padding-left: 0;
+    box-shadow: none;
+  }
+  .k-mkt-head {
+    flex-wrap: wrap;
+  }
+}
+
+.k-mkt-agents__agent:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.k-mkt-agents__note {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+}
+
+/* workflows: who a workflow comes from after its name, and what keeps it from starting tasks */
+.k-workflow-by {
+  flex: none;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--faint);
+}
+.k-workflow-state {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: var(--tone-amber-fill);
+  box-shadow: inset 0 0 0 0.5px var(--tone-amber-edge);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--tone-amber);
+  white-space: nowrap;
+}
+.k-workflow-state::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tone-amber-dot);
+}
+.k-workflow-state[data-tone='bad'] {
+  background: var(--danger-tint);
+  box-shadow: none;
+  color: var(--danger);
+}
+.k-workflow-state[data-tone='bad']::before {
+  background: var(--danger);
+}
+.k-workflow-intro {
+  max-width: 720px;
+  margin: 22px 0 -6px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--muted);
+}
+
+/* A workflow's page */
+.k-workflow-facts {
+  grid-template-columns: minmax(0, 1.5fr);
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+}
+.k-workflow-h3 {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.k-workflow-h3__link {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.k-workflow-you {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--tone-amber-fill);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--tone-amber);
+  white-space: nowrap;
+}
+
+/* The flow: the steps as chips in order, then what sends work back or ends the task */
+.k-workflow-flow {
+  padding: 14px;
+}
+.k-workflow-flow__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.k-workflow-flow__step {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--faint);
+}
+.k-workflow-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 8px;
+  background: var(--subtle);
+  box-shadow: inset 0 0 0 0.5px var(--line-strong);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.k-workflow-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 2px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.k-workflow-end > i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--faint);
+}
+.k-workflow-flow__notes {
+  display: grid;
+  gap: 2px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--muted);
+}
+
+/* Each step: what it does, the words for whoever picks, who does it */
+.k-workflow-steps__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 0.9fr) minmax(0, 1.1fr);
+  grid-template-areas: 'node cap who';
+  gap: 14px;
+  align-items: start;
+  padding: 10px 14px;
+}
+.k-workflow-steps__row + .k-workflow-steps__row {
+  box-shadow: inset 0 0.5px 0 var(--line);
+}
+.k-workflow-steps__row[data-head] {
+  padding-block: 8px;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+.k-workflow-steps__node,
+.k-workflow-steps__cap,
+.k-workflow-steps__who {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.k-workflow-steps__node {
+  grid-area: node;
+}
+.k-workflow-steps__cap {
+  grid-area: cap;
+}
+.k-workflow-steps__who {
+  grid-area: who;
+}
+.k-workflow-steps__node > b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.k-workflow-steps small {
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--muted);
+}
+.k-workflow-steps__prompt {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.k-workflow-steps__prompt > span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.k-workflow-steps__prompt[data-open] {
+  display: block;
+}
+.k-workflow-steps__prompt[data-open] > span {
+  display: block;
+  margin-bottom: 2px;
+  white-space: pre-wrap;
+}
+.k-workflow-steps__prompt > .k-mkt-link {
+  flex: none;
+}
+.k-workflow-steps__outcomes {
+  display: grid;
+  gap: 1px;
+  margin: 3px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--text);
+}
+.k-workflow-steps__outcomes > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.k-workflow-steps__outcomes svg {
+  flex: none;
+  color: var(--faint);
+}
+.k-workflow-steps__limit {
+  color: var(--faint);
+}
+
+/* Who does a step: Auto's violet sparkle, or the pinned agent, model and effort */
+.k-workflow-auto {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  color: var(--agent-violet);
+}
+.k-workflow-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  font-size: 13px;
+  color: var(--ink);
+}
+.k-workflow-agent__model {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.k-workflow-agent__effort {
+  flex: none;
+  color: var(--muted);
+}
+.k-workflow-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.k-workflow-who[data-busy] {
+  cursor: progress;
+}
+.k-workflow-pick {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  border-radius: 8px;
+  background: var(--card);
+  box-shadow:
+    inset 0 0 0 0.5px var(--line-strong),
+    var(--card-shadow);
+}
+.k-workflow-pick--button {
+  gap: 6px;
+  max-width: 100%;
+  height: 28px;
+  padding: 0 9px;
+  font-size: 12.5px;
+  color: var(--ink);
+  white-space: nowrap;
+  transition: background-color 140ms ease;
+}
+.k-workflow-pick--button:hover {
+  background: var(--hover);
+}
+.k-workflow-pick--button > svg:last-child {
+  flex: none;
+  color: var(--faint);
+}
+.k-workflow-pick--button .k-workflow-agent {
+  min-width: 0;
+  min-height: 0;
+  font-size: 12.5px;
+}
+.k-workflow-pick--button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The approval of a workflow the user has not approved */
+.k-workflow-approve {
+  margin-top: 22px;
+}
+.k-workflow-approve .ui-apc__title,
+.k-workflow-approve .ui-apc__desc {
+  white-space: normal;
+}
+.k-workflow-approve__file {
+  display: grid;
+  gap: 8px;
+}
+.k-workflow-approve__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.k-workflow-approve__head b {
+  font-weight: 500;
+  color: var(--ink);
+}
+.k-workflow-approve__head small {
+  font-size: 12px;
+  color: var(--faint);
+}
+.k-workflow-approve__notice {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--tone-amber);
+}
+.k-workflow-file {
+  max-height: 420px;
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  border-radius: 10px;
+  background: var(--subtle);
+  box-shadow: inset 0 0 0 0.5px var(--line);
+  font-family: var(--code-face);
+  font-size: 11.5px;
+  line-height: 18px;
+  color: var(--text);
+  white-space: pre;
+  tab-size: 2;
+}
+/* The card's preview scrolls the file, which wraps so no line is hidden from the approval. */
+.k-workflow-approve .ui-apc__preview {
+  max-height: 280px;
+}
+.k-workflow-approve .k-workflow-file {
+  max-height: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.k-workflow-file:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.k-workflow-file__skeleton {
+  height: 120px;
+  border-radius: 10px;
+}
+
+/* What the file has wrong, each where it was found */
+.k-workflow-problems {
+  margin-top: 18px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--danger-tint);
+}
+.k-workflow-problems > b {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.k-workflow-problems > ul {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.k-workflow-problems li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--text);
+}
+.k-workflow-problems code {
+  color: var(--danger);
+}
+.k-workflow-side__file > .k-mkt-mono {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Narrower, the words for whoever picks go under the step, so who does it keeps its room. */
+@container ui-as-main (max-width: 1100px) {
+  .k-workflow-steps__row {
+    grid-template-columns: minmax(0, 1fr) minmax(176px, auto);
+    grid-template-areas:
+      'node who'
+      'cap who';
+    row-gap: 6px;
+  }
+  .k-workflow-steps__row[data-head] > :nth-child(2),
+  .k-workflow-steps__cap:empty {
+    display: none;
+  }
+}
+@container ui-as-main (max-width: 640px) {
+  .k-workflow-steps__row {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'node' 'cap' 'who';
+  }
+  .k-workflow-steps__row[data-head] {
+    display: none;
+  }
+}
+@container ui-as-main (max-width: 760px) {
+  .k-workflow-facts {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.k-workflow-flow__and {
+  padding: 0 4px;
+  font-size: 12px;
+  color: var(--faint);
+}
+
+/* The Kettu Marketplace: who published a row, after its kind, shrinking before the name does */
+.k-mkt-publisher {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A listing's about, as its publisher broke it into lines */
+.k-mkt-about--text {
+  white-space: pre-line;
+}
+.k-mkt-report {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 14px 0 0 -6px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+.k-mkt-report:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.k-mkt-report:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.k-mkt-report:disabled {
+  color: var(--text-disabled);
+  pointer-events: none;
+}
+/* The bar over a listing shown as others see it, in the primary button's blue. */
+.k-mkt-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 22px;
+  padding: 10px 10px 10px 14px;
+  border-radius: 12px;
+  background: var(--primary-from);
+  color: var(--primary-foreground);
+}
+.k-mkt-preview > svg {
+  flex: none;
+}
+.k-mkt-preview__text {
+  display: grid;
+  flex: 1;
+  gap: 1px;
+  min-width: 0;
+}
+.k-mkt-preview__text b {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.k-mkt-preview__text small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.k-mkt-unlisted {
+  justify-content: center;
+  margin: 4px 0 24px;
+}

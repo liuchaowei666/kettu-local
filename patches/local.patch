@@ -1,0 +1,316 @@
+diff --git a/src/agent-host/agents.ts b/src/agent-host/agents.ts
+index d0aec3cb..eddd5248 100644
+--- a/src/agent-host/agents.ts
++++ b/src/agent-host/agents.ts
+@@ -115,7 +115,6 @@ import {
+ import {
+   clearApiKey as clearDshKey,
+   readApiKey as readDshKey,
+-  readProvider as readDshProvider,
+   writeApiKey as writeDshKey,
+ } from './dsh/credentials'
+ import { readClaudeSettings, writeClaudeSetting, type ListedModel } from './claude/user-settings'
+@@ -776,6 +775,13 @@ export class AgentManager {
+       await this.deps.env.ready()
+       await Promise.all([...this.harnesses.values()].map((h) => this.detect(h)))
+       this.noteStartMoves()
++      // Local: read the DeepSeek balance once the host is up, so the usage page and the
++      // composer have it without opening the agent's settings first.
++      setTimeout(() => {
++        try {
++          void this.refreshBalance(this.slot('deepseek'), true).catch(() => {})
++        } catch {}
++      }, 3000).unref?.()
+     })()
+     return this.detected
+   }
+@@ -4228,7 +4234,7 @@ export class AgentManager {
+   private async readBalance(slot: Slot): Promise<void> {
+     await this.detectAll()
+     const env = { ...this.deps.env.agentEnv(slot.id), DSH_HOME: this.dshFolder(slot) }
+-    const key = (await readDshProvider(env)) === 'deepseek-official' ? await readDshKey(env) : null
++    const key = await readDshKey(env)
+     const now = Date.now()
+     const previous = slot.balance
+     if (!key) {
+@@ -4241,6 +4247,8 @@ export class AgentManager {
+           ? { ...usage, balances: previous.balances, observedAt: previous.observedAt }
+           : usage
+     }
++    // Local: the balance is also what the usage page and the composer show.
++    slot.balances = slot.balance ? slot.balance.balances : []
+     slot.balanceReadAt = now
+     this.emit(slot)
+   }
+diff --git a/src/agent-host/dsh/options.ts b/src/agent-host/dsh/options.ts
+index e4624055..a5bfb46d 100644
+--- a/src/agent-host/dsh/options.ts
++++ b/src/agent-host/dsh/options.ts
+@@ -8,6 +8,8 @@ export const CONFIG = { mode: 'mode', model: 'model', effort: 'effort' } as cons
+ 
+ /** The models dsh 0.2.2 lists for its DeepSeek routes, by id. */
+ const MODELS = [
++  // Local: Magpie's DeepSeek routing group first, the official routes kept.
++  { id: 'group/deepseek-2', name: 'DeepSeek (Magpie)' },
+   { id: 'deepseek-flash', name: 'DeepSeek V4.1 Flash' },
+   { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
+ ] as const
+@@ -19,7 +21,7 @@ export const MODES = ['plan', 'read-only', 'workspace-write', 'danger-full-acces
+ 
+ export type Mode = (typeof MODES)[number]
+ 
+-export const DEFAULT_MODEL = 'deepseek-flash'
++export const DEFAULT_MODEL = 'group/deepseek-2'
+ export const DEFAULT_EFFORT = 'high'
+ export const DEFAULT_PRESET = 'workspace-write'
+ 
+diff --git a/src/renderer/src/features/session/composer/composer.tsx b/src/renderer/src/features/session/composer/composer.tsx
+index 689ad8a6..f9b7e27e 100644
+--- a/src/renderer/src/features/session/composer/composer.tsx
++++ b/src/renderer/src/features/session/composer/composer.tsx
+@@ -713,6 +713,14 @@ export function Composer({
+             )}
+             <span className="kettu-tray__group kettu-tray__group--end">
+               <SpeedButton speed={session.speed} />
++              {agent?.balance && agent.balance.balances.length > 0 && (
++                <span className="kettu-tray-balance" title="DeepSeek 余额">
++                  <span className="kettu-tray-balance__amount">
++                    {agent.balance.balances[0]!.currency === 'CNY' ? '¥' : '$'}
++                    {agent.balance.balances[0]!.amount.toFixed(2)}
++                  </span>
++                </span>
++              )}
+               <CacheButton cache={timed} running={running} used={session.usage?.used ?? 0} />
+               <AgentMarkHost.Provider value={hostId}>
+                 <ContextButton
+diff --git a/src/renderer/src/features/usage/plan-limits.tsx b/src/renderer/src/features/usage/plan-limits.tsx
+index d16c36a9..4eea0c18 100644
+--- a/src/renderer/src/features/usage/plan-limits.tsx
++++ b/src/renderer/src/features/usage/plan-limits.tsx
+@@ -159,26 +159,27 @@ function PlanCard({ card, named, now }: { card: UsageCard; named: boolean; now:
+   const view = useLimitView()
+   const shortName = useShortWindow()
+   const where = [...new Set(card.places.map((place) => hostName(place.hostId)))]
++  // A balance's name and amount, in the locale's money format, for both the rows and the hero.
++  const balanceName = (label: string) =>
++    label === 'Prepaid balance'
++      ? t('limits.prepaidBalance')
++      : label === 'Extra usage'
++        ? t('limits.extraUsage')
++        : label
++  const balanceText = (balance: { amount: number; currency: string }) =>
++    planBalance(
++      balance.amount,
++      balance.currency,
++      balance.currency === 'credits'
++        ? t('limits.units.credits')
++        : balance.currency === 'requests'
++          ? t('limits.units.premiumRequests')
++          : balance.currency,
++    )
+   const balanceRows = (card.balances ?? []).map((balance) => (
+     <span key={`${balance.label}/${balance.currency}`} className="k-u-plan__balance">
+-      <span>
+-        {balance.label === 'Prepaid balance'
+-          ? t('limits.prepaidBalance')
+-          : balance.label === 'Extra usage'
+-            ? t('limits.extraUsage')
+-            : balance.label}
+-      </span>
+-      <b>
+-        {planBalance(
+-          balance.amount,
+-          balance.currency,
+-          balance.currency === 'credits'
+-            ? t('limits.units.credits')
+-            : balance.currency === 'requests'
+-              ? t('limits.units.premiumRequests')
+-              : balance.currency,
+-        )}
+-      </b>
++      <span>{balanceName(balance.label)}</span>
++      <b>{balanceText(balance)}</b>
+     </span>
+   ))
+   const age = !failed && card.readAt !== null && now - card.readAt > STALE && (
+@@ -210,6 +211,15 @@ function PlanCard({ card, named, now }: { card: UsageCard; named: boolean; now:
+             {balanceRows}
+           </span>
+         </div>
++      ) : card.rings.length === 0 && (card.balances?.length ?? 0) > 0 ? (
++        <div className="k-u-plan__body k-u-plan__body--balance">
++          {(card.balances ?? []).map((balance) => (
++            <span key={`${balance.label}/${balance.currency}`} className="k-u-balance">
++              <span className="k-u-balance__label">{balanceName(balance.label)}</span>
++              <span className="k-u-balance__amount">{balanceText(balance)}</span>
++            </span>
++          ))}
++        </div>
+       ) : card.rings.length === 0 ? (
+         <div className="k-u-plan__body">
+           <span aria-hidden className="k-u-rings--empty" />
+diff --git a/src/renderer/src/features/usage/usage.css b/src/renderer/src/features/usage/usage.css
+index f1294d52..8d11f992 100644
+--- a/src/renderer/src/features/usage/usage.css
++++ b/src/renderer/src/features/usage/usage.css
+@@ -852,3 +852,102 @@
+   outline: 2px solid var(--accent);
+   outline-offset: 1px;
+ }
++
++/* A balance is money, not a quota window: it gets the card's face to itself, at a size
++   the figure deserves, and it eases in when the card first shows the reading. */
++.k-u-plan__body--balance {
++  align-items: stretch;
++  gap: 10px;
++  margin-top: 2px;
++}
++.k-u-balance {
++  position: relative;
++  display: flex;
++  flex: 1;
++  flex-direction: column;
++  gap: 3px;
++  min-width: 0;
++  padding: 10px 12px 11px;
++  overflow: hidden;
++  border-radius: 12px;
++  background: var(--chip);
++  animation: k-u-balance-in 460ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
++}
++/* A slow sheen travels across once the figure has landed, then stays out of the way. */
++.k-u-balance::after {
++  content: '';
++  position: absolute;
++  inset: 0;
++  background: linear-gradient(105deg, transparent 35%, color-mix(in srgb, var(--strong) 7%, transparent) 50%, transparent 65%);
++  transform: translateX(-120%);
++  animation: k-u-balance-sheen 1400ms 220ms cubic-bezier(0.4, 0, 0.2, 1) 1;
++  pointer-events: none;
++}
++.k-u-balance__label {
++  display: flex;
++  align-items: center;
++  gap: 6px;
++  min-width: 0;
++  font-size: 11.5px;
++  line-height: 1.4;
++  color: var(--faint);
++  text-transform: none;
++  letter-spacing: 0.01em;
++}
++.k-u-balance__label::before {
++  content: '';
++  flex: none;
++  width: 6px;
++  height: 6px;
++  border-radius: 50%;
++  background: var(--plan-ok-chip-text, var(--accent));
++  box-shadow: 0 0 0 0 color-mix(in srgb, var(--plan-ok-chip-text, var(--accent)) 45%, transparent);
++  animation: k-u-balance-pulse 2600ms ease-out infinite;
++}
++.k-u-balance__amount {
++  font-size: 21px;
++  line-height: 1.15;
++  font-weight: 600;
++  letter-spacing: -0.012em;
++  color: var(--strong);
++  font-variant-numeric: tabular-nums;
++  white-space: nowrap;
++  overflow: hidden;
++  text-overflow: ellipsis;
++}
++@keyframes k-u-balance-in {
++  from {
++    opacity: 0;
++    transform: translateY(6px) scale(0.985);
++  }
++  to {
++    opacity: 1;
++    transform: none;
++  }
++}
++@keyframes k-u-balance-sheen {
++  from {
++    transform: translateX(-120%);
++  }
++  to {
++    transform: translateX(120%);
++  }
++}
++@keyframes k-u-balance-pulse {
++  0% {
++    box-shadow: 0 0 0 0 color-mix(in srgb, var(--plan-ok-chip-text, var(--accent)) 45%, transparent);
++  }
++  70% {
++    box-shadow: 0 0 0 5px transparent;
++  }
++  100% {
++    box-shadow: 0 0 0 0 transparent;
++  }
++}
++@media (prefers-reduced-motion: reduce) {
++  .k-u-balance,
++  .k-u-balance::after,
++  .k-u-balance__label::before {
++    animation: none;
++  }
++}
+diff --git a/src/renderer/src/styles/affect.css b/src/renderer/src/styles/affect.css
+index c692027c..5998cba6 100644
+--- a/src/renderer/src/styles/affect.css
++++ b/src/renderer/src/styles/affect.css
+@@ -6529,3 +6529,53 @@ li[data-row-exit='dust'] > * {
+   font-size: 12.5px;
+   color: inherit;
+ }
++
++/* The DeepSeek balance beside the context meter: a quiet pill that lifts on hover. */
++.kettu-tray-balance {
++  display: inline-flex;
++  align-items: center;
++  gap: 5px;
++  padding: 1px 8px 1px 7px;
++  border-radius: 999px;
++  background: var(--chip);
++  color: var(--strong);
++  font-size: 11.5px;
++  line-height: 1.7;
++  font-variant-numeric: tabular-nums;
++  white-space: nowrap;
++  transition: background 140ms ease, transform 140ms ease;
++}
++.kettu-tray-balance::before {
++  content: '';
++  width: 5px;
++  height: 5px;
++  border-radius: 50%;
++  background: var(--composer-meter-ok, var(--accent));
++  animation: kettu-tray-balance-pulse 2600ms ease-out infinite;
++}
++.kettu-tray-balance:hover {
++  background: var(--chip-hover);
++  transform: translateY(-0.5px);
++}
++.kettu-tray-balance__amount {
++  font-weight: 500;
++  letter-spacing: 0.005em;
++}
++@keyframes kettu-tray-balance-pulse {
++  0% {
++    box-shadow: 0 0 0 0 color-mix(in srgb, var(--composer-meter-ok, var(--accent)) 45%, transparent);
++  }
++  70% {
++    box-shadow: 0 0 0 4px transparent;
++  }
++  100% {
++    box-shadow: 0 0 0 0 transparent;
++  }
++}
++@media (prefers-reduced-motion: reduce) {
++  .kettu-tray-balance,
++  .kettu-tray-balance::before {
++    animation: none;
++    transition: none;
++  }
++}

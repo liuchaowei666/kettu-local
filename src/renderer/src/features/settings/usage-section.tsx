@@ -1,0 +1,269 @@
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { useShallow } from 'zustand/react/shallow'
+import type { SettingsFile } from '@shared/settings'
+import type { AgentId } from '@shared/thread'
+import { RefreshIcon, Tick02Icon } from '@hugeicons/core-free-icons'
+import { Icon } from '@renderer/components/affect/app-shell'
+import { AgentTile } from '@renderer/components/agents/agent-mark'
+import { useRefresh } from '@renderer/components/refresh'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@renderer/components/ui/alert-dialog'
+import { toast } from '@renderer/components/ui/toast'
+import { bytes, mediumAgo } from '@renderer/lib/format'
+import { errorMessage } from '@renderer/lib/host'
+import { useHostContext } from '@renderer/lib/host-features'
+import { currentLocale } from '@renderer/lib/i18n'
+import { useNow } from '@renderer/lib/use-now'
+import { agentName } from '@renderer/stores/agents'
+import { useHostScope } from '@renderer/stores/host-scope'
+import {
+  CONFIRM,
+  ControlError,
+  DangerButton,
+  SetButton,
+  SettingSelect,
+  SettingSwitch,
+} from './controls'
+import { ItemLine, Thing } from './rows'
+import { useApply } from './use-apply'
+
+export function FromComputer() {
+  const { useSettingsStore } = useHostScope()
+  const { t } = useTranslation('usage')
+  const onHost = useHostContext()
+  const checked = useSettingsStore((s) => s.settings.usage.fromComputer)
+  const [apply, error] = useApply()
+  return (
+    <>
+      <ControlError error={error} />
+      <SettingSwitch
+        label={t('settings.fromComputer.name', onHost)}
+        checked={checked}
+        onChange={(v) => apply({ usage: { fromComputer: v } })}
+      />
+    </>
+  )
+}
+
+/** Sync now at the end of the Logs label, with the running scan's progress before it. */
+export function SyncLogs() {
+  const { useUsageStore, request } = useHostScope()
+  const { t } = useTranslation('usage')
+  const scanning = useUsageStore((s) => s.status?.scanning ?? null)
+  const refresh = useRefresh({ busy: scanning !== null })
+  const [error, setError] = useState<string | null>(null)
+  const running = refresh.phase === 'turning'
+  return (
+    <>
+      {scanning && scanning.bytes > 0 && (
+        <span role="status" className="k-head-meta k-muted k-num">
+          {t('page.importing', { done: bytes(scanning.doneBytes), total: bytes(scanning.bytes) })}
+        </span>
+      )}
+      <ControlError error={error} />
+      <SetButton
+        loading={running}
+        icon={<Icon icon={refresh.phase === 'done' ? Tick02Icon : RefreshIcon} size={14} />}
+        onClick={() => {
+          setError(null)
+          void refresh
+            .run(() => request('usage.sync', undefined))
+            .catch((e: unknown) => setError(errorMessage(e)))
+        }}
+      >
+        {t('page.sync')}
+      </SetButton>
+    </>
+  )
+}
+
+function dateText(at: number): string {
+  return new Intl.DateTimeFormat(currentLocale(), { dateStyle: 'medium' }).format(at)
+}
+
+/** One agent's logs: what they cover, where they are, and Re-import. */
+const NO_LOCATIONS: string[] = []
+
+export function LogRow({ agentId }: { agentId: AgentId }) {
+  const { hostId, useUsageStore, request } = useHostScope()
+  const { t } = useTranslation(['usage', 'common'])
+  const now = useNow()
+  // Values only: the status is a new object at every step of a scan.
+  const log = useUsageStore(
+    useShallow((s) => {
+      const found = s.status?.logs.find((l) => l.agentId === agentId)
+      return {
+        found: found?.found ?? null,
+        rows: found?.rows ?? 0,
+        first: found?.first ?? null,
+        syncedAt: found?.syncedAt ?? null,
+        error: found?.error ?? null,
+      }
+    }),
+  )
+  const locations = useUsageStore(
+    useShallow((s) => s.status?.logs.find((l) => l.agentId === agentId)?.locations ?? NO_LOCATIONS),
+  )
+  const scanning = useUsageStore((s) => s.status?.scanning != null)
+  const [open, setOpen] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const name = agentName(agentId, hostId)
+  const facts: string[] = []
+  if (log.found === null) facts.push(scanning ? t('page.syncing') : t('settings.notRead'))
+  else if (!log.found) facts.push(t('settings.notFound'))
+  else if (log.first !== null) {
+    facts.push(
+      t('settings.covers', {
+        date: dateText(log.first),
+        count: log.rows,
+        requests: log.rows.toLocaleString(currentLocale()),
+      }),
+    )
+  } else facts.push(t('settings.coversNone'))
+  if (log.syncedAt !== null) facts.push(t('settings.synced', { ago: mediumAgo(log.syncedAt, now) }))
+  const shownError = error ?? log.error
+
+  const reimport = async () => {
+    setError(null)
+    try {
+      await request('usage.reimport', { agentId })
+    } catch (e) {
+      setError(errorMessage(e))
+    }
+  }
+
+  return (
+    <>
+      <div className="ui-sg-row">
+        <Thing
+          mark={<AgentTile agent={agentId} size={24} />}
+          name={<span className="k-name">{name}</span>}
+        >
+          <ItemLine>
+            {shownError ? (
+              <span className="k-danger">{shownError}</span>
+            ) : (
+              <>
+                {locations.length > 0 && (
+                  <span title={locations.join('\n')} data-selectable="" className="k-mono">
+                    {locations.join(', ')}
+                  </span>
+                )}
+                {locations.length > 0 && ' · '}
+                {facts.join(' · ')}
+              </>
+            )}
+          </ItemLine>
+        </Thing>
+        <span className="ui-sg-control">
+          <SetButton disabled={!log.found || scanning} onClick={() => setOpen(true)}>
+            {t('settings.reimport.button')}
+          </SetButton>
+        </span>
+      </div>
+      <AlertDialog open={open} onOpenChange={setOpen}>
+        <AlertDialogContent className={CONFIRM}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('settings.reimport.title', { agent: name })}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('settings.reimport.description', { agent: name })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common:actions.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                void reimport()
+                setOpen(false)
+              }}
+            >
+              {t('settings.reimport.confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  )
+}
+
+export function SidebarEnd() {
+  const { useSettingsStore } = useHostScope()
+  const { t } = useTranslation('usage')
+  const value = useSettingsStore((s) => s.settings.usage.sidebar)
+  const [apply, error] = useApply()
+  const options: { value: SettingsFile['usage']['sidebar']; label: string }[] = [
+    { value: 'today', label: t('settings.sidebar.today') },
+    { value: 'cost', label: t('settings.sidebar.cost') },
+    { value: 'limit', label: t('settings.sidebar.limit') },
+    { value: 'off', label: t('settings.sidebar.off') },
+  ]
+  return (
+    <>
+      <ControlError error={error} />
+      <SettingSelect
+        label={t('settings.sidebar.name')}
+        value={value}
+        options={options}
+        onChange={(sidebar) => apply({ usage: { sidebar } })}
+      />
+    </>
+  )
+}
+
+export function ClearRecord() {
+  const { useUsageStore, request } = useHostScope()
+  const { t } = useTranslation(['usage', 'common', 'settings'])
+  const empty = useUsageStore((s) => s.status?.recordSince == null)
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const clear = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await request('usage.clearRecord', undefined)
+      toast(t('settings:usage.cleared'))
+    } catch (e) {
+      setError(errorMessage(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <>
+      <ControlError error={error} />
+      <DangerButton busy={busy} disabled={empty} onClick={() => setOpen(true)}>
+        {t('settings.clear.button')}
+      </DangerButton>
+      <AlertDialog open={open} onOpenChange={setOpen}>
+        <AlertDialogContent className={CONFIRM}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('settings.clear.title')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('settings.clear.description')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common:actions.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                void clear()
+                setOpen(false)
+              }}
+            >
+              {t('settings.clear.confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  )
+}

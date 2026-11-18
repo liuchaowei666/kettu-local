@@ -1,0 +1,49 @@
+{
+  "panel": {
+    "tabs": "终端",
+    "starting": "正在启动…",
+    "newTerminal": "新建终端",
+    "restore": "还原",
+    "maximize": "最大化",
+    "empty": "此项目还没有终端。",
+    "split": "拆分",
+    "unsplit": "取消拆分",
+    "close": "关闭面板"
+  },
+  "tab": {
+    "rename": "重命名",
+    "nameLabel": "终端名称",
+    "newOutput": "有新输出",
+    "running": "正在运行",
+    "close": "关闭 {{name}}",
+    "owner": "· {{agent}}",
+    "password": "在等密码"
+  },
+  "closeDialog": {
+    "title": "结束此终端？",
+    "body": "<title/> 仍在运行，关闭标签页会将其结束。",
+    "confirm": "结束进程"
+  },
+  "view": {
+    "askAgent": "询问 {{agent}}",
+    "askGeneric": "询问 Agent",
+    "paste": "粘贴",
+    "selectAll": "全选",
+    "clear": "清屏",
+    "stopped": "终端意外停止",
+    "exited": "已退出，退出码 {{code}}",
+    "restart": "重启"
+  },
+  "owner": {
+    "startedBy": "由 {{agent}} 启动 · {{time}}",
+    "openInBrowser": "在浏览器中打开",
+    "stop": "停止",
+    "fromReply": "从 {{agent}} 的回复运行 · {{time}}"
+  },
+  "password": {
+    "strip": "<b>在这里输入密码，按回车</b> · 输入时不显示，{{agent}} 也看不到",
+    "stripNoAgent": "<b>在这里输入密码，按回车</b> · 输入时不显示",
+    "label": "{{agent}} 请你在 <b>{{terminal}}</b> 输入密码",
+    "go": "去输入"
+  }
+}

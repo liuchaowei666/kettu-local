@@ -1,0 +1,587 @@
+import {
+  REMOVED_WHILE_STARTING,
+  type ReturnedMessage,
+  type SessionSummary,
+} from '@shared/agent-host'
+import type { AgentId, UserContent } from '@shared/thread'
+import {
+  clearDraft,
+  draftedSessions,
+  flushDraft,
+  NEW_SESSION_DRAFT,
+  readDraft,
+  writeDraft,
+} from '@renderer/features/session/composer/drafts'
+import {
+  contentAttachments,
+  dropAttachments,
+  releaseResent,
+  restoreAttachments,
+} from '@renderer/features/session/composer/attachments'
+import { loadMarkdown, preloadRenderers } from '@renderer/features/session/markdown/preload'
+import { toast } from '@renderer/components/ui/toast'
+import { errorCode, errorMessage, forgetSessionHost, host, hostAt } from '@renderer/lib/host'
+import { i18n } from '@renderer/lib/i18n'
+import { hostOfPath } from '@renderer/lib/host-paths'
+import { adoptedPrepared } from '@renderer/features/session/new-session/prepared'
+import { clearPicks, type OptionValues } from '@renderer/stores/agent-options'
+import {
+  draftAttachments,
+  setDraftAttachments,
+  type DraftAttachment,
+} from '@renderer/stores/attachments'
+import { useProjectsStore } from '@renderer/stores/projects'
+import {
+  hostOfSession,
+  isScratchFolder,
+  sessionArchived,
+  useSessionsStore,
+} from '@renderer/stores/sessions'
+import { useSettingsStore } from '@renderer/stores/settings'
+import { allowsTerminal, useHostsStore } from '@renderer/stores/hosts'
+import {
+  assignTerminals,
+  busyTerminalsOf,
+  loadTerminals,
+  type TerminalState,
+} from '@renderer/stores/terminals'
+import { allPanes, isSplit, paneWithSession } from '@renderer/features/split/layout'
+import { focusSession, forgetSession } from '@renderer/stores/threads'
+import {
+  chooseNewSessionHost,
+  closeLayoutSession,
+  closeSplitPane,
+  newSessionAt,
+  openNewSession,
+  openSession,
+  placeNewSession,
+  showCreatedSession,
+  useViewStore,
+} from '@renderer/stores/view'
+import { create } from 'zustand'
+import { emitAppEvent } from './events'
+import { goneHosts, hostListed } from './host-sessions'
+import { writeSlug } from '@renderer/stores/worktree-choice'
+
+/** A session being created: shown in place of the thread until `session/new` answers. */
+export interface PendingSession {
+  /** The pane that showed New session and shows the session, wherever the focus goes. */
+  paneId: string
+  agentId: AgentId
+  projectPath: string | null // null: No project, whose folder the host makes
+  parentId: string | null
+  /** The first message, from the New session screen, sent once the session exists. */
+  prompt: UserContent[] | null
+  /** The config values New session chose, set once the session exists. */
+  options: OptionValues | null
+  error: { message: string; code: string | null } | null
+}
+
+export const usePendingSession = create<{ pending: PendingSession | null }>()(() => ({
+  pending: null,
+}))
+
+/** Asks for a folder and adds it as a project; null when cancelled. */
+export async function addProjectFromDialog(): Promise<string | null> {
+  const path = await window.kettu.dialogs.openProject()
+  if (!path) return null
+  const project = await useProjectsStore.getState().add(path)
+  return project.path
+}
+
+/** Open project from the menu, the keyboard or search, which have no place to show a failure. */
+export async function openProjectDialog(): Promise<void> {
+  let path: string | null
+  try {
+    path = await addProjectFromDialog()
+  } catch (error) {
+    toast(i18n.t('shell:openProjectFailed', { error: errorMessage(error) }), undefined, {
+      tone: 'warning',
+    })
+    return
+  }
+  if (path) newSession(path)
+}
+
+/**
+ * The New session screen, with the default agent, in the given project or the selected one; with
+ * No project when asked, or when the selected folder is a scratch session's.
+ */
+export function newSession(projectPath: string | null = null, noProject = false): void {
+  openNewSession(...newSessionStart(projectPath, noProject))
+}
+
+/**
+ * New session as `newSession` opens it, in place of what the main area showed, such as a session
+ * that went; Settings stays as it is.
+ */
+export function newSessionInPlace(projectPath: string | null = null, noProject = false): void {
+  placeNewSession(...newSessionStart(projectPath, noProject))
+}
+
+function newSessionStart(
+  projectPath: string | null,
+  noProject: boolean,
+): [string | null, AgentId | null, boolean] {
+  const { projectPath: selected, newSessionDraft } = useViewStore.getState()
+  const inScratch =
+    !newSessionDraft &&
+    projectPath === null &&
+    selected !== null &&
+    isScratchFolder(useSessionsStore.getState().byId, selected)
+  return [
+    projectPath,
+    useSettingsStore.getState().settings.general.defaultAgent,
+    noProject || inScratch,
+  ]
+}
+
+const promptText = (content: readonly UserContent[]): string =>
+  content.flatMap((c) => (c.type === 'text' ? [c.text] : [])).join('\n\n')
+
+/**
+ * Whether New session's draft still is this first message, its text and its attachments; one that
+ * could not be added is left out of the message, so it is left out here too.
+ */
+function draftIsPrompt(prompt: readonly UserContent[]): boolean {
+  const ids = contentAttachments(prompt).map((a) => a.id)
+  const items = draftAttachments(NEW_SESSION_DRAFT).filter((item) => item.status !== 'failed')
+  return (
+    readDraft(NEW_SESSION_DRAFT).trim() === promptText(prompt).trim() &&
+    items.length === ids.length &&
+    items.every((item, i) => item.attachment?.id === ids[i])
+  )
+}
+
+const draftIsEmpty = (draft = NEW_SESSION_DRAFT) =>
+  !readDraft(draft).trim() && draftAttachments(draft).length === 0
+
+/**
+ * Puts a message whose send failed back in its draft: its text above what was written since,
+ * after a blank line, and its attachments before the draft's own.
+ */
+export function putBackDraft(draft: string, text: string, held: readonly DraftAttachment[]): void {
+  const written = readDraft(draft)
+  const next = !text.trim() ? written : written.trim() ? `${text}\n\n${written}` : text
+  writeDraft(draft, next)
+  if (held.length > 0) setDraftAttachments(draft, [...held, ...draftAttachments(draft)])
+  flushDraft(draft)
+  emitAppEvent({ kind: 'draft-written', draft })
+}
+
+function removedWhileStarting(error: unknown): boolean {
+  const data = (error as { data?: { reason?: unknown } } | null)?.data
+  return errorCode(error) === 'not_found' && data?.reason === REMOVED_WHILE_STARTING
+}
+
+/** Starts a session in the project, or with a null `projectPath` in a scratch folder. */
+export async function createSession(
+  agentId: AgentId,
+  projectPath: string | null,
+  parentId: string | null = null,
+  prompt: UserContent[] | null = null,
+  options: OptionValues | null = null,
+  preparedId: string | null = null,
+  paneId: string = newSessionAt() ?? '',
+  worktree: { base: string; branch?: string } | null = null,
+): Promise<void> {
+  usePendingSession.setState({
+    pending: { paneId, agentId, projectPath, parentId, prompt, options, error: null },
+  })
+  useViewStore.setState((s) => ({
+    projectPath: projectPath ?? s.projectPath,
+    settings: { ...s.settings, open: false },
+  }))
+  preloadRenderers()
+  // The host sends the first message once the session has started, also after a sign-in. It
+  // leaves the draft as it goes, so a window reloaded meanwhile does not offer it again; a retry
+  // leaves alone a draft written since. The host keeps the attachments' records for the message.
+  let held: DraftAttachment[] | null = null
+  if (prompt !== null && draftIsPrompt(prompt)) {
+    held = draftAttachments(NEW_SESSION_DRAFT)
+    clearDraft(NEW_SESSION_DRAFT)
+    setDraftAttachments(NEW_SESSION_DRAFT, [])
+  }
+  try {
+    const summary = await host('sessions.create', {
+      agentId,
+      projectPath,
+      ...(parentId ? { parentId } : {}),
+      ...(options && Object.keys(options).length > 0 ? { options } : {}),
+      ...(prompt !== null ? { prompt } : {}),
+      ...(preparedId ? { preparedId } : {}),
+      ...(worktree ? { worktree } : {}),
+    })
+    // A session in a new worktree starts its own agent; the prepared one stays the window's.
+    if (preparedId && !worktree) adoptedPrepared(summary.id)
+    if (worktree) writeSlug(null)
+    // The host now remembers what carries over; the rest starts afresh next time.
+    if (options) clearPicks(projectPath === null ? null : hostOfPath(projectPath), agentId)
+    useSessionsStore.getState().upsert(summary)
+    // The session shows with its thread and renderer ready, so no skeleton flashes in between.
+    await Promise.all([focusSession(summary.id), loadMarkdown().catch(() => {})])
+    const current = usePendingSession.getState().pending
+    if (current?.agentId === agentId && current.projectPath === projectPath) {
+      usePendingSession.setState({ pending: null })
+      // The pane that showed New session shows the session; the focus may have moved meanwhile.
+      // New session's side panel and terminals go with it.
+      if (showCreatedSession(current.paneId, summary.id, summary.projectPath)) {
+        if (projectPath !== null) void assignTerminals(projectPath, summary.id)
+      } else {
+        openSession(summary.id, summary.projectPath)
+      }
+    }
+  } catch (error) {
+    // Back to New session's draft, above what was written there meanwhile, and stored at once,
+    // since a quit can close the window before a later write. The tiles it left with keep their
+    // pixel sizes; a retry that left a draft written since alone puts back only into an empty one.
+    if (prompt !== null && held) {
+      putBackDraft(NEW_SESSION_DRAFT, promptText(prompt), held)
+    } else if (prompt !== null && draftIsEmpty()) {
+      writeDraft(NEW_SESSION_DRAFT, promptText(prompt))
+      restoreAttachments(NEW_SESSION_DRAFT, prompt)
+      flushDraft(NEW_SESSION_DRAFT)
+    }
+    // Deleted, or its project removed, while it started: nothing is left to show.
+    if (removedWhileStarting(error)) {
+      const current = usePendingSession.getState().pending
+      if (current?.agentId === agentId && current.projectPath === projectPath) {
+        usePendingSession.setState({ pending: null })
+      }
+      return
+    }
+    usePendingSession.setState({
+      pending: {
+        paneId,
+        agentId,
+        projectPath,
+        parentId,
+        prompt,
+        options,
+        error: { message: errorMessage(error), code: errorCode(error) },
+      },
+    })
+  }
+}
+
+/**
+ * Sends the session's failed turn again, from the thread. Its message, when the host gave it back
+ * to the draft and the draft still holds only that, leaves the draft, so it does not go twice.
+ */
+export async function retryTurn(sessionId: string, content: readonly UserContent[]): Promise<void> {
+  await host('sessions.retry', { sessionId })
+  const ids = new Set(contentAttachments(content).map((a) => a.id))
+  const items = draftAttachments(sessionId)
+  if (draftIsEmpty(sessionId) || readDraft(sessionId).trim() !== promptText(content).trim()) return
+  if (!items.every((item) => item.attachment && ids.has(item.attachment.id))) return
+  clearDraft(sessionId)
+  releaseResent(sessionId, content)
+  emitAppEvent({ kind: 'draft-written', draft: sessionId })
+}
+
+/**
+ * Takes the messages the host kept to give back, for a session, for New session (null), or every
+ * one when `sessionId` is undefined, into its draft: an empty one gets the text and attachments,
+ * one written since gets the text after a blank line and the attachments after its own.
+ */
+export async function takeReturnedMessages(
+  sessionId?: string | null,
+  hostId: string | null = null,
+): Promise<void> {
+  let messages: ReturnedMessage[]
+  try {
+    // New session's (null) are the host's that sent them back.
+    messages = await (sessionId
+      ? host('sessions.takeReturned', { sessionId })
+      : hostAt(hostId, 'sessions.takeReturned', sessionId === undefined ? {} : { sessionId }))
+  } catch (error) {
+    console.warn(`Could not take the returned messages: ${errorMessage(error)}`)
+    return
+  }
+  for (const { sessionId, content } of messages) {
+    const draft = sessionId ?? NEW_SESSION_DRAFT
+    const text = promptText(content)
+    const written = readDraft(draft)
+    const next = draftIsEmpty(draft) || !written ? text : text ? `${written}\n\n${text}` : written
+    writeDraft(draft, next)
+    restoreAttachments(draft, content)
+    flushDraft(draft)
+    emitAppEvent({ kind: 'draft-written', draft })
+  }
+}
+
+/**
+ * New session's send: creates the session with its first message, as a sub-session when the
+ * screen was opened for one and its parent is still listed.
+ */
+export function startNewSession(
+  agentId: AgentId,
+  projectPath: string | null,
+  prompt: UserContent[],
+  options: OptionValues | null,
+  preparedId: string | null = null,
+  worktree: { base: string; branch?: string } | null = null,
+): Promise<void> {
+  const { main } = useViewStore.getState()
+  const parent =
+    main.kind === 'new' && main.parentId
+      ? useSessionsStore.getState().byId[main.parentId]
+      : undefined
+  return parent
+    ? createSession(agentId, parent.projectPath, parent.id, prompt, options, preparedId)
+    : createSession(agentId, projectPath, null, prompt, options, preparedId, undefined, worktree)
+}
+
+/**
+ * Forks the session into a new one in the same project and shows it; from `entryId`, a reply's
+ * agent message, up to the end of that reply's turn.
+ */
+export async function forkSession(
+  sessionId: string,
+  entryId?: string,
+  worktree?: 'new' | 'same',
+): Promise<void> {
+  let summary: SessionSummary
+  try {
+    summary = await host('sessions.fork', {
+      sessionId,
+      ...(entryId ? { entryId } : {}),
+      ...(worktree ? { worktree } : {}),
+    })
+  } catch (error) {
+    // Deleted, or its project removed, while it started: nothing is left to show.
+    if (removedWhileStarting(error)) return
+    throw error
+  }
+  useSessionsStore.getState().upsert(summary)
+  openSession(summary.id, summary.projectPath)
+}
+
+export function cancelPendingSession(): void {
+  usePendingSession.setState({ pending: null })
+}
+
+export function retryPendingSession(): void {
+  const pending = usePendingSession.getState().pending
+  if (pending) {
+    void createSession(
+      pending.agentId,
+      pending.projectPath,
+      pending.parentId,
+      pending.prompt,
+      pending.options,
+      null,
+      pending.paneId,
+    )
+  }
+}
+
+export async function pinSession(sessionId: string, pinned: boolean): Promise<void> {
+  await host('sessions.pin', { sessionId, pinned })
+}
+
+/** Closes the session with its sub-sessions and takes it off the list; Settings lists it. */
+export async function archiveSession(sessionId: string): Promise<void> {
+  const summary = useSessionsStore.getState().byId[sessionId]
+  const archived = [sessionId, ...descendantIds(sessionId)]
+  // Its row leaves at once, and its view with it; the host closes it behind, and a failure brings
+  // it back.
+  const settle = useSessionsStore.getState().archiveNow(sessionId)
+  try {
+    await host('sessions.archive', { sessionId })
+  } catch (error) {
+    settle(false)
+    throw error
+  }
+  settle(true)
+  for (const id of archived) forgetSession(id)
+  const { main, layout } = useViewStore.getState()
+  // In a split every pane of an archived session closes; in the only pane, New session takes it.
+  if (!isSplit(layout) && main.kind === 'session' && archived.includes(main.sessionId)) {
+    leaveSession(summary)
+  }
+  for (const id of archived) closeSessionInSplit(id)
+}
+
+export async function unarchiveSession(sessionId: string): Promise<void> {
+  await host('sessions.unarchive', { sessionId })
+}
+
+export async function markSessionUnread(sessionId: string, unread: boolean): Promise<void> {
+  await host('sessions.markUnread', { sessionId, unread })
+}
+
+/** A null or empty title goes back to the agent's. */
+export async function renameSession(sessionId: string, title: string | null): Promise<void> {
+  await host('sessions.rename', { sessionId, title })
+}
+
+/** Removing it from the list takes it off screen too, through `followShownSession`. */
+export async function deleteSession(sessionId: string): Promise<void> {
+  await host('sessions.delete', { sessionId })
+  forgetSession(sessionId)
+  clearDraft(sessionId)
+  dropAttachments(sessionId)
+  useSessionsStore.getState().remove(sessionId)
+  closeSessionInSplit(sessionId)
+}
+
+/** A session the host removed: off the list, its replica dropped and its draft cleared. */
+export function sessionRemoved(sessionId: string): void {
+  useSessionsStore.getState().remove(sessionId)
+  forgetSession(sessionId)
+  clearDraft(sessionId)
+  dropAttachments(sessionId)
+  closeSessionInSplit(sessionId)
+}
+
+/**
+ * After a session left the list: its pane closes while the split holds others; in the only pane
+ * it stays for New session, which the main view leaves for as it did before a split.
+ */
+function closeSessionInSplit(sessionId: string): void {
+  const { layout } = useViewStore.getState()
+  if (isSplit(layout) && paneWithSession(layout, sessionId)) closeLayoutSession(sessionId)
+}
+
+/**
+ * Closes the panes a launch kept for these sessions of hosts not listed yet, once a host's lists
+ * came without its session or the host is no longer known here; a session settled leaves the set.
+ */
+export function closeUnlistedPanes(waiting: Set<string>): void {
+  const hosts = useHostsStore.getState().status?.hosts ?? null
+  for (const pane of allPanes(useViewStore.getState().layout)) {
+    const view = pane.view
+    if (view.kind !== 'session' || !waiting.has(view.sessionId)) continue
+    const hostId = hostOfPath(view.projectPath)
+    if (hostId === null || useSessionsStore.getState().byId[view.sessionId]) {
+      waiting.delete(view.sessionId)
+      continue
+    }
+    if (!hostListed(hostId) && goneHosts([hostId], hosts).length === 0) continue
+    waiting.delete(view.sessionId)
+    forgetSessionHost(view.sessionId)
+    const { layout, main } = useViewStore.getState()
+    if (isSplit(layout)) closeSplitPane(pane.id)
+    else if (main.kind === 'session' && main.sessionId === view.sessionId) newSessionInPlace()
+  }
+}
+
+/**
+ * Asks the host for its one-time removal of the sessions left with no message, keeping those
+ * with an unsent draft, which only the renderer knows of.
+ */
+export async function removeEmptySessions(): Promise<void> {
+  try {
+    await host('sessions.removeEmpty', { keep: draftedSessions() })
+  } catch (error) {
+    console.warn(`Could not remove the sessions with no message: ${errorMessage(error)}`)
+  }
+}
+
+/** After the shown session goes: New session where it ran, with No project for a scratch one. */
+export function leaveSession(summary: SessionSummary | undefined): void {
+  if (summary?.scratch) newSessionInPlace(null, true)
+  else newSessionInPlace(summary?.projectPath ?? null)
+}
+
+/**
+ * After the window points at one host: leaves the shown session when it is on another host, for
+ * New session on that host; in a split its pane closes, as the main view follows the focus.
+ */
+export function leaveSessionOffHost(hostId: string | null): void {
+  const { main, layout } = useViewStore.getState()
+  if (main.kind !== 'session') return
+  const summary = useSessionsStore.getState().byId[main.sessionId]
+  if (!summary || hostOfSession(summary) === hostId) return
+  if (isSplit(layout) && paneWithSession(layout, main.sessionId)) {
+    closeLayoutSession(main.sessionId)
+    return
+  }
+  newSessionInPlace()
+  chooseNewSessionHost(hostId, null)
+}
+
+/**
+ * Leaves a shown session that drops out of the list, deleted here, by the agent host or with its
+ * parent, or that becomes archived, including when its own agent archives it. New session for a
+ * sub-session whose parent goes becomes one for a session of its own. Returns the unsubscribe.
+ */
+export function followShownSession(): () => void {
+  return useSessionsStore.subscribe((state, previous) => {
+    const { layout } = useViewStore.getState()
+    // A split pane that is not the main view still closes, as when the menu archives it.
+    if (isSplit(layout)) {
+      const ids = allPanes(layout).flatMap((pane) =>
+        pane.view.kind === 'session' ? [pane.view.sessionId] : [],
+      )
+      for (const id of ids) {
+        if (!leftTheList(state.byId, id)) continue
+        if (!previous.byId[id] || sessionArchived(previous.byId, id)) continue
+        closeLayoutSession(id)
+      }
+    }
+    const { main, layout: now } = useViewStore.getState()
+    const shownId =
+      main.kind === 'session' ? main.sessionId : main.kind === 'new' ? main.parentId : undefined
+    if (!shownId || !leftTheList(state.byId, shownId)) return
+    const gone = previous.byId[shownId]
+    // Opening one that is already archived, such as from its started entry, stays.
+    if (!gone || sessionArchived(previous.byId, shownId)) return
+    // In a split the pane closes; the main view follows the pane that takes the focus.
+    if (isSplit(now) && paneWithSession(now, shownId)) {
+      closeLayoutSession(shownId)
+      return
+    }
+    leaveSession(gone)
+  })
+}
+
+/** Gone from the list, or archived with an ancestor. The record of an archived session stays. */
+function leftTheList(byId: Record<string, SessionSummary>, id: string): boolean {
+  return !byId[id] || sessionArchived(byId, id)
+}
+
+/** All sessions under a session, for the confirmation that names how many go with it. */
+export function descendantCount(sessionId: string): number {
+  return descendantIds(sessionId).length
+}
+
+/**
+ * The terminals with a command running that archiving these sessions would end, read from their
+ * projects' hosts first, since a window lists a project's terminals only once it shows them.
+ */
+export async function terminalsAtStake(sessionIds: readonly string[]): Promise<TerminalState[]> {
+  const all = sessionIds.flatMap((id) => [id, ...descendantIds(id)])
+  const { byId } = useSessionsStore.getState()
+  const paths = new Set(
+    all.flatMap((id) => {
+      const path = byId[id]?.projectPath
+      return path && allowsTerminal(hostOfPath(path)) ? [path] : []
+    }),
+  )
+  // Starting this computer's terminal host only to list nothing would hold the archive back.
+  const local = [...paths].some((path) => hostOfPath(path) === null)
+  const listLocal = local && (await window.kettu.terminals.running())
+  await Promise.all(
+    [...paths]
+      .filter((path) => listLocal || hostOfPath(path) !== null)
+      .map((path) => loadTerminals(path)),
+  )
+  return busyTerminalsOf(all)
+}
+
+function descendantIds(sessionId: string): string[] {
+  const { byId } = useSessionsStore.getState()
+  const ids: string[] = []
+  const walk = (id: string) => {
+    for (const s of Object.values(byId)) {
+      if (s.parentId === id) {
+        ids.push(s.id)
+        walk(s.id)
+      }
+    }
+  }
+  walk(sessionId)
+  return ids
+}

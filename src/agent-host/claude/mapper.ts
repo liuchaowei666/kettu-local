@@ -1,0 +1,1551 @@
+// Turns the Claude Agent SDK's messages into patches against Kettu's session model, the same
+// patches and effects the ACP mapper produces. A message of a subagent goes to the subagent's
+// session, which Kettu shows as a session of its own; everything else to the session it came on.
+
+import path from 'node:path'
+import type {
+  BackgroundTaskView,
+  PlanItem,
+  SlashCommand,
+  ToolEntry,
+  UserContent,
+} from '@shared/thread'
+import { addSpeedSample, latestTime, timeRequest } from '@shared/output-speed'
+import { t } from '../i18n'
+import {
+  appendContent,
+  attachmentCount,
+  base64Size,
+  imageCount,
+  parseReplayedText,
+  replayedAttachment,
+  upgradeContext,
+} from '../replayed-content'
+import {
+  addEntry,
+  commandDescription,
+  messageEntryId,
+  rateLimitEffects,
+  rawInputText,
+  toLf,
+  toolEffects,
+  type MapperContext,
+  type MapperEffect,
+  type MapperOutput,
+  type SubagentState,
+} from '../session-updates'
+import type {
+  AssistantMessage,
+  ContentBlock,
+  SdkMessage,
+  SlashCommandInfo,
+  StoredMessage,
+  StreamEvent,
+  SystemMessage,
+  ToolResultBlock,
+  ToolUseBlock,
+  ToolUseSummaryMessage,
+  UserMessage,
+} from './sdk'
+import { isClaudeRowlessCall, isClaudeRowWhenFailed } from '../plan-tool'
+import { SERVICE_NAME } from '../service-name'
+import { workflowToolStructured } from '../workflow/tools'
+import { PLAN_TOOLS, resultContent, startsBackgroundWork, SUBAGENT_TOOLS, toolView } from './tools'
+
+/** When a main-thread request went out and started its output, and its output tokens. */
+interface RequestTiming {
+  startedAt: number
+  sentAt: number | null
+  /** The output tokens message_start already counted. */
+  startTokens: number
+  tokens: number
+}
+
+/** Output for one session, built against its thread when it is delivered. */
+export interface Delivery {
+  /** The agent's own id of the session: the session's, or a subagent's task id. */
+  sessionId: string
+  map(ctx: MapperContext): MapperOutput
+}
+
+const output = (): MapperOutput => ({ patches: [], effects: [] })
+
+/** Claude Code's name for a tool of Kettu's own MCP server starts with this. */
+const KETTU_PREFIX = `mcp__${SERVICE_NAME}__`
+
+/** Claude Code's model name for the messages it writes itself, such as an error. */
+export const SYNTHETIC_MODEL = '<synthetic>'
+
+/** Commands Kettu's own controls replace, or that only work in Claude Code's terminal. */
+const UNSUPPORTED_COMMANDS: ReadonlySet<string> = new Set([
+  'clear',
+  'cost',
+  'keybindings-help',
+  'login',
+  'logout',
+  'output-style:new',
+  'release-notes',
+  'todos',
+])
+
+export function mapCommands(
+  commands: readonly SlashCommandInfo[],
+  terminal: ReadonlySet<string>,
+): SlashCommand[] {
+  const out: SlashCommand[] = []
+  const seen = new Set<string>()
+  for (const command of commands) {
+    const { name } = command
+    if (!name || /\s/.test(name) || seen.has(name)) continue
+    if (UNSUPPORTED_COMMANDS.has(name) || terminal.has(name)) continue
+    seen.add(name)
+    const hint = Array.isArray(command.argumentHint)
+      ? command.argumentHint.join(' ')
+      : command.argumentHint
+    out.push({ name, description: command.description ?? '', ...(hint ? { inputHint: hint } : {}) })
+  }
+  return out
+}
+
+interface Tool {
+  name: string
+  input: unknown
+  /** The session it shows in. */
+  sessionId: string
+}
+
+interface Task {
+  subject: string
+  status: PlanItem['status']
+}
+
+const TASK_STATUSES: ReadonlySet<string> = new Set(['pending', 'in_progress', 'completed'])
+
+/** Text Claude Code puts in a user message for itself, which no thread shows. */
+const META_TEXT =
+  /^\s*(<local-command-(stdout|stderr|caveat)>|<system-reminder>|<task-notification>|\[Request interrupted by user)/
+const COMMAND_NAME = /<command-name>\s*\/?([^<]*?)\s*<\/command-name>/
+const COMMAND_ARGS = /<command-args>([\s\S]*?)<\/command-args>/
+const COMPACT_SUMMARY = /^This session is being continued from a previous conversation/
+
+function blocksOf(content: string | ContentBlock[] | undefined): ContentBlock[] {
+  if (typeof content === 'string') return content === '' ? [] : [{ type: 'text', text: content }]
+  return Array.isArray(content) ? content : []
+}
+
+function isToolUse(block: ContentBlock): block is ToolUseBlock {
+  return (
+    (block.type === 'tool_use' ||
+      block.type === 'server_tool_use' ||
+      block.type === 'mcp_tool_use') &&
+    typeof (block as ToolUseBlock).id === 'string'
+  )
+}
+
+function isToolResult(block: ContentBlock): block is ToolResultBlock {
+  return block.type === 'tool_result' && typeof (block as ToolResultBlock).tool_use_id === 'string'
+}
+
+/** A user message's text as the thread shows it: a command as typed, meta text as nothing. */
+function userText(value: string): string | null {
+  const command = COMMAND_NAME.exec(value)
+  if (command) {
+    const args = COMMAND_ARGS.exec(value)?.[1]?.trim()
+    return `/${command[1]}${args ? ` ${args}` : ''}`
+  }
+  if (META_TEXT.test(value)) return null
+  return value
+}
+
+export interface ReplayedSubagent {
+  taskId: string
+  toolUseId: string
+}
+
+const AGENT_ID = /agentId:\s*([\w-]+)/
+
+/** The ended background tasks the list keeps, besides every running one. */
+const ENDED_TASKS_KEPT = 20
+const TASK_TITLE_LIMIT = 300
+const TASK_SUMMARY_LIMIT = 1000
+const TASK_COMMAND_LIMIT = 2000
+
+/** The board's kind for a Claude Code task type, or null for a subagent, which is a session. */
+function backgroundKind(taskType: unknown): BackgroundTaskView['kind'] | null {
+  const type = typeof taskType === 'string' ? taskType.toLowerCase() : ''
+  if (type === 'local_agent' || type === 'subagent') return null
+  if (type.includes('bash') || type.includes('shell')) return 'shell'
+  if (type.includes('monitor')) return 'monitor'
+  if (type.includes('workflow')) return 'workflow'
+  return 'other'
+}
+
+function clip(text: string, limit: number): string {
+  return text.length > limit ? `${text.slice(0, limit - 1)}\u2026` : text
+}
+
+/** One open session's mapping state, across its turns. */
+export class ClaudeMapper {
+  /** The API message each lane streams now; the main thread's lane is ''. */
+  private readonly lanes = new Map<string, string>()
+  /** `<message id>:<kind>` of each text or thought that came as stream deltas, until it ends. */
+  private readonly streamed = new Set<string>()
+  private readonly tools = new Map<string, Tool>()
+  /** The task id of the subagent each Agent call started, by the call's id. */
+  private readonly subagents = new Map<string, string>()
+  /** The session each running subagent's state goes to, by its task id. */
+  private readonly running = new Map<string, string>()
+  private readonly tasks = new Map<string, Task>()
+  private readonly taskInputs = new Map<string, Record<string, unknown>>()
+  /** The commands and monitors the agent left running and those that ended since, oldest first. */
+  private readonly background = new Map<string, BackgroundTaskView>()
+  /** Commands still blocking their tool call, which join `background` once they move there. */
+  private readonly foreground = new Map<string, BackgroundTaskView>()
+  /** Background work still running, background subagents among it, by task id; ambient left out. */
+  private readonly working = new Set<string>()
+  /**
+   * Work counted as background on its start alone, by tool call or task id, which nothing says the
+   * end of: a command that began beside its turn, for a Claude Code that sends no list.
+   */
+  private readonly unreported = new Set<string>()
+  /** Claude Code sent its full list of background tasks since its process started. */
+  private listed = false
+  /** What the session was last told about `working`; null before anything ran. */
+  private told: { running: boolean; listed: boolean } | null = null
+  private compacting: string | null = null
+  /** In a replay: the subagents its history started, whose own histories follow. */
+  readonly replayed: ReplayedSubagent[] = []
+  /** In a subagent's replay: its parent, whose prompt its first message is. */
+  private prompter: { parentId: string; messageId: string } | null = null
+  /** The model of each subagent that wrote since the last `resized`, by its session. */
+  private readonly subagentModels = new Map<string, string>()
+  /** When the main thread last sent the model something: a tool result, a retry or a message's end. */
+  private lastSentAt: number | null = null
+  /** The main thread's request streaming now, timed for its speed. */
+  private timing: RequestTiming | null = null
+
+  constructor(
+    /** The session's own id, Claude Code's. */
+    readonly sessionId: string,
+    private readonly cwd: string,
+    /** The context window Claude Code runs a model in, as far as it is known. */
+    private readonly windowOf: (model: string) => number | null = () => null,
+    /** The folder Claude Code keeps its Plan mode plans in, outside the project; null if unknown. */
+    private readonly plans: string | null = null,
+  ) {}
+
+  /** The session a message belongs to: a subagent's, or this one. */
+  private route(message: { agent_id?: string; parent_tool_use_id?: string | null }): string {
+    if (message.agent_id) return message.agent_id
+    const parent = message.parent_tool_use_id
+    return (parent && this.subagents.get(parent)) || this.sessionId
+  }
+
+  /** What one live message adds to the sessions it belongs to; null for one Kettu does not know. */
+  live(message: SdkMessage): Delivery[] | null {
+    switch (message.type) {
+      case 'stream_event':
+        return this.streamEvent(message as StreamEvent)
+      case 'assistant':
+        return this.assistant(message as AssistantMessage, false)
+      case 'user': {
+        const user = message as UserMessage
+        if (!user.parent_tool_use_id && !user.agent_id) this.lastSentAt = Date.now()
+        return this.user(user, false)
+      }
+      case 'system':
+        return this.system(message as SystemMessage)
+      case 'rate_limit_event': {
+        const info = (message as { rate_limit_info?: unknown }).rate_limit_info
+        return [
+          {
+            sessionId: this.sessionId,
+            map: (ctx) => {
+              const out = output()
+              out.effects.push(...rateLimitEffects(info, ctx.now))
+              return out
+            },
+          },
+        ]
+      }
+      case 'tool_use_summary':
+        return this.toolUseSummary(message as ToolUseSummaryMessage)
+      case 'tool_progress': {
+        const id = (message as { tool_use_id?: unknown }).tool_use_id
+        const tool = typeof id === 'string' ? this.tools.get(id) : undefined
+        if (!tool || typeof id !== 'string') return []
+        return [
+          { sessionId: tool.sessionId, map: (ctx) => this.toolStatus(ctx, id, 'in_progress') },
+        ]
+      }
+      default:
+        return null
+    }
+  }
+
+  /** Claude Code's summary of a batch of tool calls, which labels the work line they fold into. */
+  private toolUseSummary(message: ToolUseSummaryMessage): Delivery[] {
+    const label = typeof message.summary === 'string' ? message.summary.trim() : ''
+    if (label === '' || !Array.isArray(message.preceding_tool_use_ids)) return []
+    const bySession = new Map<string, string[]>()
+    for (const toolUseId of message.preceding_tool_use_ids) {
+      const tool = this.tools.get(toolUseId)
+      if (!tool) continue
+      bySession.set(tool.sessionId, [...(bySession.get(tool.sessionId) ?? []), `t:${toolUseId}`])
+    }
+    return [...bySession].map(([sessionId, ids]) => ({
+      sessionId,
+      map: (ctx) => {
+        const out = output()
+        for (const id of ids) {
+          if (ctx.thread.byId[id]?.kind === 'tool') {
+            out.patches.push({ op: 'entry.update', id, changes: { label } })
+          }
+        }
+        return out
+      },
+    }))
+  }
+
+  private streamEvent(message: StreamEvent): Delivery[] {
+    const { event } = message
+    const lane = message.agent_id ?? message.parent_tool_use_id ?? ''
+    const sessionId = this.route(message)
+    switch (event.type) {
+      case 'message_start': {
+        const id = event.message?.id
+        if (id) this.lanes.set(lane, id)
+        if (lane !== '' || !id) return []
+        // The first content block arrives with message_start, so it times the output's start.
+        const already = event.message?.usage?.output_tokens ?? 0
+        this.timing = {
+          startedAt: Date.now(),
+          sentAt: this.lastSentAt,
+          startTokens: already,
+          tokens: 0,
+        }
+        const usage = event.message?.usage
+        return [{ sessionId, map: (ctx) => this.request(ctx, usage) }]
+      }
+      case 'content_block_start': {
+        const block = event.content_block
+        const messageId = this.lanes.get(lane)
+        if (!block || !messageId || !isToolUse(block)) return []
+        return [{ sessionId, map: (ctx) => this.toolUse(ctx, block, sessionId, false) }]
+      }
+      case 'content_block_delta': {
+        const messageId = this.lanes.get(lane)
+        const delta = event.delta
+        if (!messageId || !delta) return []
+        if (delta.type === 'text_delta' && delta.text) {
+          this.streamed.add(`${messageId}:agent`)
+          const value = delta.text
+          return [{ sessionId, map: (ctx) => this.chunk(ctx, 'agent', messageId, value) }]
+        }
+        if (delta.type === 'thinking_delta' && delta.thinking) {
+          this.streamed.add(`${messageId}:thought`)
+          const value = delta.thinking
+          return [{ sessionId, map: (ctx) => this.chunk(ctx, 'thought', messageId, value) }]
+        }
+        return []
+      }
+      case 'content_block_stop': {
+        const messageId = this.lanes.get(lane)
+        if (!messageId) return []
+        return [{ sessionId, map: (ctx) => this.written(ctx, messageId) }]
+      }
+      case 'message_delta': {
+        const tokens = event.usage?.output_tokens
+        if (lane === '' && this.timing && typeof tokens === 'number') this.timing.tokens = tokens
+        return []
+      }
+      case 'message_stop': {
+        const timing = this.timing
+        if (lane !== '' || !timing) return []
+        const endedAt = Date.now()
+        this.timing = null
+        this.lastSentAt = endedAt
+        return [{ sessionId, map: (ctx) => this.speed(ctx, timing, endedAt) }]
+      }
+      default:
+        return []
+    }
+  }
+
+  /**
+   * Ends the message's reply once a block of it ends: blocks stream one at a time, so its text is
+   * whole even when the turn goes on with nothing that shows in the thread.
+   */
+  private written(ctx: MapperContext, messageId: string): MapperOutput {
+    const out = output()
+    const id = messageEntryId(ctx, 'agent', messageId)!
+    const entry = ctx.thread.byId[id]
+    if (entry?.kind === 'agent' && entry.streaming) {
+      out.patches.push({ op: 'entry.update', id, changes: { streaming: false } })
+    }
+    return out
+  }
+
+  /**
+   * The main thread's request to its model: its context so far, and a renewed cache, with what it
+   * read from that cache and wrote to it, by which a resume is checked.
+   */
+  private request(
+    ctx: MapperContext,
+    usage:
+      | {
+          input_tokens?: number | null
+          cache_read_input_tokens?: number | null
+          cache_creation_input_tokens?: number | null
+        }
+      | undefined,
+  ): MapperOutput {
+    const out = output()
+    if (ctx.replaying) return out
+    const previous = ctx.thread.session.usage
+    // A provider that counts no request tokens sends zeros; that is no count, not an empty context.
+    const counted = usage ? contextTokens(usage) : null
+    const used = counted === 0 && (previous?.used ?? 0) > 0 ? null : counted
+    const counts = !ctx.cancelling
+    if (used === null && !counts) return out
+    out.patches.push({
+      op: 'session.update',
+      changes: {
+        usage: {
+          used: used ?? previous?.used ?? 0,
+          size: previous?.size ?? DEFAULT_CONTEXT_WINDOW,
+          cost: previous?.cost ?? null,
+          tokens: previous?.tokens ?? null,
+          ...(counts
+            ? { cache: { lastRequestAt: ctx.now, ttl: previous?.cache?.ttl ?? null } }
+            : previous?.cache
+              ? { cache: previous.cache }
+              : {}),
+        },
+      },
+    })
+    if (!counts) return out
+    const read = usage?.cache_read_input_tokens
+    const written = usage?.cache_creation_input_tokens
+    out.effects.push(
+      typeof read === 'number' || typeof written === 'number'
+        ? { kind: 'request', cache: { read: read ?? 0, written: written ?? 0 } }
+        : { kind: 'request' },
+    )
+    return out
+  }
+
+  private chunk(
+    ctx: MapperContext,
+    kind: 'agent' | 'thought',
+    messageId: string,
+    value: string,
+  ): MapperOutput {
+    const out = output()
+    const id = messageEntryId(ctx, kind, messageId)!
+    const existing = ctx.thread.byId[id]
+    if (existing?.kind === kind) {
+      out.patches.push({ op: 'entry.appendText', id, text: toLf(value) })
+      // A later text block of a message carries on its reply.
+      if (existing.kind === 'agent' && !existing.streaming && !ctx.replaying) {
+        out.patches.push({ op: 'entry.update', id, changes: { streaming: true } })
+      }
+      return out
+    }
+    const streaming = !ctx.replaying
+    if (kind === 'agent') {
+      addEntry(ctx, out, {
+        kind: 'agent',
+        id,
+        markdown: toLf(value),
+        attachments: [],
+        streaming,
+        ...(streaming ? { at: ctx.now } : {}),
+      })
+    } else {
+      addEntry(ctx, out, { kind: 'thought', id, markdown: toLf(value), streaming })
+      if (streaming) ctx.scope.thoughts.set(id, ctx.now)
+    }
+    return out
+  }
+
+  private assistant(message: AssistantMessage, replaying: boolean): Delivery[] {
+    const sessionId = this.route(message)
+    // Claude Code's own messages: a command's output shows as the reply, an error as the turn's.
+    if (
+      message.message.model === SYNTHETIC_MODEL &&
+      (replaying || message.error || sessionId !== this.sessionId)
+    ) {
+      return []
+    }
+    const messageId = message.message.id
+    const deliveries: Delivery[] = []
+    for (const block of blocksOf(message.message.content)) {
+      if (block.type === 'text') {
+        const value = (block as { text: string }).text
+        if (!value || (!replaying && this.streamed.delete(`${messageId}:agent`))) continue
+        deliveries.push({ sessionId, map: (ctx) => this.chunk(ctx, 'agent', messageId, value) })
+      } else if (block.type === 'thinking') {
+        const value = (block as { thinking: string }).thinking
+        if (!value || (!replaying && this.streamed.delete(`${messageId}:thought`))) continue
+        deliveries.push({ sessionId, map: (ctx) => this.chunk(ctx, 'thought', messageId, value) })
+      } else if (isToolUse(block)) {
+        deliveries.push({ sessionId, map: (ctx) => this.toolUse(ctx, block, sessionId, true) })
+      }
+    }
+    const usage = message.message.usage
+    if (!replaying && usage) {
+      // A subagent's own requests fill its own context, in the window of the model it runs on.
+      const model = sessionId === this.sessionId ? null : message.message.model
+      if (model) this.subagentModels.set(sessionId, model)
+      const window = model ? this.windowOf(model) : null
+      deliveries.push({ sessionId, map: (ctx) => this.contextUsed(ctx, usage, window) })
+    }
+    return deliveries
+  }
+
+  /**
+   * The windows of the subagents that wrote since the last call, now that Claude Code reported its
+   * models' own windows with a result.
+   */
+  resized(): Delivery[] {
+    const deliveries: Delivery[] = []
+    for (const [sessionId, model] of this.subagentModels) {
+      const size = this.windowOf(model)
+      if (size === null) continue
+      deliveries.push({
+        sessionId,
+        map: (ctx) => {
+          const out = output()
+          const usage = ctx.thread.session.usage
+          if (usage && usage.size !== size) {
+            out.patches.push({ op: 'session.update', changes: { usage: { ...usage, size } } })
+          }
+          return out
+        },
+      })
+    }
+    this.subagentModels.clear()
+    return deliveries
+  }
+
+  /**
+   * One request's speed. It went out at the turn's start or the main thread's latest input. A
+   * message whose message_start already counts all its output was not streamed but sent whole, so
+   * it is timed from when the request went out.
+   */
+  private speed(ctx: MapperContext, timing: RequestTiming, endedAt: number): MapperOutput {
+    const out = output()
+    const session = ctx.thread.session
+    const sentAt = latestTime(timing.sentAt, session.turnStartedAt)
+    const whole = timing.startTokens >= timing.tokens
+    const sample = timeRequest(timing.tokens, sentAt, whole ? null : timing.startedAt, endedAt)
+    const speed = sample && addSpeedSample(session.speed, sample, session.turnStartedAt)
+    if (speed) out.patches.push({ op: 'session.update', changes: { speed } })
+    return out
+  }
+
+  private contextUsed(
+    ctx: MapperContext,
+    usage: NonNullable<AssistantMessage['message']['usage']>,
+    window: number | null = null,
+  ): MapperOutput {
+    const out = output()
+    const previous = ctx.thread.session.usage
+    const counted = contextTokens(usage)
+    // A provider that counts no request tokens sends zeros; that is no count, not an empty context.
+    if (counted === 0 && (previous?.used ?? 0) > 0) return out
+    const used = counted + (usage.output_tokens ?? 0)
+    const size = window ?? previous?.size ?? DEFAULT_CONTEXT_WINDOW
+    if (previous?.used === used && previous.size === size) return out
+    out.patches.push({
+      op: 'session.update',
+      changes: {
+        usage: {
+          used,
+          size,
+          cost: previous?.cost ?? null,
+          tokens: previous?.tokens ?? null,
+          ...(previous?.cache ? { cache: previous.cache } : {}),
+        },
+      },
+    })
+    return out
+  }
+
+  /** Whether a write's input names a file in Claude Code's folder of plans. */
+  private isPlan(input: unknown): boolean {
+    const file = (input as { file_path?: unknown } | null)?.file_path
+    if (this.plans === null || typeof file !== 'string' || !path.isAbsolute(file)) return false
+    const key = (value: string) => (process.platform === 'win32' ? value.toLowerCase() : value)
+    const folder = key(path.resolve(this.plans))
+    return key(path.resolve(file)).startsWith(
+      folder.endsWith(path.sep) ? folder : folder + path.sep,
+    )
+  }
+
+  /** A tool call as its input stands; `complete` once its input is whole. */
+  private toolUse(
+    ctx: MapperContext,
+    block: ToolUseBlock,
+    sessionId: string,
+    complete: boolean,
+    asked = false,
+  ): MapperOutput {
+    const out = output()
+    const { name } = block
+    this.tools.set(block.id, { name, input: block.input, sessionId })
+    // The host wrote the plan or the report from the call itself; a call that waits for an answer keeps its row.
+    if (isClaudeRowlessCall(name) && !asked) return out
+    if (name === 'TodoWrite') {
+      if (complete) this.todoPlan(ctx, out, block.input)
+      return out
+    }
+    if (PLAN_TOOLS.has(name)) {
+      if (complete) this.taskInputs.set(block.id, inputOf(block.input))
+      return out
+    }
+    // A subagent shows as a session of its own, unless the call needs an answer first.
+    if (SUBAGENT_TOOLS.has(name) && !asked) return out
+    // A plan Claude Code writes into its own folder is no change of the project, so it shows no
+    // row; in Plan mode a write's row waits for the path that tells.
+    if (FILE_WRITES.has(name) && !asked && !ctx.thread.byId[`t:${block.id}`]) {
+      if (!complete && planning(ctx)) return out
+      if (complete && this.isPlan(block.input)) return out
+    }
+    const id = `t:${block.id}`
+    const view = toolView(name, complete ? block.input : {}, this.cwd)
+    const existing = ctx.thread.byId[id]
+    const raw = complete ? rawInputText(block.input) : undefined
+    const description = complete ? commandDescription(block.input) : undefined
+    if (existing?.kind === 'tool') {
+      if (!complete) return out
+      const changes = {
+        title: view.title,
+        toolKind: view.toolKind,
+        locations: view.locations,
+        ...(existing.status === 'pending' || view.content.length > 0
+          ? { content: view.content }
+          : {}),
+        ...(raw !== undefined ? { rawInput: raw } : {}),
+        ...(description !== undefined ? { description } : {}),
+        ...(view.question !== undefined ? { question: view.question } : {}),
+      }
+      out.patches.push({ op: 'entry.update', id, changes })
+      return out
+    }
+    // Once Claude Code lists its background work, the list says when this command runs.
+    if (complete && !ctx.replaying && !this.listed && startsBackgroundWork(name, block.input)) {
+      this.unreported.add(block.id)
+      out.effects.push({ kind: 'background' })
+    }
+    const entry: ToolEntry = {
+      kind: 'tool',
+      id,
+      title: view.title,
+      toolKind: view.toolKind,
+      status: 'pending',
+      content: view.content,
+      locations: view.locations,
+      permission: null,
+      permissionResult: null,
+      ...(raw !== undefined ? { rawInput: raw } : {}),
+      ...(description !== undefined ? { description } : {}),
+      ...(view.question !== undefined ? { question: view.question } : {}),
+    }
+    addEntry(ctx, out, entry)
+    return out
+  }
+
+  /** The tool entry a permission request belongs to, added first if the thread has none. */
+  permissionTool(ctx: MapperContext, block: ToolUseBlock, sessionId: string): MapperOutput {
+    return this.toolUse(ctx, block, sessionId, true, true)
+  }
+
+  /** Moves a tool call to `status`, as a permission or Claude Code's progress tells. */
+  toolStatus(ctx: MapperContext, toolUseId: string, status: ToolEntry['status']): MapperOutput {
+    const out = output()
+    const id = `t:${toolUseId}`
+    const entry = ctx.thread.byId[id]
+    if (entry?.kind !== 'tool' || entry.status !== 'pending') return out
+    out.patches.push({ op: 'entry.update', id, changes: { status } })
+    toolEffects(out, toolUseId, id, entry.status, { ...entry, status })
+    return out
+  }
+
+  private user(message: UserMessage, replaying: boolean): Delivery[] {
+    const deliveries: Delivery[] = []
+    const blocks = blocksOf(message.message.content)
+    for (const block of blocks) {
+      if (!isToolResult(block)) continue
+      const tool = this.tools.get(block.tool_use_id)
+      const sessionId = tool?.sessionId ?? this.route(message)
+      const structured = message.tool_use_result
+      deliveries.push({ sessionId, map: (ctx) => this.toolResult(ctx, block, structured) })
+    }
+    // Live, the host added the user's own message when it sent it; others are Claude Code's.
+    if (!replaying || message.parent_tool_use_id) return deliveries
+    const content = blocks.filter((block) => !isToolResult(block))
+    if (content.length === 0 || !message.uuid) return deliveries
+    const uuid = message.uuid
+    deliveries.push({
+      sessionId: this.sessionId,
+      map: (ctx) => this.replayedUser(ctx, uuid, content),
+    })
+    return deliveries
+  }
+
+  private toolResult(
+    ctx: MapperContext,
+    block: ToolResultBlock,
+    structured: unknown,
+  ): MapperOutput {
+    const out = output()
+    if (block.is_error === true && this.unreported.delete(block.tool_use_id)) {
+      // A refused command started nothing; the list or an end would say so if Claude Code sent one.
+      if (this.unreported.size === 0 && this.working.size === 0 && this.told === null) {
+        out.effects.push({ kind: 'backgroundRunning', running: false, listed: this.listed })
+      }
+    }
+    const tool = this.tools.get(block.tool_use_id)
+    const name = tool?.name ?? ''
+    if (PLAN_TOOLS.has(name)) {
+      if (name !== 'TodoWrite') this.taskResult(ctx, out, block, structured, name)
+      return out
+    }
+    if (SUBAGENT_TOOLS.has(name) && !this.subagents.has(block.tool_use_id)) {
+      this.subagentResult(ctx, out, block, structured, tool!)
+      return out
+    }
+    const id = `t:${block.tool_use_id}`
+    const entry = ctx.thread.byId[id]
+    if (!entry && tool && block.is_error === true && isClaudeRowWhenFailed(name)) {
+      // A memory write that failed wrote nothing, so its call shows as a failed row.
+      const view = toolView(name, tool.input, this.cwd)
+      addEntry(ctx, out, {
+        kind: 'tool',
+        id,
+        title: view.title,
+        toolKind: view.toolKind,
+        status: 'failed',
+        content: resultContent(name, block, structured, view.content) ?? view.content,
+        locations: view.locations,
+        permission: null,
+        permissionResult: null,
+      })
+      return out
+    }
+    if (entry?.kind !== 'tool') return out
+    const status: ToolEntry['status'] = block.is_error === true ? 'failed' : 'completed'
+    const content = resultContent(name, block, structured, entry.content)
+    const own = name.startsWith(KETTU_PREFIX)
+      ? workflowToolStructured(name.slice(KETTU_PREFIX.length), structured)
+      : undefined
+    const changes = {
+      status,
+      ...(content ? { content } : {}),
+      ...(own ? { structured: own } : {}),
+      ...(name === 'ExitPlanMode' && status === 'completed' ? { title: 'Exited Plan Mode' } : {}),
+    }
+    out.patches.push({ op: 'entry.update', id, changes })
+    toolEffects(out, block.tool_use_id, id, entry.status, { ...entry, ...changes })
+    return out
+  }
+
+  /**
+   * A subagent's result where no task started it here, as in a replay: the subagent's session
+   * when the result names it, else the call itself.
+   */
+  private subagentResult(
+    ctx: MapperContext,
+    out: MapperOutput,
+    block: ToolResultBlock,
+    structured: unknown,
+    tool: Tool,
+  ): void {
+    const input = inputOf(tool.input)
+    const result = inputOf(structured)
+    const named = result.agentId
+    const taskId =
+      typeof named === 'string' ? named : (AGENT_ID.exec(resultText(block))?.[1] ?? null)
+    const failed = block.is_error === true
+    if (taskId) {
+      this.subagents.set(block.tool_use_id, taskId)
+      if (ctx.replaying) this.replayed.push({ taskId, toolUseId: block.tool_use_id })
+      out.effects.push({
+        kind: 'subagent',
+        sessionId: taskId,
+        title: typeof input.description === 'string' ? input.description : null,
+        description: typeof input.subagent_type === 'string' ? input.subagent_type : null,
+        canCancel: false,
+        state: {
+          kind: 'idle',
+          stopReason: failed ? 'error' : 'end_turn',
+          error: failed ? { message: resultText(block) || t('session.subagent.failed') } : null,
+          tokens: null,
+        },
+        // Claude Code hands back a subagent's own worktree only when the subagent changed files.
+        ...(typeof result.worktreePath === 'string' && result.worktreePath !== ''
+          ? {
+              worktree: {
+                path: result.worktreePath,
+                branch: typeof result.worktreeBranch === 'string' ? result.worktreeBranch : null,
+              },
+            }
+          : {}),
+      })
+      return
+    }
+    const view = toolView(tool.name, tool.input, this.cwd)
+    const content = resultContent(tool.name, block, structured, view.content) ?? view.content
+    addEntry(ctx, out, {
+      kind: 'tool',
+      id: `t:${block.tool_use_id}`,
+      title: view.title,
+      toolKind: view.toolKind,
+      status: failed ? 'failed' : 'completed',
+      content,
+      locations: view.locations,
+      permission: null,
+      permissionResult: null,
+    })
+  }
+
+  private todoPlan(ctx: MapperContext, out: MapperOutput, input: unknown): void {
+    const todos = inputOf(input).todos
+    if (!Array.isArray(todos)) return
+    const items: PlanItem[] = []
+    for (const todo of todos as unknown[]) {
+      const fields = inputOf(todo)
+      if (typeof fields.content !== 'string') continue
+      const status = TASK_STATUSES.has(String(fields.status))
+        ? (fields.status as PlanItem['status'])
+        : 'pending'
+      items.push({ content: fields.content, priority: 'medium', status })
+    }
+    setPlan(ctx, out, items)
+  }
+
+  private taskResult(
+    ctx: MapperContext,
+    out: MapperOutput,
+    block: ToolResultBlock,
+    structured: unknown,
+    name: string,
+  ): void {
+    if (block.is_error === true) return
+    const input = this.taskInputs.get(block.tool_use_id) ?? {}
+    const shaped = inputOf(structured)
+    const text = resultText(block)
+    if (name === 'TaskCreate') {
+      const task = inputOf(shaped.task)
+      const id = (typeof task.id === 'string' ? task.id : null) ?? /#(\d+)/.exec(text)?.[1] ?? null
+      const subject =
+        typeof task.subject === 'string'
+          ? task.subject
+          : typeof input.subject === 'string'
+            ? input.subject
+            : null
+      if (id === null || subject === null) return
+      this.tasks.set(id, { subject, status: 'pending' })
+    } else if (name === 'TaskUpdate') {
+      const id = typeof input.taskId === 'string' ? input.taskId : null
+      const task = id === null ? undefined : this.tasks.get(id)
+      if (id === null || !task) return
+      if (input.status === 'deleted') this.tasks.delete(id)
+      else {
+        if (typeof input.status === 'string' && TASK_STATUSES.has(input.status)) {
+          task.status = input.status as PlanItem['status']
+        }
+        if (typeof input.subject === 'string') task.subject = input.subject
+      }
+    } else if (name === 'TaskList' && Array.isArray(shaped.tasks)) {
+      this.tasks.clear()
+      for (const item of shaped.tasks as unknown[]) {
+        const fields = inputOf(item)
+        if (typeof fields.id !== 'string' || typeof fields.subject !== 'string') continue
+        const status = TASK_STATUSES.has(String(fields.status))
+          ? (fields.status as PlanItem['status'])
+          : 'pending'
+        this.tasks.set(fields.id, { subject: fields.subject, status })
+      }
+    } else {
+      return
+    }
+    setPlan(
+      ctx,
+      out,
+      [...this.tasks.values()].map((task) => ({
+        content: task.subject,
+        priority: 'medium',
+        status: task.status,
+      })),
+    )
+  }
+
+  private replayedUser(ctx: MapperContext, uuid: string, blocks: ContentBlock[]): MapperOutput {
+    const out = output()
+    const texts = blocks.flatMap((block) =>
+      block.type === 'text' ? [(block as { text: string }).text] : [],
+    )
+    const joined = texts.join('\n')
+    if (COMPACT_SUMMARY.test(joined)) {
+      addEntry(ctx, out, {
+        kind: 'compaction',
+        id: `c:${uuid}`,
+        status: 'completed',
+        summary: toLf(joined),
+      })
+      return out
+    }
+    const prompter = this.prompter
+    if (prompter && texts.length > 0) {
+      // A subagent's first message is the prompt its parent gave it.
+      this.prompter = null
+      addEntry(ctx, out, {
+        kind: 'session_message',
+        id: `sm:${prompter.messageId}`,
+        senderId: ctx.sessionIdFor(prompter.parentId),
+        content: [{ type: 'text', text: toLf(joined) }],
+      })
+      return out
+    }
+    const id = messageEntryId(ctx, 'user', uuid)!
+    let content: UserContent[] = []
+    for (const block of blocks) {
+      if (block.type === 'text') {
+        const value = userText((block as { text: string }).text)
+        if (value === null) continue
+        const upgraded = upgradeContext(content, value)
+        if (upgraded) {
+          content = upgraded
+          continue
+        }
+        const parts = parseReplayedText(value, id, content, out)
+        content = appendContent(content, parts ?? [{ type: 'text', text: value }])
+      } else if (block.type === 'image') {
+        const source = (block as { source?: { type?: string; media_type?: string; data?: string } })
+          .source
+        if (source?.type !== 'base64' || !source.media_type || !source.data) continue
+        const attachment = replayedAttachment(id, attachmentCount(content) + 1, {
+          type: 'image',
+          name: t('content.image', { number: imageCount(content) + 1 }),
+          uri: null,
+          mimeType: source.media_type,
+          size: base64Size(source.data),
+          sent: 'image',
+        })
+        out.effects.push({
+          kind: 'replayImage',
+          entryId: id,
+          attachmentId: attachment.id,
+          mimeType: source.media_type,
+          data: source.data,
+        })
+        content = appendContent(content, [{ type: 'ref', ref: { kind: 'attachment', attachment } }])
+      }
+    }
+    if (content.length === 0) return out
+    // Each user message starts a turn, which scopes "current" plans.
+    ctx.scope.planId = null
+    const existing = ctx.thread.byId[id]
+    if (existing?.kind === 'user') {
+      out.patches.push({
+        op: 'entry.update',
+        id,
+        changes: { content: appendContent(existing.content, content) },
+      })
+    } else {
+      addEntry(ctx, out, { kind: 'user', id, content })
+    }
+    return out
+  }
+
+  private system(message: SystemMessage): Delivery[] | null {
+    const parent = this.sessionId
+    switch (message.subtype) {
+      case 'api_retry':
+        // The request goes out again, so its first token is timed from the retry.
+        this.lastSentAt = Date.now()
+        return []
+      case 'init':
+      case 'session_state_changed':
+      case 'hook_started':
+      case 'hook_progress':
+      case 'hook_response':
+        return []
+      case 'status': {
+        const status = message.status
+        const mode = message.permissionMode
+        const deliveries: Delivery[] = []
+        if (typeof mode === 'string') {
+          deliveries.push({ sessionId: parent, map: (ctx) => modeChange(ctx, mode) })
+        }
+        if (status === 'compacting' && !this.compacting) {
+          const id = `c:${String(message.uuid ?? Date.now())}`
+          this.compacting = id
+          deliveries.push({
+            sessionId: parent,
+            map: (ctx) => {
+              const out = output()
+              if (!ctx.thread.byId[id]) {
+                addEntry(ctx, out, { kind: 'compaction', id, status: 'in_progress', summary: '' })
+              }
+              return out
+            },
+          })
+        } else if (status !== 'compacting' && this.compacting && message.compact_result) {
+          const id = this.compacting
+          this.compacting = null
+          const failed = message.compact_result === 'failed'
+          const error = typeof message.compact_error === 'string' ? message.compact_error : ''
+          deliveries.push({
+            sessionId: parent,
+            map: (ctx) => {
+              const out = output()
+              if (ctx.thread.byId[id]?.kind !== 'compaction') return out
+              out.patches.push({
+                op: 'entry.update',
+                id,
+                changes: failed ? { status: 'failed', summary: error } : { status: 'completed' },
+              })
+              return out
+            },
+          })
+        }
+        return deliveries
+      }
+      case 'compact_boundary': {
+        const id = this.compacting ?? `c:${String(message.uuid ?? Date.now())}`
+        this.compacting = null
+        return [
+          {
+            sessionId: parent,
+            map: (ctx) => {
+              const out = output()
+              if (ctx.thread.byId[id]?.kind === 'compaction') {
+                out.patches.push({ op: 'entry.update', id, changes: { status: 'completed' } })
+              } else {
+                addEntry(ctx, out, { kind: 'compaction', id, status: 'completed', summary: '' })
+              }
+              return out
+            },
+          },
+        ]
+      }
+      case 'task_started':
+        return this.taskStarted(message)
+      case 'task_notification':
+        return this.taskNotification(message)
+      case 'task_updated':
+        return this.taskUpdated(message)
+      case 'background_tasks_changed':
+        return this.backgroundChanged(message)
+      case 'task_progress':
+      case 'commands_changed':
+        return []
+      default:
+        return null
+    }
+  }
+
+  private taskStarted(message: SystemMessage): Delivery[] {
+    const taskId = typeof message.task_id === 'string' ? message.task_id : null
+    if (!taskId) return []
+    const counts = message.ambient !== true && message.skip_transcript !== true
+    const work = counts && message.is_backgrounded === true ? this.workStarted(taskId) : []
+    const subagent =
+      message.task_type === 'local_agent' || typeof message.subagent_type === 'string'
+    if (!subagent) {
+      // A command that still blocks its call is no background work, and sends no list or end that
+      // would take it back; one moved there later is counted by its update.
+      if (counts && message.is_backgrounded === undefined) this.unreported.add(taskId)
+      const started: Delivery[] =
+        counts && message.is_backgrounded !== false
+          ? [
+              {
+                sessionId: this.sessionId,
+                map: () => ({ patches: [], effects: [{ kind: 'background' }] }),
+              },
+            ]
+          : []
+      return [...started, ...this.backgroundStarted(message, taskId), ...work]
+    }
+    const toolUseId = typeof message.tool_use_id === 'string' ? message.tool_use_id : null
+    if (toolUseId) this.subagents.set(toolUseId, taskId)
+    const parentTask = typeof message.parent_task_id === 'string' ? message.parent_task_id : null
+    const parent = parentTask ?? this.sessionId
+    this.running.set(taskId, parent)
+    const description = typeof message.description === 'string' ? message.description : null
+    const kind = typeof message.subagent_type === 'string' ? message.subagent_type : null
+    const prompt = typeof message.prompt === 'string' ? message.prompt : null
+    const deliveries: Delivery[] = [
+      {
+        sessionId: parent,
+        map: () => ({
+          patches: [],
+          effects: [
+            {
+              kind: 'subagent',
+              sessionId: taskId,
+              title: description,
+              description: kind,
+              canCancel: true,
+              state: { kind: 'running' },
+            },
+          ],
+        }),
+      },
+    ]
+    if (prompt) {
+      const root = this.sessionId
+      deliveries.push({
+        sessionId: taskId,
+        map: (ctx) => {
+          const out = output()
+          const id = `sm:${toolUseId ?? taskId}`
+          if (ctx.thread.byId[id]) return out
+          addEntry(ctx, out, {
+            kind: 'session_message',
+            id,
+            senderId: ctx.sessionIdFor(parent) ?? ctx.sessionIdFor(root),
+            content: [{ type: 'text', text: toLf(prompt) }],
+          })
+          return out
+        },
+      })
+    }
+    return [...deliveries, ...work]
+  }
+
+  /** A task Claude Code started in the background, or moved there: work that still runs. */
+  private workStarted(taskId: string): Delivery[] {
+    this.working.add(taskId)
+    return this.workChanged()
+  }
+
+  private taskNotification(message: SystemMessage): Delivery[] {
+    const taskId = typeof message.task_id === 'string' ? message.task_id : null
+    if (!taskId) return []
+    const summary = typeof message.summary === 'string' ? message.summary : ''
+    const usage = inputOf(message.usage)
+    const board = this.backgroundEnded(
+      taskId,
+      message.status === 'completed' || message.status === 'stopped' ? message.status : 'failed',
+      summary,
+      typeof usage.duration_ms === 'number' ? usage.duration_ms : null,
+    )
+    const work = this.workEnded(taskId)
+    switch (message.status) {
+      case 'completed':
+        return [...this.end(taskId, 'end_turn'), ...board, ...work]
+      case 'stopped':
+        return [...this.end(taskId, 'cancelled'), ...board, ...work]
+      default:
+        return [...this.end(taskId, 'error', summary), ...board, ...work]
+    }
+  }
+
+  /** A task's terminal state, which Claude Code sends even when it sends no notification. */
+  private taskUpdated(message: SystemMessage): Delivery[] {
+    const taskId = typeof message.task_id === 'string' ? message.task_id : null
+    const patch = inputOf(message.patch)
+    if (!taskId) return []
+    const endTime = typeof patch.end_time === 'number' ? patch.end_time : null
+    const backgrounded =
+      patch.is_backgrounded === true
+        ? [...this.backgroundMoved(taskId), ...this.workStarted(taskId)]
+        : []
+    switch (patch.status) {
+      case 'completed':
+        return [
+          ...backgrounded,
+          ...this.end(taskId, 'end_turn'),
+          ...this.backgroundEnded(taskId, 'completed', '', null, endTime),
+          ...this.workEnded(taskId),
+        ]
+      case 'killed':
+        return [
+          ...backgrounded,
+          ...this.end(taskId, 'cancelled'),
+          ...this.backgroundEnded(taskId, 'stopped', '', null, endTime),
+          ...this.workEnded(taskId),
+        ]
+      case 'failed': {
+        const error = typeof patch.error === 'string' ? patch.error : ''
+        return [
+          ...backgrounded,
+          ...this.end(taskId, 'error', error),
+          ...this.backgroundEnded(taskId, 'failed', error, null, endTime),
+          ...this.workEnded(taskId),
+        ]
+      }
+      default:
+        return backgrounded
+    }
+  }
+
+  /** A command or monitor Claude Code started: listed unless it still blocks its tool call. */
+  private backgroundStarted(message: SystemMessage, taskId: string): Delivery[] {
+    const kind = backgroundKind(message.task_type)
+    if (kind === null || message.ambient === true || message.skip_transcript === true) return []
+    const tool =
+      typeof message.tool_use_id === 'string' ? this.tools.get(message.tool_use_id) : null
+    const title = taskTitle(
+      message.description,
+      inputOf(tool?.input).command,
+      message.workflow_name,
+    )
+    const command = this.taskCommand(kind, message.tool_use_id)
+    const known = this.background.get(taskId)
+    if (known?.status === 'running') {
+      // The report that listed it first may have come without its description or its call.
+      const next = {
+        ...known,
+        ...(title !== '' ? { title } : {}),
+        ...(command !== undefined ? { command } : {}),
+      }
+      if (next.title === known.title && next.command === known.command) return []
+      this.background.set(taskId, next)
+      return this.backgroundDelivery()
+    }
+    const view: BackgroundTaskView = {
+      id: taskId,
+      kind,
+      title,
+      ...(command !== undefined ? { command } : {}),
+      status: 'running',
+      startedAt: Date.now(),
+      endedAt: null,
+      summary: null,
+    }
+    if (message.is_backgrounded === false) {
+      this.foreground.set(taskId, view)
+      return []
+    }
+    this.background.delete(taskId)
+    this.background.set(taskId, view)
+    return this.backgroundDelivery()
+  }
+
+  /** The command of the Bash call that started a shell task, when that call is known. */
+  private taskCommand(kind: BackgroundTaskView['kind'], toolUseId: unknown): string | undefined {
+    if (kind !== 'shell' || typeof toolUseId !== 'string') return undefined
+    const command = inputOf(this.tools.get(toolUseId)?.input).command
+    return typeof command === 'string' && command !== ''
+      ? clip(command, TASK_COMMAND_LIMIT)
+      : undefined
+  }
+
+  /** A command that blocked its tool call has moved to the background: it joins the list. */
+  private backgroundMoved(taskId: string): Delivery[] {
+    const view = this.foreground.get(taskId)
+    if (!view) return []
+    this.foreground.delete(taskId)
+    this.background.set(taskId, view)
+    return this.backgroundDelivery()
+  }
+
+  /**
+   * Claude Code's whole set of live background tasks, which replaces what the list believes: a
+   * task it has not seen starts as running, and a running one missing from the set has ended.
+   */
+  private backgroundChanged(message: SystemMessage): Delivery[] {
+    if (!Array.isArray(message.tasks)) return []
+    const live = new Set<string>()
+    let changed = false
+    this.listed = true
+    this.working.clear()
+    for (const item of message.tasks) {
+      const entry = inputOf(item)
+      const id = typeof entry.task_id === 'string' ? entry.task_id : null
+      if (id === null) continue
+      live.add(id)
+      if (entry.ambient !== true) this.working.add(id)
+      if (entry.ambient === true) {
+        changed = this.background.delete(id) || changed
+        this.foreground.delete(id)
+        continue
+      }
+      const kind = typeof entry.subagent_type === 'string' ? null : backgroundKind(entry.task_type)
+      if (kind === null || this.background.has(id)) continue
+      const held = this.foreground.get(id)
+      this.foreground.delete(id)
+      const command = this.taskCommand(kind, entry.tool_use_id)
+      this.background.set(
+        id,
+        held ?? {
+          id,
+          kind,
+          title: taskTitle(entry.description),
+          ...(command !== undefined ? { command } : {}),
+          status: 'running',
+          startedAt: Date.now(),
+          endedAt: null,
+          summary: null,
+        },
+      )
+      changed = true
+    }
+    const now = Date.now()
+    for (const [id, task] of this.background) {
+      if (task.status !== 'running' || live.has(id)) continue
+      this.background.set(id, { ...task, status: 'completed', endedAt: now })
+      changed = true
+    }
+    return [...(changed ? this.backgroundDelivery() : []), ...this.workChanged()]
+  }
+
+  /**
+   * Tells the session whether background work still runs, when that changed. Claude Code's full
+   * list decides once it sent one; before that, as from a Claude Code that sends none, the starts
+   * and ends of backgrounded tasks do.
+   */
+  private workChanged(again = false): Delivery[] {
+    const now = { running: this.working.size > 0, listed: this.listed }
+    if (!again) {
+      if (this.told?.running === now.running && this.told.listed === now.listed) return []
+      if (this.told === null && !now.running && !now.listed) return []
+    }
+    this.told = now
+    const effect: MapperEffect = { kind: 'backgroundRunning', ...now }
+    return [{ sessionId: this.sessionId, map: () => ({ patches: [], effects: [effect] }) }]
+  }
+
+  /**
+   * The work still running as a turn ends, said again even when unchanged: a command the turn put
+   * in the background may never have started, as when its permission was denied. Not from a
+   * Claude Code that has reported no task at all, which may be one that never reports them.
+   */
+  workSettled(): Delivery[] {
+    if (!this.listed && this.told === null) return []
+    return this.workChanged(true)
+  }
+
+  /** A task that ended leaves the work still running. */
+  private workEnded(taskId: string): Delivery[] {
+    return this.working.delete(taskId) ? this.workChanged() : []
+  }
+
+  /** A listed task ended; one that ended already only learns how, from a later report. */
+  private backgroundEnded(
+    taskId: string,
+    status: 'completed' | 'failed' | 'stopped',
+    summary: string,
+    duration: number | null,
+    endTime: number | null = null,
+  ): Delivery[] {
+    if (this.foreground.delete(taskId)) return []
+    const task = this.background.get(taskId)
+    if (!task) return []
+    const how = summary.trim() === '' ? null : clip(summary.trim(), TASK_SUMMARY_LIMIT)
+    if (task.status !== 'running') {
+      if (task.summary !== null || how === null) return []
+      this.background.set(taskId, { ...task, summary: how })
+      return this.backgroundDelivery()
+    }
+    const endedAt = endTime ?? Date.now()
+    this.background.set(taskId, {
+      ...task,
+      status,
+      endedAt,
+      startedAt: duration === null ? task.startedAt : Math.min(task.startedAt, endedAt - duration),
+      summary: how,
+    })
+    return this.backgroundDelivery()
+  }
+
+  /** The list as the host shows it: every running task and the latest ones that ended. */
+  private backgroundDelivery(): Delivery[] {
+    // Tasks that ended in the same millisecond drop the one that started first.
+    const ended = [...this.background.values()]
+      .map((task, index) => ({ task, index }))
+      .filter(({ task }) => task.status !== 'running')
+      .sort((a, b) => (b.task.endedAt ?? 0) - (a.task.endedAt ?? 0) || b.index - a.index)
+    for (const { task } of ended.slice(ENDED_TASKS_KEPT)) this.background.delete(task.id)
+    const tasks = [...this.background.values()].map((task) => ({ ...task }))
+    return [
+      {
+        sessionId: this.sessionId,
+        map: () => ({ patches: [], effects: [{ kind: 'tasks', tasks }] }),
+      },
+    ]
+  }
+
+  /** The query that ran the tasks ended, and its Claude Code process with them. */
+  endBackground(): Delivery[] {
+    this.foreground.clear()
+    this.working.clear()
+    this.unreported.clear()
+    this.listed = false
+    const wasRunning = this.told?.running === true
+    this.told = null
+    const work: Delivery[] = wasRunning
+      ? [
+          {
+            sessionId: this.sessionId,
+            map: () => ({
+              patches: [],
+              effects: [{ kind: 'backgroundRunning', running: false, listed: false }],
+            }),
+          },
+        ]
+      : []
+    if (this.background.size === 0) return work
+    this.background.clear()
+    return [...this.backgroundDelivery(), ...work]
+  }
+
+  /** Ends a running subagent, once: its first terminal message says how. */
+  private end(
+    taskId: string,
+    stopReason: 'end_turn' | 'cancelled' | 'error',
+    why = '',
+  ): Delivery[] {
+    const parent = this.running.get(taskId)
+    if (parent === undefined) return []
+    this.running.delete(taskId)
+    const failed = stopReason === 'error'
+    return this.subagentState(parent, taskId, {
+      kind: 'idle',
+      stopReason,
+      error: failed ? { message: why || t('session.subagent.failed') } : null,
+      tokens: null,
+    })
+  }
+
+  private subagentState(parent: string, taskId: string, state: SubagentState): Delivery[] {
+    const effect: MapperEffect = { kind: 'subagent', sessionId: taskId, state }
+    return [{ sessionId: parent, map: () => ({ patches: [], effects: [effect] }) }]
+  }
+
+  /** A running subagent's state while a permission it asked for is open, or after. */
+  waiting(taskId: string, waits: boolean): Delivery[] {
+    const parent = this.running.get(taskId)
+    if (parent === undefined) return []
+    return this.subagentState(parent, taskId, { kind: waits ? 'requires_action' : 'running' })
+  }
+
+  /** Whether a background subagent or workflow runs, which Claude Code stays busy for. */
+  holdsIdleBack(): boolean {
+    if (this.running.size > 0) return true
+    for (const task of this.background.values()) {
+      if (task.kind === 'workflow' && task.status === 'running') return true
+    }
+    return false
+  }
+
+  /** Ends the subagents still running when the query that ran them ends. */
+  endAll(stopReason: 'cancelled' | 'error'): Delivery[] {
+    return [...this.running.keys()].flatMap((taskId) => this.end(taskId, stopReason))
+  }
+
+  /**
+   * A session's history as deliveries to it, each built against the thread as the ones before it
+   * left it. A subagent's history is its own: `prompter` names the parent of one replayed here,
+   * whose prompt its first message is; `replayed` lists those a parent's history started.
+   */
+  replay(
+    messages: readonly StoredMessage[],
+    prompter: { parentId: string; messageId: string } | null = null,
+  ): Delivery[] {
+    this.prompter = prompter
+    const deliveries: Delivery[] = []
+    for (const message of messages) {
+      if (message.parent_tool_use_id && !prompter) continue
+      const common = {
+        parent_tool_use_id: null,
+        uuid: message.uuid,
+        session_id: message.session_id,
+      }
+      if (message.type === 'assistant') {
+        const inner = message.message as AssistantMessage['message']
+        deliveries.push(...this.assistant({ type: 'assistant', message: inner, ...common }, true))
+      } else if (message.type === 'user') {
+        const inner = message.message as UserMessage['message']
+        deliveries.push(...this.user({ type: 'user', message: inner, ...common }, true))
+      }
+    }
+    return deliveries.filter((delivery) => delivery.sessionId === this.sessionId)
+  }
+}
+
+/** What a task is called: its description, else the command or workflow it runs. */
+function taskTitle(...candidates: unknown[]): string {
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue
+    const line = candidate.split('\n').find((text) => text.trim() !== '')
+    if (line) return clip(line.trim(), TASK_TITLE_LIMIT)
+  }
+  return ''
+}
+
+function inputOf(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+}
+
+function resultText(block: ToolResultBlock): string {
+  if (typeof block.content === 'string') return block.content
+  if (!Array.isArray(block.content)) return ''
+  return block.content
+    .flatMap((item) => (item.type === 'text' ? [(item as { text: string }).text] : []))
+    .join('\n')
+}
+
+function setPlan(ctx: MapperContext, out: MapperOutput, items: PlanItem[]): void {
+  const current = ctx.scope.planId ? ctx.thread.byId[ctx.scope.planId] : undefined
+  if (current?.kind === 'plan') {
+    out.patches.push({ op: 'entry.update', id: current.id, changes: { items } })
+    return
+  }
+  const id = ctx.nextId()
+  ctx.scope.planId = id
+  addEntry(ctx, out, { kind: 'plan', id, items })
+}
+
+function modeChange(ctx: MapperContext, mode: string): MapperOutput {
+  const out = output()
+  const config = ctx.thread.session.config
+  const option = config.find((item) => item.id === MODE_OPTION_ID)
+  if (!option || option.value === mode || !option.choices?.some((c) => c.value === mode)) {
+    return out
+  }
+  out.patches.push({
+    op: 'session.update',
+    changes: {
+      config: config.map((item) => (item === option ? { ...item, value: mode } : item)),
+    },
+  })
+  return out
+}
+
+/** The option id of the permission mode, as the ACP adapter named it. */
+export const MODE_OPTION_ID = 'mode'
+
+/** Claude Code's tools that write a file. */
+const FILE_WRITES: ReadonlySet<string> = new Set(['Write', 'Edit', 'MultiEdit'])
+
+/** Whether the session is in Plan mode, where Claude Code writes only its plan. */
+function planning(ctx: MapperContext): boolean {
+  return ctx.thread.session.config.some(
+    (item) => item.id === MODE_OPTION_ID && item.value === 'plan',
+  )
+}
+
+/** The context window Claude Code's models have unless it says otherwise. */
+export const DEFAULT_CONTEXT_WINDOW = 200_000
+
+/** The tokens a request read: its input with what it read from and wrote to the cache. */
+export function contextTokens(usage: {
+  input_tokens?: number | null
+  cache_read_input_tokens?: number | null
+  cache_creation_input_tokens?: number | null
+}): number {
+  return (
+    (usage.input_tokens ?? 0) +
+    (usage.cache_read_input_tokens ?? 0) +
+    (usage.cache_creation_input_tokens ?? 0)
+  )
+}

@@ -1,0 +1,144 @@
+appId: sh.kettu.app
+productName: Kettu
+directories:
+  buildResources: build
+  output: dist
+# Outside app.asar, where the system's app for text files can open it.
+extraResources:
+  - from: out/third-party-notices.txt
+    to: third-party-notices.txt
+  # The tray's images, read from the file system by src/main/tray.ts.
+  - from: resources/tray
+    to: tray
+  # The device host's helpers, which tools/install/device-helpers.mjs puts in out/helpers.
+  - from: out/helpers
+    to: helpers
+  # Cua Driver's program, which computer use runs, as tools/install/cua-driver.mjs fetched it for
+  # the target; a build without it has no computer use.
+  - from: resources/cua-driver
+    to: cua-driver
+    filter:
+      - cua-driver
+      - cua-driver.exe
+# The terminal host loads pty.node and starts spawn-helper from the real file system.
+# The session router runs on the user's Node.js, which cannot read inside app.asar.
+asarUnpack:
+  - node_modules/node-pty/**
+  # The device host runs these as programs, and serve-sim loads native code and dylibs.
+  - node_modules/@expo/serve-sim/**
+  # serve-sim's runtime dependency, which it cannot import from inside app.asar.
+  - node_modules/ws/**
+  - node_modules/agent-device/**
+  - out/main/chunks/router-*.js
+# The postinstall step (tools/install/app-deps.mjs) already readied node-pty for Electron: its
+# prebuilt binaries on Windows, a build from source on macOS and Linux.
+npmRebuild: false
+# Without this, --inspect and SIGUSR1 would open a Node.js inspector in main that nothing shows;
+# debug mode (--debug) opens its inspectors from code instead, which the fuse leaves working.
+electronFuses:
+  enableNodeCliInspectArguments: false
+publish:
+  provider: generic
+  # Domestic mirror in front of this fork releases, so updates download fast.
+  url: https://ghproxy.net/https://github.com/liuchaowei666/kettu-local/releases/latest/download/
+
+mac:
+  category: public.app-category.developer-tools
+  # Compiled by Xcode 26's actool into Assets.car and an .icns for older macOS.
+  icon: build/icon.icon
+  # The text macOS shows when a command an agent or the terminal runs asks for Apple Events, the
+  # camera or the microphone, since it counts those requests as Kettu's.
+  extendInfo:
+    NSAppleEventsUsageDescription: A command that an agent or the terminal runs wants to use AppleScript.
+    NSCameraUsageDescription: A command that an agent or the terminal runs wants to use the camera.
+    NSMicrophoneUsageDescription: A command that an agent or the terminal runs wants to use the microphone.
+  # Without a Developer ID the update links to the release, so the dmg is all a release needs.
+  # electron-builder.mac-signed.yml adds the zip that Squirrel.Mac installs from.
+  target:
+    - dmg
+  entitlementsInherit: build/entitlements.mac.plist
+  # Ad-hoc signing, for local builds and releases without the signing secrets; a Developer ID
+  # build uses electron-builder.mac-signed.yml. Left
+  # unsigned, a downloaded build is reported as damaged; an ad-hoc signature keeps the bundle
+  # valid, so Gatekeeper offers Open Anyway instead. The hardened runtime would refuse to load the
+  # ad-hoc signed Electron framework (no Team ID), so it is on only with the Developer ID.
+  identity: '-'
+  hardenedRuntime: false
+  notarize: false
+  # Chromium's licenses, which the Windows and Linux builds ship beside the app from Electron's own
+  # files but the macOS app bundle leaves out.
+  extraResources:
+    - from: node_modules/electron/dist/LICENSES.chromium.html
+      to: LICENSES.chromium.html
+  # Each platform's files holds the whole list, with none at the top level: electron-builder walks
+  # a platform's files as a set of its own and gives a set without an inclusion **/*, so an
+  # exclusion there copied the whole project folder into app.asar.
+  files:
+    - out/**/*
+    - package.json
+    # node-pty ships its sources and every platform's binaries; only the loader and the
+    # binaries for the target platform are needed at runtime.
+    - '!node_modules/node-pty/{binding.gyp,deps,scripts,src,third_party,typings}{,/**/*}'
+    - '!node_modules/node-pty/build/{Makefile,*.mk,config.gypi,gyp-mac-tool,node_gyp_bins}{,/**/*}'
+    - '!node_modules/node-pty/build/Release/{obj.target,.deps,node-addon-api@*}{,/**/*}'
+    - '!node_modules/node-pty/**/*.{pdb,test.js,map}'
+    - '!out/third-party-notices.txt'
+    # The daemon's build, which ships as a package of its own.
+    - '!out/daemon{,/**/*}'
+    - '!node_modules/node-pty/prebuilds/win32-*{,/**/*}'
+dmg:
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  # The volume and its window carry the name alone; the file name has the version and architecture.
+  title: ${productName}
+  # electron-builder sizes the window from the background and ignores dmg.window, so the background
+  # is drawn at the window's size, for the icons below (tools/brand/dmg-layout.mjs).
+  background: build/dmg-background.png
+  iconSize: 128
+  iconTextSize: 13
+  contents:
+    - x: 192
+      y: 140
+    - x: 448
+      y: 140
+      type: link
+      path: /Applications
+
+win:
+  target: nsis
+  files:
+    - out/**/*
+    - package.json
+    - '!node_modules/node-pty/{binding.gyp,deps,scripts,src,third_party,typings}{,/**/*}'
+    - '!node_modules/node-pty/build/{Makefile,*.mk,config.gypi,gyp-mac-tool,node_gyp_bins}{,/**/*}'
+    - '!node_modules/node-pty/build/Release/{obj.target,.deps,node-addon-api@*}{,/**/*}'
+    - '!node_modules/node-pty/**/*.{pdb,test.js,map}'
+    - '!out/third-party-notices.txt'
+    # The daemon's build, which ships as a package of its own.
+    - '!out/daemon{,/**/*}'
+    - '!node_modules/node-pty/prebuilds/darwin-*{,/**/*}'
+nsis:
+  artifactName: ${productName}-${version}-${arch}-setup.${ext}
+  # The assisted installer, so people can pick the folder; updates skip its pages and install in
+  # place. The install mode page stays, defaulting to the current user.
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+
+linux:
+  target: AppImage
+  category: Development
+  files:
+    - out/**/*
+    - package.json
+    - '!node_modules/node-pty/{binding.gyp,deps,scripts,src,third_party,typings}{,/**/*}'
+    - '!node_modules/node-pty/build/{Makefile,*.mk,config.gypi,gyp-mac-tool,node_gyp_bins}{,/**/*}'
+    - '!node_modules/node-pty/build/Release/{obj.target,.deps,node-addon-api@*}{,/**/*}'
+    - '!node_modules/node-pty/**/*.{pdb,test.js,map}'
+    - '!out/third-party-notices.txt'
+    # The daemon's build, which ships as a package of its own.
+    - '!out/daemon{,/**/*}'
+    - '!node_modules/node-pty/prebuilds{,/**/*}'
+appImage:
+  # No version in the name: an update replaces the file a launcher already points at.
+  artifactName: ${productName}-${arch}.${ext}

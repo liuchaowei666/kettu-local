@@ -1,0 +1,674 @@
+// A composer's attachments: adding pasted images and long pasted texts, picked, pasted or dropped
+// files and folders, and the project's files and folders an `@` mention names, through the host,
+// removing them, keeping them with the draft across a restart, and the content refs a message
+// carries. In another host's session, what comes from this computer goes up as bytes, as the web
+// client sends it, since that host reads nothing on this disk.
+
+import {
+  ATTACHMENT_BYTES,
+  ATTACHMENT_LIMIT,
+  PASTED_TEXT_CHARS,
+  PROMPT_BYTES,
+  promptShare,
+  textThumb,
+  type GrantedAttachment,
+} from '@shared/attachments'
+import type { Attachment, UserContent } from '@shared/thread'
+import { attachmentHost, errorMessage, host, hostAt, learnAttachmentHost } from '@renderer/lib/host'
+import { i18n } from '@renderer/lib/i18n'
+import {
+  draftAttachments,
+  patchDraftAttachment,
+  setDraftAttachments,
+  useAttachmentsStore,
+  type DraftAttachment,
+} from '@renderer/stores/attachments'
+import { useBrowserStore } from '@renderer/stores/browser'
+import { base64Bytes } from '../media/carried'
+import {
+  draftIds,
+  readDraftAttachments,
+  writeDraftAttachments,
+  type SavedAttachment,
+} from './drafts'
+import { prepareImage } from './image-work'
+
+let nextKey = 1
+
+/** A request on the host named, null being this computer's, which `host` routes to. */
+const on: typeof hostAt = (hostId, method, params) =>
+  hostId === null ? host(method, params) : hostAt(hostId, method, params)
+
+/** The images a paste carries, unless it is table or multi-line text that also has a picture. */
+export function pastedImages(data: DataTransfer): File[] {
+  const images = [...data.files].filter((file) => file.type.startsWith('image/'))
+  if (images.length === 0) return []
+  // A spreadsheet's copy holds its cells as text and a picture of them; the text is what is meant.
+  const text = data.getData('text/plain')
+  return /[\t\n]/.test(text) ? [] : images
+}
+
+/**
+ * Adds pasted images to a composer, as "Image 1", "Image 2", in the order pasted, on the host
+ * `hostId` names, null being this computer. Returns how many did not fit under the limit.
+ */
+export function attachImages(draft: string, files: readonly File[], hostId: string | null): number {
+  const items = draftAttachments(draft)
+  const room = Math.max(0, ATTACHMENT_LIMIT - items.length)
+  const taken = files.slice(0, room)
+  let number = nextNumber(items, 'composer:attachments.imageName')
+  const added: DraftAttachment[] = taken.map((file) => ({
+    key: `a${nextKey++}`,
+    name: i18n.t('composer:attachments.imageName', { number: number++ }),
+    kind: 'image',
+    status: 'adding',
+    attachment: null,
+    thumb: null,
+    size: file.size,
+    pixels: null,
+    scaled: null,
+    error: null,
+  }))
+  setDraftAttachments(draft, [...items, ...added])
+  added.forEach((item, i) => void addImage(draft, item, taken[i]!, hostId))
+  return files.length - taken.length
+}
+
+/**
+ * Adds a still of the session's own browser page, named after its site: the still the pane shows
+ * while an overlay covers the page, else a capture. Returns how many did not fit under the limit;
+ * throws when there was no page to capture.
+ */
+export async function attachBrowserPage(
+  draft: string,
+  sessionId: string,
+  url: string | null,
+  hostId: string | null,
+): Promise<number> {
+  const still = useBrowserStore.getState().stills[sessionId]
+  const bytes = still
+    ? base64Bytes(still.slice(still.indexOf(',') + 1))
+    : await window.kettu.browser.capture(sessionId)
+  if (!bytes) throw new Error(i18n.t('composer:attachments.screenshotFailed'))
+  const name = screenshotName(
+    url,
+    draftAttachments(draft).map((item) => item.name),
+  )
+  // A File takes bytes on an ArrayBuffer of their own.
+  const file = new File([new Uint8Array(bytes)], name, { type: 'image/png' })
+  return attachFiles(draft, [file], hostId)
+}
+
+/**
+ * A browser still's name, one word so an `@` mention can name it: `screenshot-<host>.png`,
+ * numbered when the draft already holds that name, since a mention names the first of a name.
+ */
+export function screenshotName(url: string | null, taken: readonly string[] = []): string {
+  const site = url ? URL.parse(url)?.host.replaceAll(':', '-') : ''
+  const base = site ? `screenshot-${site}` : 'screenshot'
+  let name = `${base}.png`
+  for (let number = 2; taken.includes(name); number++) name = `${base}-${number}.png`
+  return name
+}
+
+/** The next number of a numbered name in a draft: one past the highest it holds. */
+function nextNumber(
+  items: readonly DraftAttachment[],
+  key: 'composer:attachments.imageName' | 'composer:attachments.pastedTextName',
+): number {
+  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const [before = '', after = ''] = i18n.t(key, { number: '\u0000' }).split('\u0000')
+  const pattern = new RegExp(`^${escape(before)}(\\d+)${escape(after)}$`)
+  let highest = 0
+  for (const item of items) {
+    const match = pattern.exec(item.name)
+    if (match) highest = Math.max(highest, Number(match[1]))
+  }
+  return highest + 1
+}
+
+async function addImage(
+  draft: string,
+  item: DraftAttachment,
+  file: File,
+  hostId: string | null,
+): Promise<void> {
+  try {
+    const image = await prepareImage(file)
+    if (!isHeld(draft, item.key)) return
+    patchDraftAttachment(draft, item.key, {
+      thumb: image.thumb,
+      size: image.bytes.byteLength,
+      pixels: { width: image.width, height: image.height },
+      scaled: image.scaled,
+    })
+    const attachment = await on(hostId, 'attachments.add', {
+      source: { bytes: image.bytes, mimeType: image.mimeType, name: item.name },
+      thumb: image.thumb,
+    })
+    // Removed while it was being added: the host's record goes too.
+    if (!isHeld(draft, item.key)) {
+      void host('attachments.remove', { id: attachment.id }).catch(() => {})
+      return
+    }
+    patchDraftAttachment(draft, item.key, { status: 'ready', attachment })
+  } catch (error) {
+    console.warn(`Could not attach ${item.name}`, error)
+    patchDraftAttachment(draft, item.key, { status: 'failed', error: errorMessage(error) })
+  }
+}
+
+/** The text of a paste that becomes a pasted text attachment, or null when it stays text. */
+export function pastedText(data: DataTransfer): string | null {
+  const text = data.getData('text/plain')
+  return text.length > PASTED_TEXT_CHARS ? text : null
+}
+
+/**
+ * Adds a long paste as "Pasted text 1", "Pasted text 2", in the order pasted. Returns 1 when the
+ * composer is full, and nothing is added.
+ */
+export function attachPastedText(draft: string, text: string, hostId: string | null): number {
+  const items = draftAttachments(draft)
+  if (items.length >= ATTACHMENT_LIMIT) return 1
+  const bytes = new TextEncoder().encode(text)
+  const item: DraftAttachment = {
+    key: `a${nextKey++}`,
+    name: i18n.t('composer:attachments.pastedTextName', {
+      number: nextNumber(items, 'composer:attachments.pastedTextName'),
+    }),
+    kind: 'text',
+    status: 'adding',
+    attachment: null,
+    thumb: textThumb(text),
+    size: bytes.byteLength,
+    pixels: null,
+    scaled: null,
+    error: null,
+  }
+  setDraftAttachments(draft, [...items, item])
+  void addText(draft, item, bytes, hostId)
+  return 0
+}
+
+/** Puts a pasted text back as text through `insert`, and removes its tile and its record. */
+export function pasteAsText(
+  draft: string,
+  key: string,
+  text: string,
+  insert: (text: string) => void,
+): void {
+  insert(text)
+  removeAttachment(draft, key)
+}
+
+function addText(
+  draft: string,
+  item: DraftAttachment,
+  bytes: Uint8Array,
+  hostId: string | null,
+): Promise<void> {
+  return addBytes(draft, item, bytes.buffer as ArrayBuffer, 'text/plain', hostId)
+}
+
+/** Adds a file from its bytes, as the web client sends every file, having none on the host's disk. */
+async function addBytes(
+  draft: string,
+  item: DraftAttachment,
+  bytes: ArrayBuffer | Promise<ArrayBuffer>,
+  mimeType: string,
+  hostId: string | null,
+): Promise<void> {
+  try {
+    const attachment = await on(hostId, 'attachments.add', {
+      source: { bytes: await bytes, mimeType, name: item.name },
+      thumb: null,
+    })
+    // Removed while it was being added: the host's record goes too.
+    if (!isHeld(draft, item.key)) {
+      void host('attachments.remove', { id: attachment.id }).catch(() => {})
+      return
+    }
+    patchDraftAttachment(draft, item.key, { status: 'ready', attachment })
+  } catch (error) {
+    console.warn(`Could not attach ${item.name}`, error)
+    patchDraftAttachment(draft, item.key, { status: 'failed', error: errorMessage(error) })
+  }
+}
+
+// The image types the host reads as images when it is granted one; any other file is a file.
+const IMAGE_NAME = /\.(png|jpe?g|gif|webp)$/i
+
+/** A tile for a file or folder being added, in the next frame, before its grant is known. */
+function addingTile(name: string, size: number | null, folder: boolean): DraftAttachment {
+  return {
+    key: `a${nextKey++}`,
+    name,
+    kind: folder ? 'folder' : IMAGE_NAME.test(name) ? 'image' : 'file',
+    status: 'adding',
+    attachment: null,
+    thumb: null,
+    size,
+    pixels: null,
+    scaled: null,
+    error: null,
+  }
+}
+
+/** How many more attachments a composer takes. */
+export function attachmentRoom(draft: string): number {
+  return Math.max(0, ATTACHMENT_LIMIT - draftAttachments(draft).length)
+}
+
+/**
+ * Shows the system's file or folder dialog, opening in the session's folder, and adds what was
+ * chosen. Returns how many did not fit under the limit. Another host's session takes files alone,
+ * which the page's own picker reads.
+ */
+export async function pickAttachments(
+  draft: string,
+  kind: 'files' | 'folder',
+  folder: string | null,
+  hostId: string | null,
+): Promise<number> {
+  if (onWeb()) return attachFiles(draft, await chooseFiles(), null)
+  if (hostId !== null) return attachFiles(draft, await chooseFiles(), hostId)
+  return addAllGranted(draft, await window.kettu.attachments.pick(kind, folder))
+}
+
+// Read when called rather than from lib/platform, so this module loads without a window.
+const onWeb = (): boolean => window.kettu.client === 'web'
+
+/** The browser's own file picker, for the web client; opened while the click that asked lasts. */
+function chooseFiles(): Promise<File[]> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.multiple = true
+    input.addEventListener('change', () => resolve([...(input.files ?? [])]), { once: true })
+    input.addEventListener('cancel', () => resolve([]), { once: true })
+    input.click()
+  })
+}
+
+/**
+ * Adds the files and folders a paste carries when they were copied in the file manager: every one
+ * copied, granted by main, not only those the paste event holds, and none of the image or text the
+ * file manager puts beside them. Null when the paste has no file on disk, so it is an image or
+ * text. Resolves to how many did not fit under the limit. For another host, whose bytes come from
+ * the page, only the files the paste event holds go.
+ */
+export function attachPastedFiles(
+  draft: string,
+  data: DataTransfer,
+  hostId: string | null,
+): Promise<number> | null {
+  const files = [...data.files]
+  if (files.length === 0) return null
+  const pending = window.kettu.attachments.fromClipboard(files.slice(0, ATTACHMENT_LIMIT))
+  if (!pending) return null
+  if (hostId !== null) return pending.then(() => attachFiles(draft, files, hostId))
+  return pending.then((granted) =>
+    // More than fit in a message were copied, whichever of them main could grant.
+    Math.max(
+      addAllGranted(draft, granted),
+      files.length > ATTACHMENT_LIMIT ? files.length - ATTACHMENT_LIMIT : 0,
+    ),
+  )
+}
+
+/** Adds granted files and folders, as many as fit. Returns how many did not. */
+function addAllGranted(draft: string, granted: readonly GrantedAttachment[]): number {
+  const taken = granted.slice(0, attachmentRoom(draft))
+  const added = taken.map((grant) => addingTile(grant.name, grant.size, grant.kind === 'folder'))
+  setDraftAttachments(draft, [...draftAttachments(draft), ...added])
+  added.forEach((item, i) => void addGranted(draft, item, taken[i]!, null))
+  return granted.length - taken.length
+}
+
+/**
+ * Adds dropped files and folders: their tiles at once, then each through main's grant, or for
+ * another host from its bytes. Returns how many did not fit under the limit.
+ */
+export async function attachFiles(
+  draft: string,
+  files: readonly File[],
+  hostId: string | null,
+): Promise<number> {
+  const taken = files.slice(0, attachmentRoom(draft))
+  if (taken.length === 0) return files.length
+  // A folder is a File too, which only its grant tells apart.
+  const added = taken.map((file) => addingTile(file.name, file.size, false))
+  setDraftAttachments(draft, [...draftAttachments(draft), ...added])
+  let granted: (GrantedAttachment | null)[]
+  try {
+    granted = await window.kettu.attachments.fromFiles([...taken])
+  } catch (error) {
+    for (const item of added) {
+      patchDraftAttachment(draft, item.key, { status: 'failed', error: errorMessage(error) })
+    }
+    return files.length - taken.length
+  }
+  added.forEach((item, i) => {
+    const grant = granted[i]
+    const file = taken[i]!
+    if (hostId !== null && grant?.kind === 'folder') {
+      const error = i18n.t('composer:attachments.folderOtherHost')
+      patchDraftAttachment(draft, item.key, { kind: 'folder', status: 'failed', error })
+    } else if (grant && hostId === null) {
+      void addGranted(draft, item, grant, file)
+    } else if (file.type.startsWith('image/')) {
+      // An image dragged out of a page has no file on disk; it is added as a pasted one is.
+      patchDraftAttachment(draft, item.key, { kind: 'image' })
+      void addImage(draft, item, file, hostId)
+    } else if (hostId !== null && file.size > ATTACHMENT_BYTES) {
+      const error = i18n.t('composer:attachments.tooLargeOtherHost', {
+        limit: `${ATTACHMENT_BYTES / 1024 / 1024} MB`,
+      })
+      patchDraftAttachment(draft, item.key, { status: 'failed', error })
+    } else if (onWeb() || hostId !== null) {
+      const type = file.type || 'application/octet-stream'
+      void addBytes(draft, item, file.arrayBuffer(), type, hostId)
+    } else {
+      const error = i18n.t('composer:attachments.notOnDisk')
+      patchDraftAttachment(draft, item.key, { status: 'failed', error })
+    }
+  })
+  return files.length - taken.length
+}
+
+/**
+ * Adds a file or folder of the project that an `@` mention chose, by its path relative to the
+ * project. Returns how many did not fit under the limit: 1 when the composer is full.
+ */
+export function attachMention(
+  draft: string,
+  projectPath: string,
+  path: string,
+  folder: boolean,
+): number {
+  if (attachmentRoom(draft) === 0) return 1
+  const item = addingTile(path.slice(path.lastIndexOf('/') + 1), null, folder)
+  setDraftAttachments(draft, [...draftAttachments(draft), item])
+  void addFromHost(draft, item, { projectPath, path }, null)
+  return 0
+}
+
+function addGranted(
+  draft: string,
+  item: DraftAttachment,
+  grant: GrantedAttachment,
+  file: File | null,
+): Promise<void> {
+  patchDraftAttachment(draft, item.key, {
+    kind: grant.kind === 'folder' ? 'folder' : item.kind,
+    size: grant.size,
+  })
+  return addFromHost(draft, item, { grantId: grant.grantId }, file)
+}
+
+/**
+ * Adds one granted or mentioned file or folder. An image's thumbnail and scaled copy are made from
+ * the dropped File, or from the bytes the host read for a picked or mentioned one, and handed back
+ * with `attachments.update`.
+ */
+async function addFromHost(
+  draft: string,
+  item: DraftAttachment,
+  source: { grantId: string } | { projectPath: string; path: string },
+  file: File | null,
+): Promise<void> {
+  let attachment: Attachment | null = null
+  try {
+    attachment = await host('attachments.add', { source, thumb: null })
+    if (attachment.type === 'image') {
+      patchDraftAttachment(draft, item.key, { kind: 'image' })
+      const id = attachment.id
+      const image = await prepareImage(
+        file ??
+          new Blob([(await host('attachments.read', { id })).bytes], {
+            type: attachment.mimeType ?? '',
+          }),
+      )
+      // The worker hands back the original unless it had to scale or re-encode it.
+      const changed =
+        image.bytes.byteLength !== attachment.size || image.mimeType !== attachment.mimeType
+      attachment = await host('attachments.update', {
+        id,
+        thumb: image.thumb,
+        scaled: changed ? { bytes: image.bytes, mimeType: image.mimeType } : null,
+      })
+      patchDraftAttachment(draft, item.key, {
+        thumb: image.thumb,
+        pixels: { width: image.width, height: image.height },
+        scaled: image.scaled,
+      })
+    } else if (attachment.type !== item.kind) {
+      patchDraftAttachment(draft, item.key, { kind: attachment.type })
+    }
+    // Removed while it was being added: the host's record goes too.
+    if (!isHeld(draft, item.key)) {
+      void host('attachments.remove', { id: attachment.id }).catch(() => {})
+      return
+    }
+    patchDraftAttachment(draft, item.key, { status: 'ready', attachment, size: attachment.size })
+  } catch (error) {
+    console.warn(`Could not attach ${item.name}`, error)
+    if (attachment && !isHeld(draft, item.key)) {
+      void host('attachments.remove', { id: attachment.id }).catch(() => {})
+    }
+    // Its record, when the host made one, goes when the tile is removed.
+    patchDraftAttachment(draft, item.key, {
+      status: 'failed',
+      attachment,
+      error: errorMessage(error),
+    })
+  }
+}
+
+function isHeld(draft: string, key: string): boolean {
+  return draftAttachments(draft).some((item) => item.key === key)
+}
+
+export function removeAttachment(draft: string, key: string): void {
+  const items = draftAttachments(draft)
+  const item = items.find((i) => i.key === key)
+  if (!item) return
+  setDraftAttachments(
+    draft,
+    items.filter((i) => i.key !== key),
+  )
+  removeRecord(item)
+}
+
+function removeRecord(item: DraftAttachment): void {
+  const id = item.attachment?.id
+  if (!id) return
+  void host('attachments.remove', { id }).catch((error: unknown) =>
+    console.warn(`Could not remove attachment ${id}`, error),
+  )
+}
+
+export interface AttachmentsBlock {
+  message: string
+  /**
+   * Some are still being added, so the message goes once they are; any other reason is said in
+   * the line under the box too, not only in the send button's tooltip.
+   */
+  adding: boolean
+}
+
+/** Why the attachments keep a message from being sent, or null when they do not. */
+export function attachmentsBlock(
+  items: readonly DraftAttachment[],
+  text: string,
+): AttachmentsBlock | null {
+  if (items.length === 0) return null
+  // What could not be added, or is gone since, stays until removed rather than leaving it out.
+  if (items.some((item) => item.status === 'failed')) {
+    return { message: i18n.t('composer:attachments.removeFailed'), adding: false }
+  }
+  if (items.some((item) => item.status === 'adding')) {
+    return { message: i18n.t('composer:attachments.adding'), adding: true }
+  }
+  // Counted as the host counts it, so a message it would refuse never leaves.
+  const bytes = items.reduce(
+    (sum, item) => sum + (item.attachment ? promptShare(item.attachment) : 0),
+    new TextEncoder().encode(text).byteLength,
+  )
+  if (bytes > PROMPT_BYTES) {
+    return { message: i18n.t('composer:attachments.tooLarge'), adding: false }
+  }
+  return null
+}
+
+/** The refs a message carries for its attachments, in the order they were added. */
+export function attachmentContent(items: readonly DraftAttachment[]): UserContent[] {
+  return items.flatMap((item) =>
+    item.attachment
+      ? [{ type: 'ref', ref: { kind: 'attachment', attachment: item.attachment } }]
+      : [],
+  )
+}
+
+/** An attachment the host holds, as a ready tile. */
+function readyTile({ attachment, pixels, scaled, hostId }: SavedAttachment): DraftAttachment {
+  if (hostId) learnAttachmentHost(attachment.id, hostId)
+  return {
+    key: `a${nextKey++}`,
+    name: attachment.name,
+    kind: attachment.type,
+    status: 'ready',
+    attachment,
+    thumb: attachment.thumb,
+    size: attachment.size,
+    pixels,
+    scaled,
+    error: null,
+  }
+}
+
+/** The attachment refs of a message, as they were before it was sent. */
+export function contentAttachments(content: readonly UserContent[]): Attachment[] {
+  return content.flatMap((c) =>
+    c.type === 'ref' && c.ref.kind === 'attachment' ? [c.ref.attachment] : [],
+  )
+}
+
+/**
+ * Attachments a queued or unsent message held, back in a composer as added ones. Returns how many
+ * did not fit under the limit; their records go.
+ */
+export function restoreAttachments(draft: string, content: readonly UserContent[]): number {
+  const restored = contentAttachments(content).map((attachment) =>
+    readyTile({ attachment, pixels: null, scaled: null }),
+  )
+  if (restored.length === 0) return 0
+  const items = draftAttachments(draft)
+  const room = Math.max(0, ATTACHMENT_LIMIT - items.length)
+  setDraftAttachments(draft, [...items, ...restored.slice(0, room)])
+  const left = restored.slice(room)
+  for (const item of left) removeRecord(item)
+  return left.length
+}
+
+/**
+ * Empties a draft whose message goes again from the thread: the records of what the thread already
+ * sent go, the others stay for the turn to read.
+ */
+export function releaseResent(draft: string, content: readonly UserContent[]): void {
+  const sent = new Set(contentAttachments(content).flatMap((a) => (a.sent ? [a.id] : [])))
+  const items = draftAttachments(draft)
+  setDraftAttachments(draft, [])
+  for (const item of items) if (item.attachment && sent.has(item.attachment.id)) removeRecord(item)
+}
+
+/** Drops a composer's attachments with their records, as when its session is deleted. */
+export function dropAttachments(draft: string): void {
+  const items = draftAttachments(draft)
+  if (items.length === 0) return
+  setDraftAttachments(draft, [])
+  for (const item of items) removeRecord(item)
+}
+
+/** What a draft keeps of its attachments: the added ones, in order, with another host's named. */
+function savedOf(items: readonly DraftAttachment[]): SavedAttachment[] {
+  return items.flatMap((item) => {
+    if (item.status !== 'ready' || !item.attachment) return []
+    const hostId = attachmentHost(item.attachment.id)
+    const saved = { attachment: item.attachment, pixels: item.pixels, scaled: item.scaled }
+    return [hostId === null ? saved : { ...saved, hostId }]
+  })
+}
+
+const idsOf = (saved: readonly SavedAttachment[]) => saved.map((s) => s.attachment.id).join('\n')
+
+let keeping = false
+
+/**
+ * Puts the attachments each draft kept back in its composer, and from then on keeps a composer's
+ * added attachments with its draft. The host then says which records it still holds; one it no
+ * longer does fails as "No longer available".
+ */
+export async function restoreDraftAttachments(): Promise<void> {
+  if (keeping) return
+  keeping = true
+  const written = new Map<string, string>()
+  // The ids of each host's records, null being this computer's.
+  const byHost = new Map<string | null, string[]>()
+  for (const draft of draftIds()) {
+    const saved = readDraftAttachments(draft)
+    if (saved.length === 0 || draftAttachments(draft).length > 0) continue
+    setDraftAttachments(draft, saved.map(readyTile))
+    written.set(draft, idsOf(saved))
+    for (const { attachment, hostId } of saved) {
+      const ids = byHost.get(hostId ?? null) ?? []
+      ids.push(attachment.id)
+      byHost.set(hostId ?? null, ids)
+    }
+  }
+  useAttachmentsStore.subscribe((state, previous) => {
+    if (state.byDraft === previous.byDraft) return
+    for (const draft of new Set([
+      ...Object.keys(state.byDraft),
+      ...Object.keys(previous.byDraft),
+    ])) {
+      const items = state.byDraft[draft]
+      if (items === previous.byDraft[draft]) continue
+      // Most changes are a tile being added; the draft is written only when its added ones change.
+      const saved = savedOf(items ?? [])
+      const key = idsOf(saved)
+      if ((written.get(draft) ?? '') === key) continue
+      written.set(draft, key)
+      writeDraftAttachments(draft, saved)
+    }
+  })
+  await Promise.all([...byHost].map(([hostId, ids]) => checkHeld(hostId, ids)))
+}
+
+/** Fails the restored tiles whose records the host no longer holds. */
+async function checkHeld(hostId: string | null, ids: string[]): Promise<void> {
+  let held: Set<string>
+  try {
+    held = new Set(await on(hostId, 'attachments.held', { ids }))
+  } catch (error) {
+    // Sending then names the missing one, as the host refuses it.
+    console.warn(`Could not check the drafts' attachments: ${errorMessage(error)}`)
+    return
+  }
+  const asked = new Set(ids)
+  const { byDraft } = useAttachmentsStore.getState()
+  for (const [draft, items] of Object.entries(byDraft)) {
+    for (const item of items) {
+      const id = item.attachment?.id
+      if (!id || !asked.has(id) || held.has(id)) continue
+      // With no record left, removing the tile has nothing to remove.
+      patchDraftAttachment(draft, item.key, {
+        status: 'failed',
+        attachment: null,
+        gone: true,
+        error: i18n.t('composer:attachments.unavailableLong'),
+      })
+    }
+  }
+}

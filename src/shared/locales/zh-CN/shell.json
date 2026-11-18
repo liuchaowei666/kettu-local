@@ -1,0 +1,114 @@
+{
+  "headerTools": {
+    "board": "看板",
+    "files": "文件",
+    "computer": "Computer",
+    "terminal": "终端",
+    "browser": "浏览器",
+    "devices": "移动设备",
+    "closePane": "关闭窗格",
+    "leaveSession": "离开会话",
+    "sideChat": "侧聊",
+    "sideChatNews": "有新回答",
+    "more": "更多工具"
+  },
+  "hostBanner": {
+    "restarting": "正在重启 Agent 后台进程，会话会自动恢复。",
+    "reconnecting": "正在重连主机…",
+    "stopped": "Agent 后台进程已停止，且无法重启。",
+    "restart": "重启",
+    "reportProblem": "报告问题"
+  },
+  "openProjectFailed": "无法打开项目：{{error}}",
+  "launch": {
+    "loadFailed": "无法加载你的项目",
+    "starting": "正在启动 Kettu…"
+  },
+  "shortcuts": {
+    "title": "键盘快捷键",
+    "search": "搜索快捷键",
+    "noMatch": "没有匹配的快捷键。",
+    "newSession": "新会话",
+    "searchSessions": "搜索",
+    "openProject": "打开项目",
+    "settings": "设置",
+    "toggleSidebar": "显示或隐藏侧边栏",
+    "back": "后退",
+    "forward": "前进",
+    "history": "显示所有历史记录",
+    "zoomIn": "放大",
+    "zoomOut": "缩小",
+    "resetZoom": "实际大小",
+    "showShortcuts": "本列表",
+    "close": "关闭标签或离开会话",
+    "previousSession": "上一个会话",
+    "nextSession": "下一个会话",
+    "focusPane": "切到第 1–9 个窗格",
+    "answerPermission": "回答请求",
+    "cancelTurn": "停止",
+    "findInSession": "在会话中查找",
+    "send": "发送",
+    "sendNow": "运行中立即发送",
+    "newLine": "换行",
+    "focusComposer": "聚焦输入框",
+    "addFiles": "添加文件或照片",
+    "addMenu": "打开 + 菜单",
+    "toggleTerminal": "显示或隐藏终端",
+    "newTerminal": "新建终端",
+    "askSelection": "询问选中的内容",
+    "groups": {
+      "general": "通用",
+      "sessions": "会话",
+      "composer": "输入框",
+      "terminal": "终端"
+    },
+    "sideChat": "打开、聚焦或收起侧聊"
+  },
+  "topBar": {
+    "showSidebar": "显示侧边栏",
+    "hideSidebar": "隐藏侧边栏",
+    "back": "后退",
+    "forward": "前进",
+    "backTo": "后退到 <title/>",
+    "forwardTo": "前进到 <title/>"
+  },
+  "history": {
+    "title": "历史记录",
+    "showAll": "显示所有历史记录",
+    "search": "搜索历史记录",
+    "noMatch": "没有与“{{query}}”匹配的位置",
+    "current": "当前",
+    "ago": {
+      "now": "刚刚",
+      "minutes": "{{count}} 分钟",
+      "hours": "{{count}} 小时"
+    },
+    "places": {
+      "newSession": "新建会话",
+      "overview": "总览",
+      "usage": "用量",
+      "routines": "例程",
+      "newRoutine": "新建例程",
+      "artifacts": "Artifacts",
+      "recentlyDeleted": "Artifacts › 最近删除",
+      "artifact": "Artifact",
+      "task": "需求",
+      "marketplace": "Marketplace",
+      "marketplaceItem": "Marketplace › {{item}}",
+      "settings": "设置 › {{section}}",
+      "settingsItem": "设置 › {{section}} › {{item}}"
+    }
+  },
+  "debugMode": {
+    "label": "调试模式",
+    "tooltip": "调试模式已打开 · 查看端口"
+  },
+  "windowHost": {
+    "thisMac": "这台 Mac",
+    "thisComputer": "这台电脑",
+    "unknown": "另一台主机",
+    "away": "{{name}} 没有连上：{{state}}",
+    "lastRead": "这里是上次从它读到的内容，主机回来后会自动更新。",
+    "nothingRead": "还没有从它读到过内容，主机回来后会显示在这里。"
+  }
+}

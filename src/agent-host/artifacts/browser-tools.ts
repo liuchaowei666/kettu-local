@@ -1,0 +1,767 @@
+// The sixteen browser tools of the `kettu` MCP server: what agents are told, the schemas, the
+// checks, and the forwarding to main, which drives the calling session's page.
+
+import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js'
+import type {
+  BrowserCallAnswer,
+  BrowserCallRequest,
+  BrowserToolErrorCode,
+  BrowserToolName,
+} from '@shared/browser'
+import {
+  BROWSER_TAB_ACTIONS,
+  BROWSER_TOOL_NAMES,
+  MAX_SESSION_TABS,
+  ORIGIN_WAIT_MS,
+} from '@shared/browser'
+import { CONTROL_STEPS, CONTROL_WAIT_MS, isControlStep } from '@shared/control'
+import type { Caller } from './tools'
+
+/** A navigation and everything that waits on one. */
+export const NAVIGATION_TIMEOUT_MS = 30_000
+/** The other acting tools. */
+export const ACTION_TIMEOUT_MS = 10_000
+/** Above `browser_wait_for`'s own time, so the page answers it before this does. */
+export const WAIT_EXTRA_MS = 5_000
+export const MAX_WAIT_SECONDS = 30
+const MAX_TEXT_CHARS = 20_000
+const MAX_SCRIPT_CHARS = 20_000
+const MAX_VALUES = 50
+const MAX_REASON_CHARS = 500
+
+export type BrowserToolDeps = {
+  /** Runs a call on main, which drives the session's page; `caller` is the calling session. */
+  call(request: BrowserCallRequest, caller: string): Promise<BrowserCallAnswer>
+  /** The session whose page a call drives: a subagent's calls use the session it runs under. */
+  pageOf(sessionId: string): string | null
+  /** The project of the session whose page a call drives; '' when it has none to name. */
+  projectOf(sessionId: string): string
+}
+
+type Schema = Record<string, unknown>
+
+interface ObjectSchema {
+  [key: string]: unknown
+  type: 'object'
+  properties: Record<string, Schema>
+  required: string[]
+}
+
+const REF: Schema = {
+  type: 'string',
+  pattern: '^e[0-9]+$',
+  description: 'The ref a snapshot gave an element, such as e12.',
+}
+const ELEMENT: Schema = {
+  type: 'string',
+  maxLength: 200,
+  description: 'What the ref points at in words, such as "Sign in button"; the ref decides.',
+}
+const SINCE: Schema = {
+  type: 'boolean',
+  default: false,
+  description: 'Only what this document has logged, not what earlier ones did.',
+}
+
+function object(properties: Record<string, Schema>, required: string[] = []): ObjectSchema {
+  return { type: 'object', properties, required, additionalProperties: false }
+}
+
+const ERROR_CODES: BrowserToolErrorCode[] = [
+  'user_has_control',
+  'stopped',
+  'not_allowed',
+  'stale_ref',
+  'timeout',
+  'navigation_failed',
+  'no_page',
+  'invalid',
+  'unavailable',
+]
+
+// The message too, since the agents give the model the structured value rather than the text.
+const ERROR = object({ code: { type: 'string', enum: ERROR_CODES }, message: { type: 'string' } }, [
+  'code',
+  'message',
+])
+
+const PAGE = {
+  url: { type: 'string', description: 'The address the page shows.' },
+  title: { type: ['string', 'null'], description: "The page's title." },
+  snapshot: { type: 'string', description: 'The page outline after the action settled.' },
+}
+
+function output(properties: Record<string, Schema>): Tool['outputSchema'] {
+  return { type: 'object', anyOf: [object(properties, Object.keys(properties)), ERROR] }
+}
+
+const READ_ONLY = { readOnlyHint: true } as const
+
+const TAB = object(
+  {
+    index: { type: 'integer' },
+    url: { type: 'string' },
+    title: { type: 'string' },
+    current: { type: 'boolean', description: 'Your current tab, which your other tools act on.' },
+    released: { type: 'boolean', description: 'Released to save memory; it loads when selected.' },
+  },
+  ['index', 'url', 'title', 'current', 'released'],
+)
+
+export const BROWSER_TOOLS: Tool[] = [
+  {
+    name: 'browser_navigate',
+    title: 'Navigate',
+    description:
+      'Opens a URL in the browser, at a local dev server (localhost, 127.0.0.1, [::1], ' +
+      '*.localhost, *.test) or about:blank, and returns the page with a snapshot. Other sites ' +
+      'are the user’s to open.',
+    inputSchema: object(
+      { url: { type: 'string', maxLength: 8_192, description: 'An absolute http(s) address.' } },
+      ['url'],
+    ),
+    outputSchema: output(PAGE),
+  },
+  {
+    name: 'browser_navigate_back',
+    title: 'Go back',
+    description: 'Goes back one page in the browser, and returns the page with a snapshot.',
+    inputSchema: object({}),
+    outputSchema: output(PAGE),
+  },
+  {
+    name: 'browser_reload',
+    title: 'Reload',
+    description: 'Reloads the page in the browser, and returns it with a snapshot.',
+    inputSchema: object({}),
+    outputSchema: output(PAGE),
+  },
+  {
+    name: 'browser_snapshot',
+    title: 'Snapshot',
+    description:
+      'Returns the page as an outline of its accessibility tree, with a ref on each element ' +
+      'you can act on: buttons, links, fields, options and the like.',
+    inputSchema: object({}),
+    outputSchema: output(PAGE),
+    annotations: { ...READ_ONLY },
+  },
+  {
+    name: 'browser_click',
+    title: 'Click',
+    description:
+      'Clicks an element from the snapshot, at its visible centre, after scrolling it into ' +
+      'view. A centre covered by another element fails and names it.',
+    inputSchema: object(
+      {
+        ref: REF,
+        element: ELEMENT,
+        double: { type: 'boolean', default: false, description: 'Clicks twice.' },
+        button: { type: 'string', enum: ['left', 'right', 'middle'], default: 'left' },
+      },
+      ['ref'],
+    ),
+    outputSchema: output(PAGE),
+    annotations: { openWorldHint: false },
+  },
+  {
+    name: 'browser_type',
+    title: 'Type',
+    description:
+      'Focuses a field from the snapshot, replaces what it holds with text, and with submit ' +
+      'presses Enter. Slowly types one key at a time, for fields that react to keys.',
+    inputSchema: object(
+      {
+        ref: REF,
+        element: ELEMENT,
+        text: { type: 'string', maxLength: MAX_TEXT_CHARS },
+        submit: { type: 'boolean', default: false, description: 'Presses Enter after typing.' },
+        slowly: {
+          type: 'boolean',
+          default: false,
+          description: 'Types each character as a key press.',
+        },
+      },
+      ['ref', 'text'],
+    ),
+    outputSchema: output(PAGE),
+    annotations: { openWorldHint: false },
+  },
+  {
+    name: 'browser_press_key',
+    title: 'Press key',
+    description:
+      'Presses a key on the page, as a name such as Enter or ArrowDown, or a combination such ' +
+      'as Control+A or Meta+ArrowLeft.',
+    inputSchema: object(
+      {
+        key: {
+          type: 'string',
+          maxLength: 60,
+          description: 'A key name or a combination such as Control+A.',
+        },
+      },
+      ['key'],
+    ),
+    outputSchema: output(PAGE),
+    annotations: { openWorldHint: false },
+  },
+  {
+    name: 'browser_scroll',
+    title: 'Scroll',
+    description: 'Scrolls the page, or an element from the snapshot, by whole screens.',
+    inputSchema: object(
+      {
+        ref: { ...REF, description: 'The element to scroll in; the page by default.' },
+        direction: { type: 'string', enum: ['up', 'down', 'left', 'right'] },
+        amount: {
+          type: 'number',
+          exclusiveMinimum: 0,
+          maximum: 50,
+          default: 1,
+          description: 'How many screens.',
+        },
+      },
+      ['direction'],
+    ),
+    outputSchema: output(PAGE),
+    annotations: { openWorldHint: false },
+  },
+  {
+    name: 'browser_select_option',
+    title: 'Select option',
+    description:
+      'Chooses options of a select element from the snapshot, by value, label or text, and ' +
+      'fires input and change as a browser does.',
+    inputSchema: object(
+      {
+        ref: REF,
+        element: ELEMENT,
+        values: {
+          type: 'array',
+          minItems: 1,
+          maxItems: MAX_VALUES,
+          items: { type: 'string' },
+          description: 'The values, labels or texts of the options to choose.',
+        },
+      },
+      ['ref', 'values'],
+    ),
+    outputSchema: output(PAGE),
+    annotations: { openWorldHint: false },
+  },
+  {
+    name: 'browser_take_screenshot',
+    title: 'Screenshot',
+    description:
+      'Takes a PNG screenshot of the page, of the whole page scrolled out, or of an element ' +
+      'from the snapshot. The longer side is at most 2000 px.',
+    inputSchema: object({
+      ref: { ...REF, description: 'The element to capture; the viewport by default.' },
+      full_page: {
+        type: 'boolean',
+        default: false,
+        description: 'Captures the whole page, at most 8000 px high.',
+      },
+    }),
+    outputSchema: output({
+      url: PAGE.url,
+      title: PAGE.title,
+    }),
+    annotations: { ...READ_ONLY },
+  },
+  {
+    name: 'browser_wait_for',
+    title: 'Wait for',
+    description:
+      'Waits for text to appear or to leave the page, or for a number of seconds, then returns ' +
+      'a snapshot.',
+    inputSchema: object({
+      text: { type: 'string', maxLength: MAX_TEXT_CHARS, description: 'Waits until it shows.' },
+      text_gone: { type: 'string', maxLength: MAX_TEXT_CHARS, description: 'Waits until it goes.' },
+      time: {
+        type: 'number',
+        minimum: 0,
+        maximum: MAX_WAIT_SECONDS,
+        description: 'Seconds to wait, at most 30.',
+      },
+    }),
+    outputSchema: output(PAGE),
+    annotations: { ...READ_ONLY },
+  },
+  {
+    name: 'browser_console_messages',
+    title: 'Console messages',
+    description:
+      'Returns the page’s console messages, the last 200, without the values they were given ' +
+      'beyond their text.',
+    inputSchema: object({ since_navigation: SINCE }),
+    outputSchema: output({
+      messages: {
+        type: 'array',
+        items: object(
+          {
+            level: { type: 'string' },
+            text: { type: 'string' },
+            url: { type: 'string' },
+            line: { type: 'integer' },
+          },
+          ['level', 'text', 'url', 'line'],
+        ),
+      },
+    }),
+    annotations: { ...READ_ONLY },
+  },
+  {
+    name: 'browser_network_requests',
+    title: 'Network requests',
+    description:
+      'Returns the page’s network requests, the last 300, with their method, address, status, ' +
+      'type and size; no headers or bodies.',
+    inputSchema: object({ since_navigation: SINCE }),
+    outputSchema: output({
+      requests: {
+        type: 'array',
+        items: object(
+          {
+            method: { type: 'string' },
+            url: { type: 'string' },
+            status: { type: ['integer', 'null'] },
+            type: { type: 'string' },
+            size: { type: ['integer', 'null'] },
+          },
+          ['method', 'url', 'status', 'type', 'size'],
+        ),
+      },
+    }),
+    annotations: { ...READ_ONLY },
+  },
+  {
+    name: 'browser_evaluate',
+    title: 'Evaluate',
+    description:
+      'Runs a JavaScript function on the page to inspect it, with the element from the ' +
+      'snapshot as its argument when a ref is given, and returns its value as JSON, at most ' +
+      '64 KB. For inspection: prefer the snapshot and the other tools for acting.',
+    inputSchema: object(
+      {
+        function: {
+          type: 'string',
+          maxLength: MAX_SCRIPT_CHARS,
+          description: 'A function’s source, such as "() => document.title".',
+        },
+        ref: { ...REF, description: 'Passes this element to the function.' },
+      },
+      ['function'],
+    ),
+    outputSchema: output({ value: { description: 'The function’s value, as JSON.' } }),
+    annotations: { openWorldHint: true },
+  },
+  {
+    name: 'browser_ask_user',
+    title: 'Ask the user',
+    description:
+      'Asks the user to do a step on the page that only a person can do, such as signing in, ' +
+      'entering a code sent to them or passing a human check, and waits until they press Done ' +
+      'or Skip. The page is theirs while it waits. After Done it returns the page as they left ' +
+      'it, with a snapshot. If it says the user is still doing the step, call it again.',
+    inputSchema: object(
+      {
+        step: {
+          type: 'string',
+          enum: [...CONTROL_STEPS],
+          description:
+            'sign_in, code for a code sent to the user, check for a human check, or other.',
+        },
+        reason: {
+          type: 'string',
+          maxLength: MAX_REASON_CHARS,
+          description: 'One or two sentences for the user: why you need it, and what you do next.',
+        },
+      },
+      ['step', 'reason'],
+    ),
+    outputSchema: output({
+      outcome: { type: 'string', enum: ['done', 'skipped'] },
+      url: PAGE.url,
+      title: PAGE.title,
+      snapshot: PAGE.snapshot,
+    }),
+    annotations: { openWorldHint: false },
+  },
+  {
+    name: 'browser_tabs',
+    title: 'Tabs',
+    description:
+      'Lists the browser’s tabs, opens a blank one, switches to one or closes one. Your other ' +
+      'browser tools act on your current tab; a tab you open or switch to becomes it, and a tab ' +
+      'the user selects does not. Answers the tabs with their indexes.',
+    inputSchema: object(
+      {
+        action: { type: 'string', enum: [...BROWSER_TAB_ACTIONS] },
+        index: {
+          type: 'integer',
+          minimum: 0,
+          maximum: MAX_SESSION_TABS - 1,
+          description:
+            'The tab to select or close, from the list; close takes your current tab by default.',
+        },
+      },
+      ['action'],
+    ),
+    outputSchema: output({ tabs: { type: 'array', items: TAB } }),
+    annotations: { openWorldHint: false },
+  },
+]
+
+const NAMES = new Set<string>(BROWSER_TOOL_NAMES)
+
+export function isBrowserToolName(name: string): boolean {
+  return NAMES.has(name)
+}
+
+type Args = Record<string, unknown>
+
+/** An argument that does not fit its schema; its answer goes back as the tool error. */
+class BrowserArgsError extends Error {
+  constructor(readonly answer: BrowserCallAnswer) {
+    super('Invalid arguments')
+  }
+}
+
+function invalid(message: string): BrowserArgsError {
+  return new BrowserArgsError({ error: { code: 'invalid', message } })
+}
+
+/** A call, checked as its schema says, ready for main. */
+export interface BrowserCall {
+  tool: BrowserToolName
+  args: Args
+}
+
+function checked(name: BrowserToolName, value: unknown): BrowserCall {
+  if (
+    value !== undefined &&
+    value !== null &&
+    (typeof value !== 'object' || Array.isArray(value))
+  ) {
+    throw invalid('The arguments must be an object.')
+  }
+  const o = (value ?? {}) as Args
+  const allowed: Record<BrowserToolName, string[]> = {
+    browser_navigate: ['url'],
+    browser_navigate_back: [],
+    browser_reload: [],
+    browser_snapshot: [],
+    browser_click: ['ref', 'element', 'double', 'button'],
+    browser_type: ['ref', 'element', 'text', 'submit', 'slowly'],
+    browser_press_key: ['key'],
+    browser_scroll: ['ref', 'direction', 'amount'],
+    browser_select_option: ['ref', 'element', 'values'],
+    browser_take_screenshot: ['ref', 'full_page'],
+    browser_wait_for: ['text', 'text_gone', 'time'],
+    browser_console_messages: ['since_navigation'],
+    browser_network_requests: ['since_navigation'],
+    browser_evaluate: ['function', 'ref'],
+    browser_ask_user: ['step', 'reason'],
+    browser_tabs: ['action', 'index'],
+  }
+  for (const key of Object.keys(o)) {
+    if (!allowed[name].includes(key)) throw invalid(`Unknown argument ${key}.`)
+  }
+  const text = (key: string, required: boolean, max = MAX_TEXT_CHARS): string | undefined => {
+    const given = o[key]
+    if (given === undefined) {
+      if (required) throw invalid(`${key} is needed.`)
+      return undefined
+    }
+    if (typeof given !== 'string' || given.length > max) {
+      throw invalid(`${key} must be text of at most ${max} characters.`)
+    }
+    return given
+  }
+  const flag = (key: string): boolean | undefined => {
+    const given = o[key]
+    if (given === undefined) return undefined
+    if (typeof given !== 'boolean') throw invalid(`${key} must be true or false.`)
+    return given
+  }
+  const ref = (required: boolean): string | undefined => {
+    const given = o.ref
+    if (given === undefined) {
+      if (required) throw invalid('ref is needed.')
+      return undefined
+    }
+    if (typeof given !== 'string' || !/^e[0-9]+$/.test(given)) {
+      throw invalid('ref must be a ref such as e12.')
+    }
+    return given
+  }
+  const args: Args = {}
+  switch (name) {
+    case 'browser_navigate': {
+      const url = text('url', true, 8_192)!
+      if (url.trim() === '') throw invalid('url must not be empty.')
+      args.url = url
+      break
+    }
+    case 'browser_click': {
+      args.ref = ref(true)
+      if (o.element !== undefined) args.element = text('element', false, 200)
+      const double = flag('double')
+      if (double !== undefined) args.double = double
+      if (o.button !== undefined) {
+        if (!['left', 'right', 'middle'].includes(String(o.button))) {
+          throw invalid('button must be left, right or middle.')
+        }
+        args.button = o.button
+      }
+      break
+    }
+    case 'browser_type': {
+      args.ref = ref(true)
+      args.text = text('text', true)!
+      if (o.element !== undefined) args.element = text('element', false, 200)
+      const submit = flag('submit')
+      if (submit !== undefined) args.submit = submit
+      const slowly = flag('slowly')
+      if (slowly !== undefined) args.slowly = slowly
+      break
+    }
+    case 'browser_press_key': {
+      const key = text('key', true, 60)!
+      if (key.trim() === '') throw invalid('key must not be empty.')
+      args.key = key
+      break
+    }
+    case 'browser_scroll': {
+      const element = ref(false)
+      if (element !== undefined) args.ref = element
+      if (!['up', 'down', 'left', 'right'].includes(String(o.direction))) {
+        throw invalid('direction must be up, down, left or right.')
+      }
+      args.direction = o.direction
+      if (o.amount !== undefined) {
+        if (typeof o.amount !== 'number' || !(o.amount > 0) || o.amount > 50) {
+          throw invalid('amount must be a number of screens from 0 to 50.')
+        }
+        args.amount = o.amount
+      }
+      break
+    }
+    case 'browser_select_option': {
+      args.ref = ref(true)
+      if (o.element !== undefined) args.element = text('element', false, 200)
+      if (!Array.isArray(o.values) || o.values.length === 0 || o.values.length > MAX_VALUES) {
+        throw invalid(`values must list 1 to ${MAX_VALUES} option values.`)
+      }
+      if (!o.values.every((item) => typeof item === 'string')) {
+        throw invalid('values must be text.')
+      }
+      args.values = o.values
+      break
+    }
+    case 'browser_take_screenshot': {
+      const element = ref(false)
+      if (element !== undefined) args.ref = element
+      const full = flag('full_page')
+      if (full !== undefined) args.full_page = full
+      break
+    }
+    case 'browser_wait_for': {
+      const waiting = text('text', false)
+      const gone = text('text_gone', false)
+      if (waiting !== undefined) args.text = waiting
+      if (gone !== undefined) args.text_gone = gone
+      if (o.time !== undefined) {
+        if (typeof o.time !== 'number' || !Number.isFinite(o.time) || o.time < 0 || o.time > 30) {
+          throw invalid('time must be 0 to 30 seconds.')
+        }
+        args.time = o.time
+      }
+      if (waiting === undefined && gone === undefined && args.time === undefined) {
+        throw invalid('Give text, text_gone or time to wait for.')
+      }
+      break
+    }
+    case 'browser_console_messages':
+    case 'browser_network_requests': {
+      const since = flag('since_navigation')
+      if (since !== undefined) args.since_navigation = since
+      break
+    }
+    case 'browser_ask_user': {
+      if (!isControlStep(o.step)) throw invalid('step must be sign_in, code, check or other.')
+      args.step = o.step
+      const reason = text('reason', true, MAX_REASON_CHARS)!
+      if (reason.trim() === '') throw invalid('reason must say why.')
+      args.reason = reason
+      break
+    }
+    case 'browser_tabs': {
+      if (!(BROWSER_TAB_ACTIONS as readonly unknown[]).includes(o.action)) {
+        throw invalid('action must be list, new, select or close.')
+      }
+      args.action = o.action
+      if (o.index !== undefined) {
+        if (
+          typeof o.index !== 'number' ||
+          !Number.isInteger(o.index) ||
+          o.index < 0 ||
+          o.index >= MAX_SESSION_TABS
+        ) {
+          throw invalid(`index must be a whole number from 0 to ${MAX_SESSION_TABS - 1}.`)
+        }
+        if (o.action === 'list' || o.action === 'new') {
+          throw invalid(`index is for select and close, not ${String(o.action)}.`)
+        }
+        args.index = o.index
+      } else if (o.action === 'select') {
+        throw invalid('index is needed to select a tab.')
+      }
+      break
+    }
+    case 'browser_evaluate': {
+      const source = text('function', true, MAX_SCRIPT_CHARS)!
+      if (source.trim() === '') throw invalid('function must be JavaScript.')
+      args.function = source
+      const element = ref(false)
+      if (element !== undefined) args.ref = element
+      break
+    }
+    default:
+      break
+  }
+  return { tool: name, args }
+}
+
+/** How long a call may take, by the tool and its arguments. */
+export function timeoutFor(tool: BrowserToolName, args: Args): number {
+  // It returns once the user answers, or to be called again before the harness's own limit.
+  if (tool === 'browser_ask_user') return CONTROL_WAIT_MS + WAIT_EXTRA_MS
+  // Selecting a released tab loads its page again.
+  if (
+    tool === 'browser_navigate' ||
+    tool === 'browser_navigate_back' ||
+    tool === 'browser_reload' ||
+    tool === 'browser_tabs'
+  )
+    return NAVIGATION_TIMEOUT_MS
+  if (tool === 'browser_wait_for') {
+    const seconds = typeof args.time === 'number' ? args.time : MAX_WAIT_SECONDS
+    return Math.round(seconds * 1000) + WAIT_EXTRA_MS
+  }
+  return ACTION_TIMEOUT_MS
+}
+
+function failure(error: { code: BrowserToolErrorCode; message: string }): CallToolResult {
+  return {
+    content: [{ type: 'text', text: error.message }],
+    structuredContent: { code: error.code, message: error.message },
+    isError: true,
+  }
+}
+
+export class BrowserTools {
+  private nextId = 1
+  /** The waits the origin requests of `browser_waiting` start and end, by the call's id. */
+  private readonly waits = new Map<number, (waiting: boolean) => void>()
+
+  constructor(private readonly deps: BrowserToolDeps) {}
+
+  /**
+   * Serves a call. The session whose page it drives is the caller's, or for a subagent the one it
+   * runs under; a call main does not answer in its time fails with `timeout`.
+   */
+  async call(caller: Caller, name: string, input: unknown): Promise<CallToolResult> {
+    if (!isBrowserToolName(name)) throw new Error(`Unknown tool ${name}`)
+    const tool = name as BrowserToolName
+    let asked: BrowserCall
+    try {
+      asked = checked(tool, input)
+    } catch (error) {
+      if (error instanceof BrowserArgsError && 'error' in error.answer) {
+        return failure(error.answer.error)
+      }
+      throw error
+    }
+    const page = this.deps.pageOf(caller.sessionId)
+    if (page === null) {
+      return failure({
+        code: 'no_page',
+        message: 'This session no longer exists, so it has no browser.',
+      })
+    }
+    const request: BrowserCallRequest = {
+      callId: this.nextId++,
+      sessionId: page,
+      tool,
+      args: asked.args,
+      projectPath: this.deps.projectOf(page),
+    }
+    const answer = await this.forward(request, timeoutFor(tool, asked.args), caller.sessionId)
+    if ('error' in answer) return failure(answer.error)
+    return this.result(tool, answer.result)
+  }
+
+  /** `host:browser-waiting`: the call waits on a new origin, or that wait ended. */
+  browserWaiting(callId: number, waiting: boolean): void {
+    this.waits.get(callId)?.(waiting)
+  }
+
+  /**
+   * Forwards the call and settles with main's answer, or `timeout` after `ms`. While the call waits
+   * on the user, for a new site or while they hold the page, its limit grows to that wait's.
+   */
+  private forward(
+    request: BrowserCallRequest,
+    ms: number,
+    caller: string,
+  ): Promise<BrowserCallAnswer> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let limit = ms
+    const settle = (): void => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(
+        () =>
+          resolve({
+            error: {
+              code: 'timeout',
+              message: `The browser did not answer within ${Math.round(limit / 1000)} s. Check the page and try again.`,
+            },
+          }),
+        limit,
+      )
+      timer.unref?.()
+    }
+    let resolve!: (answer: BrowserCallAnswer) => void
+    const timeout = new Promise<BrowserCallAnswer>((done) => (resolve = done))
+    settle()
+    const waiting = (on: boolean): void => {
+      limit = on ? Math.max(ms, ORIGIN_WAIT_MS + WAIT_EXTRA_MS) : ms
+      settle()
+    }
+    this.waits.set(request.callId, waiting)
+    const forwarded = this.deps
+      .call(request, caller)
+      .catch((error: unknown): BrowserCallAnswer => ({
+        error: { code: 'invalid', message: (error as Error)?.message ?? String(error) },
+      }))
+    const clear = (): void => {
+      if (timer) clearTimeout(timer)
+      this.waits.delete(request.callId)
+    }
+    return Promise.race([forwarded, timeout]).finally(clear)
+  }
+
+  private result(
+    tool: BrowserToolName,
+    result: { text: string; value: Record<string, unknown>; image?: string },
+  ): CallToolResult {
+    const content: CallToolResult['content'] = [{ type: 'text', text: result.text }]
+    if (tool === 'browser_take_screenshot' && result.image) {
+      content.push({ type: 'image', data: result.image, mimeType: 'image/png' })
+    }
+    return { content, structuredContent: result.value }
+  }
+}

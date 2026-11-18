@@ -1,0 +1,49 @@
+{
+  "panel": {
+    "tabs": "Terminals",
+    "starting": "Starting…",
+    "newTerminal": "New terminal",
+    "restore": "Restore",
+    "maximize": "Maximize",
+    "empty": "No terminal in this project.",
+    "split": "Split",
+    "unsplit": "Unsplit",
+    "close": "Close panel"
+  },
+  "tab": {
+    "rename": "Rename",
+    "nameLabel": "Terminal name",
+    "newOutput": "New output",
+    "running": "Running",
+    "close": "Close {{name}}",
+    "owner": "· {{agent}}",
+    "password": "Waiting for a password"
+  },
+  "closeDialog": {
+    "title": "End this terminal?",
+    "body": "<title/> is still running. Closing the tab ends it.",
+    "confirm": "End process"
+  },
+  "view": {
+    "askAgent": "Ask {{agent}}",
+    "askGeneric": "Ask the agent",
+    "paste": "Paste",
+    "selectAll": "Select all",
+    "clear": "Clear",
+    "stopped": "Terminal stopped unexpectedly",
+    "exited": "Exited with code {{code}}",
+    "restart": "Restart"
+  },
+  "owner": {
+    "startedBy": "Started by {{agent}} · {{time}}",
+    "openInBrowser": "Open in browser",
+    "stop": "Stop",
+    "fromReply": "Run from {{agent}}’s reply · {{time}}"
+  },
+  "password": {
+    "strip": "<b>Type the password here and press Enter</b> · It stays hidden as you type, and {{agent}} cannot see it",
+    "stripNoAgent": "<b>Type the password here and press Enter</b> · It stays hidden as you type",
+    "label": "{{agent}} needs you to type a password in <b>{{terminal}}</b>",
+    "go": "Type password"
+  }
+}

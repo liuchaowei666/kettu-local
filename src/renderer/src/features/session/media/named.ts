@@ -1,0 +1,205 @@
+// Media files a reply names by file reference, shown under the block that names them.
+
+import { createContext } from 'react'
+import { mediaKindOfName } from '@shared/media'
+import type { ToolEntry } from '@shared/thread'
+import { localTarget } from '@renderer/features/session/markdown/local-links'
+
+interface HastNode {
+  type: string
+  tagName?: string
+  value?: string
+  properties?: Record<string, unknown>
+  children?: HastNode[]
+}
+
+const SCHEME = /^[a-z][a-z\d+.-]*:/i
+const DRIVE = /^[a-z]:[\\/]/i
+const FILE_URI = /^file:/i
+const PATH_START = /^(?:\/(?!\/)|~[\\/]|\.{1,2}[\\/]|[a-z]:[\\/]|file:)/i
+
+/** Whether text can be a local path at all: one line, no URL, and spaces only in an explicit path. */
+function localPath(value: string): boolean {
+  if (!value || value.includes('\n') || value.startsWith('#') || value.startsWith('//')) {
+    return false
+  }
+  if (SCHEME.test(value) && !DRIVE.test(value) && !FILE_URI.test(value)) return false
+  return !/\s/.test(value) || PATH_START.test(value)
+}
+
+/**
+ * A file reference's text when it names a media file: a path relative to the session's folder,
+ * absolute, `~/` or a `file:` URI, ending in a media file's extension. Text with a space counts
+ * only from an explicit path start, so a command such as `ffmpeg -i a.mp4` stays text.
+ */
+export function mediaReference(text: string): string | null {
+  const value = text.trim()
+  return localPath(value) && mediaKindOfName(value) ? value : null
+}
+
+/** A file reference's text when it names a folder: a path that ends in a separator. */
+function folderReference(text: string): string | null {
+  const value = text.trim()
+  if (value.length < 2 || !/[\\/]$/.test(value) || FILE_URI.test(value)) return null
+  return localPath(value) ? value : null
+}
+
+/** Whether a media reference is a file's name alone, which says little of where the file is. */
+export const bareName = (path: string) => !/[\\/]/.test(path) && !FILE_URI.test(path)
+
+/** Whether a media reference is `/name`, a file in the root, as a site writes a path. */
+export const rootFile = (path: string) => /^\/[^/\\]+$/.test(path)
+
+/**
+ * The media files a block names as it is read, in order, each once. A bare file name in inline
+ * code is read in the folder that inline code named before it in the block, as in "saved in
+ * `/tmp/shots/`: `a.png`, `b.png`".
+ */
+export function mediaCollector() {
+  const found: string[] = []
+  let folder: string | null = null
+  const add = (path: string | null) => {
+    if (path !== null && !found.includes(path)) found.push(path)
+  }
+  return {
+    found,
+    code(text: string) {
+      const named = folderReference(text)
+      if (named !== null) {
+        folder = named
+        return
+      }
+      const path = mediaReference(text)
+      add(path !== null && folder !== null && bareName(path) ? folder + path : path)
+    },
+    link(target: string) {
+      add(mediaReference(target))
+    },
+  }
+}
+
+/** Blocks that show their own media, so a block above them leaves theirs alone. */
+const BLOCKS = new Set(['p', 'li', 'ul', 'ol', 'table', 'pre', 'blockquote'])
+
+function textOf(node: HastNode): string {
+  if (node.type === 'text') return node.value ?? ''
+  return (node.children ?? []).map(textOf).join('')
+}
+
+/** The media files a block's inline code and links name, in order, each once. */
+export function namedMedia(block: HastNode | undefined): string[] {
+  const media = mediaCollector()
+  const visit = (node: HastNode, top: boolean) => {
+    if (node.type !== 'element') return
+    if (!top && BLOCKS.has(node.tagName ?? '')) return
+    if (node.tagName === 'code') {
+      media.code(textOf(node))
+      return
+    }
+    if (node.tagName === 'a') {
+      const href = node.properties?.href
+      const local = typeof href === 'string' ? localTarget(href) : null
+      if (local !== null) media.link(local)
+    }
+    for (const child of node.children ?? []) visit(child, false)
+  }
+  if (block) visit(block, true)
+  return media.found
+}
+
+/** A block's claim on the files it names. */
+export interface MediaClaim<T> {
+  at: T
+  paths: readonly string[]
+}
+
+/** A path as written, the same for two ways a message writes one file. */
+export const sameFile = (path: string) => path.replace(/\\/g, '/').replace(/^(?:\.\/)+/, '')
+
+/**
+ * The media files a tool call names, which its details show: its diffs' paths, then its
+ * locations, each once. Its command and text output are full of paths, so they are not read. A
+ * call whose content carries a picture shows that alone, since Claude Code's Read sends the file
+ * it read both ways; and what a deletion names is gone.
+ */
+export function toolMedia(entry: Pick<ToolEntry, 'toolKind' | 'content' | 'locations'>): string[] {
+  if (entry.toolKind === 'delete') return []
+  if (entry.content.some((c) => c.type === 'ref' && c.ref.kind === 'image')) return []
+  const paths = [
+    ...entry.content.flatMap((c) => (c.type === 'diff' ? [c.path] : [])),
+    ...entry.locations.map((location) => location.path),
+  ]
+  const seen = new Set<string>()
+  return paths.filter((path) => {
+    const file = sameFile(path)
+    if (!mediaKindOfName(path) || seen.has(file)) return false
+    seen.add(file)
+    return true
+  })
+}
+
+/**
+ * The files one message names, so each shows once: in place for a Markdown image, else under the
+ * first block that names it. `before` orders two blocks as the message reads.
+ */
+export class NamedMedia<T = Element> {
+  private readonly claims = new Set<MediaClaim<T>>()
+  private readonly images = new Map<string, number>()
+  private readonly listeners = new Set<() => void>()
+  private version = 0
+
+  constructor(
+    private readonly before: (a: T, b: T) => boolean = (a, b) =>
+      !!((a as Element).compareDocumentPosition(b as Element) & Node.DOCUMENT_POSITION_FOLLOWING),
+  ) {}
+
+  claim(claim: MediaClaim<T>): () => void {
+    this.claims.add(claim)
+    this.changed()
+    return () => {
+      this.claims.delete(claim)
+      this.changed()
+    }
+  }
+
+  /** A Markdown image of the file, which shows where it is written. */
+  image(path: string): () => void {
+    const file = sameFile(path)
+    this.images.set(file, (this.images.get(file) ?? 0) + 1)
+    this.changed()
+    return () => {
+      const left = (this.images.get(file) ?? 1) - 1
+      if (left > 0) this.images.set(file, left)
+      else this.images.delete(file)
+      this.changed()
+    }
+  }
+
+  /** The paths a block shows: those no image shows and no earlier block names. */
+  shown(claim: MediaClaim<T>): string[] {
+    return claim.paths.filter((path) => {
+      const file = sameFile(path)
+      if (this.images.has(file)) return false
+      for (const other of this.claims) {
+        if (other === claim || !other.paths.some((p) => sameFile(p) === file)) continue
+        if (this.before(other.at, claim.at)) return false
+      }
+      return true
+    })
+  }
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+
+  getVersion = (): number => this.version
+
+  private changed(): void {
+    this.version++
+    for (const listener of this.listeners) listener()
+  }
+}
+
+/** The message being rendered, whose blocks share out the media they name. */
+export const NamedMediaContext = createContext<NamedMedia | null>(null)

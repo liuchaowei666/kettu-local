@@ -1,0 +1,323 @@
+{
+  "status": {
+    "repository": "Repository",
+    "pullRequestState": "Pull request #{{number}} · {{state}}",
+    "detachedAt": "Detached at {{ref}}",
+    "branch": "Branch {{name}}",
+    "noCommits": "no commits",
+    "notPublished": "Not published",
+    "operation": {
+      "merge": "Merging",
+      "rebase": "Rebasing",
+      "cherryPick": "Cherry-picking",
+      "revert": "Reverting"
+    },
+    "running": {
+      "fetch": "Fetching",
+      "pull": "Pulling",
+      "push": "Pushing",
+      "publish": "Publishing",
+      "switch": "Switching branch",
+      "commit": "Committing",
+      "discard": "Discarding changes"
+    },
+    "chipHint": "Branch, sync and pull request · {{alt}}-click to switch branch",
+    "ahead_one": "{{count}} commit to push",
+    "ahead_other": "{{count}} commits to push",
+    "behind_one": "{{count}} commit to pull",
+    "behind_other": "{{count}} commits to pull"
+  },
+  "pr": {
+    "state": {
+      "open": "Open",
+      "draft": "Draft",
+      "merged": "Merged",
+      "closed": "Closed"
+    },
+    "icon": {
+      "none": "Pull request",
+      "open": "Pull request open",
+      "draft": "Pull request draft",
+      "merged": "Pull request merged",
+      "closed": "Pull request closed"
+    },
+    "checks": {
+      "passing": "Checks passing",
+      "failing": "Checks failing",
+      "pending": "Checks pending"
+    },
+    "checkCount": {
+      "passed": "{{count}} passed",
+      "failed": "{{count}} failed",
+      "pending": "{{count}} pending"
+    },
+    "review": {
+      "approved": "Approved",
+      "changesRequested": "Changes requested",
+      "reviewRequired": "Review required"
+    },
+    "openOnGitHub": "Open on GitHub"
+  },
+  "prCard": {
+    "opened": "opened {{when}}",
+    "bot": "bot",
+    "installGh": "Install the <cli>GitHub CLI</cli> to see the pull request's state, checks and author.",
+    "signInGh": "Sign in to the GitHub CLI to see the pull request:",
+    "failed": "Couldn't load the pull request.",
+    "retry": "Retry"
+  },
+  "ref": {
+    "issue": "Issue",
+    "issueIcon": "Issue {{state}}",
+    "issueState": {
+      "open": "Open",
+      "completed": "Completed",
+      "notPlanned": "Not planned"
+    },
+    "closedBy": "Closed by",
+    "files_one": "{{count}} file",
+    "files_other": "{{count}} files",
+    "comments_one": "{{count}} comment",
+    "comments_other": "{{count}} comments",
+    "installGh": "Install the <cli>GitHub CLI</cli> to see its state and author.",
+    "signInGh": "Sign in to the GitHub CLI to see its state and author:",
+    "unreadable": "Kettu can't read this one. It may be private to an account the GitHub CLI isn't signed in to, or deleted."
+  },
+  "popover": {
+    "notPublished": "not published",
+    "detached": "Detached HEAD",
+    "unborn": "No commits yet",
+    "ahead": "ahead",
+    "behind": "behind",
+    "switchBranch": "Switch branch",
+    "fromBase": "from {{base}} · {{fetched}}",
+    "changes": "Changes",
+    "commit": "Commit…",
+    "onBranch": "On this branch",
+    "commits_one": "{{count}} commit",
+    "commits_other": "{{count}} commits",
+    "copyPath": "Copy path"
+  },
+  "timeline": {
+    "files_one": "{{count}} file",
+    "files_other": "{{count}} files",
+    "openDiff": "Open the diff of {{name}}",
+    "copied": "Copied",
+    "copyId": "Copy commit id",
+    "copyMessage": "Copy message",
+    "openOnGitHub": "Open on GitHub",
+    "more": "{{count}} more"
+  },
+  "prPart": {
+    "queued": "Queued",
+    "run": {
+      "passed": "Passed",
+      "failed": "Failed",
+      "running": "Running"
+    },
+    "installGh": "Install the <cli>GitHub CLI</cli> to see and create pull requests.",
+    "signInGh": "Sign in to the GitHub CLI to see pull requests:",
+    "copyCommand": "Copy command",
+    "publishFirst": "Publish the branch to open a pull request.",
+    "none": "No pull request",
+    "create": "Create pull request…",
+    "blocked": {
+      "conflicts": "Has conflicts with {{base}}"
+    },
+    "label": "Pull request",
+    "mergedAgo": "Merged {{when}}",
+    "closedAgo": "Closed {{when}}",
+    "checksPassed_one": "{{passed}} of {{count}} check",
+    "checksPassed_other": "{{passed}} of {{count}} checks",
+    "waiting": {
+      "draft": "Draft",
+      "failing": "Checks failing",
+      "review": "Waiting for review",
+      "checks": "Waiting for checks",
+      "ready": "Ready to merge"
+    }
+  },
+  "sync": {
+    "label": "Sync",
+    "fetched": "fetched {{when}}",
+    "neverFetched": "never fetched",
+    "noRemote": "No remote",
+    "fetch": "Fetch",
+    "pull": "Pull",
+    "push": "Push",
+    "publishRepo": "Publish…",
+    "waiting": "Waits for the running operation",
+    "step": {
+      "merge": "Finish the merge first.",
+      "rebase": "Finish the rebase first.",
+      "cherryPick": "Finish the cherry-pick first.",
+      "revert": "Finish the revert first.",
+      "conflicts": "Resolve the conflicts first."
+    },
+    "fetching": "fetching…"
+  },
+  "reason": {
+    "noBranch": "Not on a branch",
+    "operation": "{{operation}}",
+    "noRemote": "This repository has no remote",
+    "noUpstream": "The branch is not published yet",
+    "nothingToPush": "Nothing to push",
+    "diverged": "The branch has diverged from {{upstream}}",
+    "ghMissing": "Install the GitHub CLI to publish",
+    "ghSignedOut": "Sign in to the GitHub CLI to publish",
+    "unknownRemote": "Several remotes, and none is set for this branch",
+    "localUpstream": "The branch tracks a branch of this repository",
+    "otherName": "The branch tracks {{upstream}}, which has another name"
+  },
+  "hint": {
+    "noBranch": "Check out a branch to pull or push.",
+    "operation": "{{operation}}",
+    "publishRepo": "Publish creates a GitHub repository and pushes this branch.",
+    "publishBranch": "Publish the branch to push it and open a pull request.",
+    "diverged": "Diverged from {{upstream}}: rebase or merge in the terminal, then push.",
+    "upToDate": "Up to date with {{upstream}}.",
+    "ghMissing": "Install the GitHub CLI to publish this repository to GitHub.",
+    "ghSignedOut": "Sign in to the GitHub CLI with gh auth login to publish this repository.",
+    "unknownRemote": "This repository has several remotes and none is set for this branch; push from the terminal, naming the remote.",
+    "localUpstream": "The branch tracks a branch of this repository, so a push has nowhere to go.",
+    "otherName": "The branch tracks {{upstream}}, which has another name, so git would not push it; push from the terminal, naming where it goes."
+  },
+  "failure": {
+    "operation": {
+      "fetch": "Fetch",
+      "pull": "Pull",
+      "push": "Push",
+      "publish": "Publish",
+      "switch": "Switch",
+      "commit": "Commit",
+      "discard": "Discard"
+    },
+    "rejected": "{{operation}} was rejected: the remote has new commits.",
+    "notFastForward": "{{operation}} stopped: the branches have diverged.",
+    "localChanges": "{{operation}} stopped: local changes would be overwritten.",
+    "auth": "{{operation}} failed: git could not sign in to the remote.",
+    "network": "{{operation}} failed: the remote cannot be reached.",
+    "remoteMissing": "{{operation}} failed: the remote repository was not found.",
+    "nameTaken": "{{operation}} failed: a repository with this name already exists.",
+    "timeout": "{{operation}} took too long and was stopped.",
+    "busy": "Another git operation is running in this repository.",
+    "other": "{{operation}} failed: {{detail}}",
+    "showLog": "Show log"
+  },
+  "dialog": {
+    "confirmPush": {
+      "title": "Push to {{branch}}?",
+      "description_one": "{{count}} commit goes straight to {{branch}}, the default branch, without a pull request.",
+      "description_other": "{{count}} commits go straight to {{branch}}, the default branch, without a pull request.",
+      "descriptionUncounted": "This branch goes straight to {{branch}}, the default branch, without a pull request.",
+      "action": "Push to {{branch}}"
+    },
+    "publish": {
+      "title": "Publish to GitHub",
+      "description": "Creates a GitHub repository, adds it as origin and pushes this branch.",
+      "name": "Repository name",
+      "nameInvalid": "Use letters, digits, \".\", \"-\" and \"_\", up to 100 characters.",
+      "visibility": "Visibility",
+      "private": "Private",
+      "public": "Public",
+      "account": "It goes to {{account}} on GitHub.",
+      "ghMissing": "Publishing uses the <cli>GitHub CLI</cli>. Install it, then sign in with gh auth login.",
+      "ghSignedOut": "Publishing uses the GitHub CLI. Sign in first:",
+      "action": "Publish"
+    },
+    "createPr": {
+      "title": "Create pull request",
+      "titleField": "Title",
+      "body": "Description",
+      "base": "Base",
+      "draft": "Open as a draft",
+      "action": "Create pull request",
+      "notOnGitHub": "The branch isn’t on GitHub yet.",
+      "commits_one": "{{count}} commit",
+      "commits_other": "{{count}} commits",
+      "commitsFiles_one": "{{count}} commit · {{files}}",
+      "commitsFiles_other": "{{count}} commits · {{files}}",
+      "files_one": "{{count}} file",
+      "files_other": "{{count}} files",
+      "pushesFirst": "Pushes first"
+    },
+    "log": {
+      "title": "{{operation}} log",
+      "copy": "Copy log",
+      "empty": "No output"
+    },
+    "discard": {
+      "titleOne": "Discard the changes to {{name}}?",
+      "title_one": "Discard the changes to {{count}} file?",
+      "title_other": "Discard the changes to {{count}} files?",
+      "description_one": "The file goes back to how the last commit has it, or is deleted if it is new. This can’t be undone.",
+      "description_other": "The files go back to how the last commit has them, and new files are deleted. This can’t be undone.",
+      "action": "Discard"
+    },
+    "commit": {
+      "title": "Commit to {{branch}}",
+      "message": "Message",
+      "placeholder": "What changed, in one line\n\nWhy it changed",
+      "write": "Write the message with AI",
+      "writing": "Writing the message…",
+      "files": "Files",
+      "filesChosen_one": "{{chosen}} of {{count}} file",
+      "filesChosen_other": "{{chosen}} of {{count}} files",
+      "commit": "Commit",
+      "commitAndPush": "Commit and push"
+    },
+    "publishBranch": {
+      "title": "Publish {{branch}}?",
+      "description": "This branch isn’t on a remote yet. Kettu will push it to <remote>{{remote}}</remote> and track it.",
+      "remote": "Remote",
+      "action": "Publish"
+    },
+    "newBranch": {
+      "title": "New branch",
+      "from": "Starts from {{branch}} and switches to it; uncommitted changes come along.",
+      "fromCommit": "Starts from {{commit}} and switches to it; uncommitted changes come along.",
+      "name": "Name",
+      "invalid": "Git can’t use this as a branch name.",
+      "action": "Create branch"
+    }
+  },
+  "switcher": {
+    "search": "Find or create a branch",
+    "searchLabel": "Find or create a branch",
+    "thisSession": "This session",
+    "recent": "Recent",
+    "default": "default",
+    "inWorktree": "in a worktree",
+    "newBranch": "New branch from here…",
+    "create": "Create {{name}} from here",
+    "checkedOutIn": "{{branch}} is checked out in {{folder}}"
+  },
+  "result": {
+    "fetched": "Fetched {{remote}}",
+    "fetchedNew_one": "Fetched · {{count}} new commit on {{branch}}",
+    "fetchedNew_other": "Fetched · {{count}} new commits on {{branch}}",
+    "fetchedNothing": "Fetched · nothing new on {{branch}}",
+    "pulled_one": "Pulled {{count}} commit",
+    "pulled_other": "Pulled {{count}} commits",
+    "pulledNothing": "Pulled · nothing new on {{branch}}",
+    "pushed_one": "Pushed {{count}} commit to {{remote}}",
+    "pushed_other": "Pushed {{count}} commits to {{remote}}",
+    "pushedBranch": "Pushed {{branch}} to {{remote}}",
+    "published": "Published {{branch}} to {{remote}}",
+    "publishedRepo": "Published {{name}} to GitHub",
+    "created": "Created {{branch}}",
+    "switched": "Switched to {{branch}}",
+    "committed_one": "Committed {{count}} file to {{branch}}",
+    "committed_other": "Committed {{count}} files to {{branch}}",
+    "committedDetached_one": "Committed {{count}} file",
+    "committedDetached_other": "Committed {{count}} files",
+    "discardedOne": "Discarded the changes to {{name}}",
+    "discarded_one": "Discarded the changes to {{count}} file",
+    "discarded_other": "Discarded the changes to {{count}} files",
+    "pushRejected": "Push rejected · new commits on {{remote}}",
+    "prCreated": "Pull request #{{number}} created",
+    "createPr": "Create PR",
+    "openPr": "Open",
+    "pullAndRetry": "Pull and retry"
+  }
+}

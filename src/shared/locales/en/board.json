@@ -1,0 +1,56 @@
+{
+  "title": "Board",
+  "summary": {
+    "idle": "Nothing running",
+    "running_one": "{{count}} running",
+    "running_other": "{{count}} running",
+    "needs_one": "{{count}} needs you",
+    "needs_other": "{{count}} need you"
+  },
+  "sections": {
+    "now": "Now",
+    "earlier": "Earlier",
+    "artifacts": "Artifacts"
+  },
+  "earlier": {
+    "subagents": "Sub-agents",
+    "commands": "Commands",
+    "failed_one": "{{count}} failed",
+    "failed_other": "{{count}} failed"
+  },
+  "empty": {
+    "title": "Nothing here yet",
+    "text": "Sub-agents, background commands and the artifacts this session writes show up here."
+  },
+  "status": {
+    "failed": "Failed",
+    "stopped": "Stopped",
+    "cancelled": "Cancelled"
+  },
+  "step": {
+    "starting": "Starting",
+    "waiting": "Waiting for your answer"
+  },
+  "actions": {
+    "review": "Review",
+    "stop": "Stop",
+    "stopTitle": "Stop {{title}}",
+    "copy": "Copy",
+    "copied": "Copied",
+    "openTitle": "Open {{title}}",
+    "close": "Close"
+  },
+  "detail": {
+    "command": "Command",
+    "watching": "Watching",
+    "output": "Output",
+    "noOutput": "No output yet.",
+    "readFailed": "Could not read the output: {{error}}",
+    "truncated": "Showing the last 8 KiB.",
+    "refreshed": "Refreshed while it runs.",
+    "exit": "Exit {{code}}"
+  },
+  "artifact": {
+    "version": "v{{version}}"
+  }
+}

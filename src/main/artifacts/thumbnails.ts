@@ -1,0 +1,444 @@
+// Card thumbnails: each version rendered once in an offscreen window, in a session of its own with
+// the window session's protocol and guards, and kept on disk named by its hash.
+
+import { createHash } from 'node:crypto'
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import path from 'node:path'
+import { app, BrowserWindow, type NativeImage, type Session, type WebContents } from 'electron'
+import {
+  fitThumbnail,
+  THUMBNAIL_HEIGHT,
+  THUMBNAIL_PAGES,
+  THUMBNAIL_WIDTH,
+  type ThumbnailPage,
+} from '@shared/artifacts'
+import { canvasPagePath, versionUrlPath, type CanvasPage } from '@shared/artifact-page'
+import { artifactPathProblem, isHtmlPath } from '@shared/artifact-files'
+import type { ArtifactContentResult } from '@shared/host-control'
+import { createLogger } from '../log'
+import { restrictPermissions } from '../permissions'
+import { filterArtifactRequests, frameArtifact, mayNavigate } from './guards'
+import { artifactHost } from './origins'
+import { WINDOW_PROXY } from './policy'
+import { printViewer } from './print'
+import { serveArtifacts, type ArtifactSource } from './protocol'
+
+const log = createLogger('artifacts')
+
+/** In memory: nothing a page stores while it renders outlives the run. */
+export const THUMBNAIL_PARTITION = 'kettu-artifact-thumbnails'
+/**
+ * How long a page may take to load before the capture. Each page of a canvas is a frame that loads
+ * the whole page, so a canvas waits a second more for each page after the first, up to a limit.
+ */
+const LOAD_WAIT_MS = 5_000
+const PAGE_LOAD_WAIT_MS = 1_000
+const MAX_LOAD_WAIT_MS = 30_000
+/** The wait after a load, before the capture. */
+const SETTLE_MS = 400
+/** Enough for a card two across on a 2x display. */
+const OUTPUT_WIDTH = 720
+const JPEG_QUALITY = 82
+/** The thumbnails kept on disk; older ones render again when asked for. */
+export const KEPT_THUMBNAILS = 500
+/** Thumbnails rendering at once, each in its own offscreen window. */
+const THUMBNAILS_AT_ONCE = 3
+
+const HASH = /^[0-9a-f]{64}$/
+
+export interface Size {
+  width: number
+  height: number
+}
+const MAX_SIZE = 8_000
+const MIN_SIZE = 64
+const MAX_OFFSET = 10_000_000
+const MAX_PLACE = 9_999
+
+function isWhole(value: unknown, min: number, max: number): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= min && (value as number) <= max
+}
+
+/** A canvas layout from the renderer, every field a checked integer, or null for a single page. */
+export function parseLayout(value: unknown): ThumbnailPage[] | null {
+  if (value === null) return null
+  if (!Array.isArray(value) || value.length === 0 || value.length > THUMBNAIL_PAGES) {
+    throw new Error('Not a thumbnail layout')
+  }
+  return value.map((page: unknown) => {
+    const p = page as Partial<Record<keyof ThumbnailPage, unknown>> | null
+    if (
+      typeof p !== 'object' ||
+      p === null ||
+      !isWhole(p.group, 0, MAX_PLACE) ||
+      !isWhole(p.index, 1, MAX_PLACE) ||
+      !isWhole(p.x, 0, MAX_OFFSET) ||
+      !isWhole(p.y, 0, MAX_OFFSET) ||
+      !isWhole(p.width, MIN_SIZE, MAX_SIZE) ||
+      !isWhole(p.height, MIN_SIZE, MAX_SIZE)
+    ) {
+      throw new Error('Not a thumbnail layout')
+    }
+    const file = pageFile(p.file)
+    return {
+      group: p.group,
+      index: p.index,
+      ...(file ? { file } : {}),
+      x: p.x,
+      y: p.y,
+      width: p.width,
+      height: p.height,
+    }
+  })
+}
+
+/** A canvas document's page file from the renderer: a valid path of an HTML file, or none. */
+function pageFile(value: unknown): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || artifactPathProblem(value) !== null || !isHtmlPath(value)) {
+    throw new Error('Not a page file')
+  }
+  return value
+}
+
+const FRAME_ATTRIBUTES =
+  'sandbox="allow-scripts allow-same-origin" allow="" referrerpolicy="no-referrer"'
+
+/**
+ * The document the offscreen window loads: the version in one frame at a page's size, or each page
+ * of a canvas in a frame at its own size, scaled to fit. Every value in it is a checked number or
+ * the origin main built, so nothing from the page or the renderer reaches the markup as text.
+ */
+export function thumbnailDocument(
+  origin: string,
+  version: number,
+  layout: ThumbnailPage[] | null,
+  view: 'thumbnail' | null = null,
+): string {
+  // A type's viewer draws its content alone for a thumbnail, without its controls.
+  const root = origin.replace(/\/$/, '')
+  const page = `${root}${versionUrlPath(version)}${view ? `?view=${view}` : ''}`
+  // A page file's path is escaped segment by segment, so it cannot leave the attribute.
+  const frame = (src: string, style: string): string =>
+    `<iframe src="${src}" ${FRAME_ATTRIBUTES} style="${style}"></iframe>`
+  let frames: string
+  if (!layout) {
+    frames = frame(page, `width:${THUMBNAIL_WIDTH}px;height:${THUMBNAIL_HEIGHT}px`)
+  } else {
+    const fit = fitThumbnail(layout)
+    frames = layout
+      .map((p) =>
+        frame(
+          `${root}${canvasPagePath(version, p)}`,
+          `left:${fit.x + p.x * fit.scale}px;top:${fit.y + p.y * fit.scale}px;` +
+            `width:${p.width}px;height:${p.height}px;transform:scale(${fit.scale})`,
+        ),
+      )
+      .join('')
+  }
+  // A page is white where it draws nothing, as in a browser; between a canvas's pages the card
+  // shows through.
+  return (
+    '<!doctype html><html><head><meta charset="utf-8">' +
+    '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; ' +
+    "style-src 'unsafe-inline'; frame-src kettu-artifact:\">" +
+    '<style>html,body{margin:0;overflow:hidden;background:transparent}' +
+    'iframe{position:absolute;left:0;top:0;border:0;background:white;transform-origin:0 0}</style>' +
+    `</head><body>${frames}</body></html>`
+  )
+}
+
+/** The document a page's image renders from: the page alone in one frame at its size. */
+export function pageDocument(
+  origin: string,
+  version: number,
+  page: CanvasPage | null,
+  size: Size,
+): string {
+  const src = `${origin.replace(/\/$/, '')}${canvasPagePath(version, page)}`
+  return (
+    '<!doctype html><html><head><meta charset="utf-8">' +
+    '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; ' +
+    "style-src 'unsafe-inline'; frame-src kettu-artifact:\">" +
+    '<style>html,body{margin:0;overflow:hidden;background:white}' +
+    'iframe{position:absolute;left:0;top:0;border:0;background:white}</style>' +
+    `</head><body><iframe src="${src}" ${FRAME_ATTRIBUTES} ` +
+    `style="width:${size.width}px;height:${size.height}px"></iframe></body></html>`
+  )
+}
+
+/** A page's size for its image, checked integers, or null. */
+export function parseSize(value: unknown): Size | null {
+  const o = value as Partial<Record<keyof Size, unknown>> | null
+  if (typeof o !== 'object' || o === null) return null
+  if (!isWhole(o.width, MIN_SIZE, MAX_SIZE) || !isWhole(o.height, MIN_SIZE, MAX_SIZE)) return null
+  return { width: o.width, height: o.height }
+}
+
+/** One page of a canvas from the renderer, or null for the whole entry page. */
+export function parsePage(value: unknown): CanvasPage | null {
+  if (value === null) return null
+  const p = value as Partial<Record<keyof CanvasPage, unknown>> | null
+  if (
+    typeof p !== 'object' ||
+    p === null ||
+    !isWhole(p.group, 0, MAX_PLACE) ||
+    !isWhole(p.index, 1, MAX_PLACE)
+  ) {
+    throw new Error('Not a page')
+  }
+  const file = pageFile(p.file)
+  return file ? { group: p.group, index: p.index, file } : { group: p.group, index: p.index }
+}
+
+/** How long the capture waits for a thumbnail of this many pages to load. */
+export function loadWait(pages: number): number {
+  return Math.min(MAX_LOAD_WAIT_MS, LOAD_WAIT_MS + PAGE_LOAD_WAIT_MS * Math.max(0, pages - 1))
+}
+
+/** The files to remove so that only the newest `keep` remain, by modification time. */
+export function outdated(files: { name: string; mtimeMs: number }[], keep: number): string[] {
+  return files
+    .toSorted((a, b) => b.mtimeMs - a.mtimeMs)
+    .slice(keep)
+    .map((file) => file.name)
+}
+
+export interface ThumbnailDeps {
+  content(id: string, version: number): Promise<ArtifactContentResult>
+  /** `artifacts/thumbnails/` in the data folder. */
+  dir: string
+  source: ArtifactSource
+  /** Lets the protocol serve the artifact in this run; returns its origin URL. */
+  serve(id: string): string
+  /** Whether the artifact on this origin id loads nothing from the CDNs. */
+  strict?(host: string): boolean
+}
+
+/**
+ * Renders card thumbnails a few at a time and keeps them on disk. A page image or a PDF the user
+ * asked for has a queue of its own, so it never waits behind the cards.
+ */
+export class Thumbnails {
+  // Page images and PDFs, one at a time.
+  private exports: Promise<unknown> = Promise.resolve()
+  private running = 0
+  private readonly waiting: (() => void)[] = []
+  private readonly making = new Map<string, Promise<string | null>>()
+  private session: Session | null = null
+
+  constructor(private readonly deps: ThumbnailDeps) {}
+
+  /** The thumbnails' own session: the protocol, the request filter, no permissions, the proxy. */
+  async install(session: Session): Promise<void> {
+    // No window shows these frames: their picks go nowhere and no one is there to ask the user.
+    serveArtifacts(session, { ...this.deps.source, selected: null, runtime: null })
+    filterArtifactRequests(session, this.deps.strict)
+    restrictPermissions(
+      session,
+      () => false,
+      () => true,
+    )
+    session.on('will-download', (_, item) => item.cancel())
+    await session.setProxy(WINDOW_PROXY)
+    this.session = session
+  }
+
+  /** `artifact:thumbnail`: the version's image as a `data:` URL, or null when it cannot render. */
+  thumbnail(id: string, version: number, layout: ThumbnailPage[] | null): Promise<string | null> {
+    const key = `${id}\0${version}\0${JSON.stringify(layout)}`
+    const made = this.making.get(key)
+    if (made) return made
+    const run = this.slot(() => this.make(id, version, layout)).finally(() =>
+      this.making.delete(key),
+    )
+    this.making.set(key, run)
+    return run
+  }
+
+  /** Runs a thumbnail once fewer than THUMBNAILS_AT_ONCE are rendering. */
+  private async slot<T>(make: () => Promise<T>): Promise<T> {
+    // A finished thumbnail hands its turn to the next one waiting.
+    if (this.running < THUMBNAILS_AT_ONCE) this.running++
+    else await new Promise<void>((resolve) => this.waiting.push(resolve))
+    try {
+      return await make()
+    } finally {
+      const next = this.waiting.shift()
+      if (next) next()
+      else this.running--
+    }
+  }
+
+  /**
+   * `artifact:png`: one page of a version, or its entry page, at the page's own size as a PNG, in
+   * the same isolation as thumbnails; null when it cannot render.
+   */
+  image(id: string, version: number, page: CanvasPage | null, size: Size): Promise<Buffer | null> {
+    const run = this.exports.then(async () => {
+      const found = await this.deps.content(id, version)
+      if (found.kind !== 'found') return null
+      const document = pageDocument(this.deps.serve(id), version, page, size)
+      const captured = await this.capture(document, size, false, 1)
+      return captured ? captured.toPNG() : null
+    })
+    this.exports = run.catch(() => {})
+    return run
+  }
+
+  private async make(
+    id: string,
+    version: number,
+    layout: ThumbnailPage[] | null,
+  ): Promise<string | null> {
+    const found = await this.deps.content(id, version)
+    if (found.kind !== 'found' || !HASH.test(found.key)) return null
+    const type = layout ? 'png' : 'jpeg'
+    // A type's viewer comes with the app, so an update draws its thumbnails again.
+    const name = found.type
+      ? createHash('sha256').update(`${found.key}\0${app.getVersion()}`).digest('hex')
+      : found.key
+    const file = path.join(this.deps.dir, `${name}.${layout ? 'png' : 'jpg'}`)
+    const cached = await readFile(file).catch(() => null)
+    if (cached) return dataUrl(type, cached)
+    const view = found.type ? 'thumbnail' : null
+    const image = await this.render(this.deps.serve(id), version, layout, view).catch(
+      (error: unknown) => {
+        log.warn(`Could not render a thumbnail of ${id} version ${version}: ${String(error)}`)
+        return null
+      },
+    )
+    if (!image) return null
+    await this.keep(file, image).catch((error: unknown) => {
+      log.warn(`Could not keep a thumbnail: ${String(error)}`)
+    })
+    return dataUrl(type, image)
+  }
+
+  private async render(
+    origin: string,
+    version: number,
+    layout: ThumbnailPage[] | null,
+    view: 'thumbnail' | null,
+  ): Promise<Buffer | null> {
+    const captured = await this.capture(
+      thumbnailDocument(origin, version, layout, view),
+      { width: THUMBNAIL_WIDTH, height: THUMBNAIL_HEIGHT },
+      layout !== null,
+      layout?.length ?? 1,
+    )
+    if (!captured) return null
+    const scaled = captured.resize({ width: OUTPUT_WIDTH, quality: 'good' })
+    return layout ? scaled.toPNG() : scaled.toJPEG(JPEG_QUALITY)
+  }
+
+  /** Loads `document` in an offscreen window of `size` and captures what it painted. */
+  private async capture(
+    document: string,
+    size: Size,
+    transparent: boolean,
+    pages: number,
+  ): Promise<NativeImage | null> {
+    if (!this.session) return null
+    const window = new BrowserWindow({
+      show: false,
+      width: size.width,
+      height: size.height,
+      useContentSize: true,
+      frame: false,
+      transparent,
+      backgroundColor: transparent ? '#00000000' : '#ffffff',
+      webPreferences: {
+        offscreen: true,
+        session: this.session,
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        disableDialogs: true,
+        spellcheck: false,
+        backgroundThrottling: false,
+      },
+    })
+    try {
+      const contents = window.webContents
+      guardThumbnail(contents)
+      // A page that has not loaded in time is captured with what it painted by then.
+      const loaded = await Promise.race([
+        contents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(document)}`).then(
+          () => 'loaded' as const,
+          () => 'failed' as const,
+        ),
+        delay(loadWait(pages)).then(() => 'waited' as const),
+      ])
+      if (loaded === 'failed' || window.isDestroyed()) return null
+      if (loaded === 'loaded') await delay(SETTLE_MS)
+      if (window.isDestroyed()) return null
+      const captured = await contents.capturePage()
+      return captured.isEmpty() ? null : captured
+    } finally {
+      if (!window.isDestroyed()) window.destroy()
+    }
+  }
+
+  /**
+   * A typed version printed by its viewer, one sheet a page, as a PDF, in a window of the
+   * thumbnails' session; one at a time, with the page images.
+   */
+  print(id: string, version: number): Promise<Buffer> {
+    const run = this.exports.then(() => {
+      if (!this.session) throw new Error('Printing is not ready')
+      return printViewer(
+        this.session,
+        `${this.deps.serve(id).replace(/\/$/, '')}${versionUrlPath(version)}`,
+      )
+    })
+    this.exports = run.catch(() => {})
+    return run
+  }
+
+  private async keep(file: string, image: Buffer): Promise<void> {
+    await mkdir(this.deps.dir, { recursive: true })
+    const temporary = `${file}.${process.pid}.tmp`
+    await writeFile(temporary, image)
+    await rename(temporary, file)
+    const names = (await readdir(this.deps.dir)).filter((name) => /\.(png|jpg)$/.test(name))
+    if (names.length <= KEPT_THUMBNAILS) return
+    const files = await Promise.all(
+      names.map(async (name) => {
+        const stats = await stat(path.join(this.deps.dir, name)).catch(() => null)
+        return { name, mtimeMs: stats?.mtimeMs ?? 0 }
+      }),
+    )
+    await Promise.all(
+      outdated(files, KEPT_THUMBNAILS).map((name) =>
+        rm(path.join(this.deps.dir, name), { force: true }),
+      ),
+    )
+  }
+}
+
+/** The offscreen window opens nothing, moves nowhere and plays nothing. */
+function guardThumbnail(contents: WebContents): void {
+  contents.setAudioMuted(true)
+  contents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp')
+  contents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  contents.on('will-navigate', (event) => event.preventDefault())
+  // A frame of the document loads its artifact first; from then on it stays on that origin.
+  contents.on('will-frame-navigate', (details) => {
+    const frame = details.frame
+    if (details.isMainFrame || details.isSameDocument || !frame) return
+    const host = frameArtifact(frame)
+    const branch = frame.parent !== null && frame.parent.parent === null
+    const allowed =
+      host === null ? artifactHost(details.url) !== null : mayNavigate(host, details.url, branch)
+    if (!allowed) details.preventDefault()
+  })
+}
+
+function dataUrl(type: 'png' | 'jpeg', image: Buffer): string {
+  return `data:image/${type};base64,${image.toString('base64')}`
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}

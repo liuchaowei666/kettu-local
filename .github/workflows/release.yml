@@ -1,0 +1,371 @@
+name: Release
+
+# The gate before a release: the core tests pass once and every installer builds and packages on its
+# own runner. With a version, a run on main then uploads everything to a draft release of that
+# commit. Publishing the draft creates the tag and starts docker.yml, which pushes the daemon's
+# image. Without a version it touches no release, which checks a branch, or new macOS signing
+# secrets before a release depends on them.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, such as 0.0.4; empty to only check
+        type: string
+        default: ''
+      notes:
+        description: Release notes, needed with a version
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check the version
+        if: inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
+          NOTES: ${{ inputs.notes }}
+        run: |
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "A release is built from main, not $GITHUB_REF" >&2
+            exit 1
+          fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version $VERSION is not X.Y.Z" >&2
+            exit 1
+          fi
+          if [ -z "$NOTES" ]; then
+            echo "A release needs its notes" >&2
+            exit 1
+          fi
+          # 2 means no such tag; anything else is a tag already there or a failed lookup.
+          status=0
+          git ls-remote --exit-code --tags "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "refs/tags/v$VERSION" > /dev/null || status=$?
+          if [ "$status" != 2 ]; then
+            echo "v$VERSION is already tagged, or the tags could not be read" >&2
+            exit 1
+          fi
+
+  # Decides once per run: macOS is signed with the Developer ID when every signing secret is set,
+  # and stays ad-hoc signed when none is; a half-configured set fails the run here.
+  mac-signing:
+    name: macOS signing
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      signed: ${{ steps.decide.outputs.signed }}
+      notarize: ${{ steps.decide.outputs.notarize }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - id: decide
+        run: node tools/workflow/mac-signing.mjs
+        # Only whether each secret is set reaches this job, never its value.
+        env:
+          HAS_CSC_LINK: ${{ secrets.CSC_LINK != '' }}
+          HAS_CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD != '' }}
+          HAS_APPLE_API_KEY: ${{ secrets.APPLE_API_KEY != '' }}
+          HAS_APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID != '' }}
+          HAS_APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER != '' }}
+          HAS_APPLE_ID: ${{ secrets.APPLE_ID != '' }}
+          HAS_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD != '' }}
+          HAS_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID != '' }}
+
+  build:
+    name: ${{ matrix.os }}
+    needs: [version, mac-signing]
+    strategy:
+      fail-fast: false
+      matrix:
+        # Each architecture builds on its own runner, so node-pty is compiled or picked for the
+        # machine that tests it. The *_RUNNER repository variables, when set, replace GitHub's
+        # runners; Intel macOS and Arm Windows keep GitHub's.
+        include:
+          - os: ${{ vars.MACOS_RUNNER || 'macos-latest' }}
+            target: --mac --arm64
+            # Only a Developer ID signed build can replace itself; an ad-hoc one links to the release.
+            update_mode: ${{ needs.mac-signing.outputs.signed == 'true' && 'install' || 'link' }}
+          - os: macos-15-intel
+            target: --mac --x64
+            update_mode: ${{ needs.mac-signing.outputs.signed == 'true' && 'install' || 'link' }}
+          - os: ${{ vars.WINDOWS_RUNNER || 'windows-latest' }}
+            target: --win --x64
+            update_mode: install
+          - os: windows-11-arm
+            target: --win --arm64
+            update_mode: install
+          - os: ${{ vars.LINUX_RUNNER || 'ubuntu-24.04' }}
+            target: --linux --x64
+            update_mode: install
+          - os: ${{ vars.LINUX_ARM_RUNNER || 'ubuntu-24.04-arm' }}
+            target: --linux --arm64
+            update_mode: install
+    runs-on: ${{ matrix.os }}
+    env:
+      MAC_SIGNED: ${{ startsWith(matrix.target, '--mac') && needs.mac-signing.outputs.signed == 'true' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # main keeps 0.0.0, so a release needs no version commit; installers and update files take it
+      # from package.json.
+      - name: Set the version
+        if: inputs.version != ''
+        shell: bash
+        run: npm pkg set "version=$VERSION"
+        env:
+          VERSION: ${{ inputs.version }}
+      # A release prices with its day's list; a failed fetch keeps the committed snapshot and warns.
+      - name: Update the price snapshot
+        run: node tools/usage/update-prices.mjs --if-changed
+      # New installs start on the versions the ACP Registry lists that day; a failed read keeps
+      # the committed ones and warns.
+      - name: Update the harness versions
+        run: node tools/harnesses/update-versions.mjs
+      # Computer use's driver for the runner's own platform and architecture, before the build
+      # lists its license in the notices.
+      - name: Fetch Cua Driver
+        run: node tools/install/cua-driver.mjs
+      - run: pnpm build
+        env:
+          MAIN_VITE_UPDATE_MODE: ${{ matrix.update_mode }}
+      # The daemon has no Intel macOS package; the Intel build ships the desktop app only.
+      - name: Package the daemon
+        if: runner.os != 'Windows' && matrix.target != '--mac --x64'
+        run: node tools/daemon/package.mjs --out daemon-package
+      # The hosted web client is the same on every runner, so one of them builds it.
+      - name: Package the hosted web client
+        if: matrix.target == '--linux --x64'
+        run: |
+          pnpm build:web:hosted
+          tar -czf kettu-web.tar.gz -C out/web-hosted .
+          sha256sum kettu-web.tar.gz > kettu-web-sha256sums.txt
+      # The Icon Composer app icon compiles only with Xcode 26's actool or later, which the macOS 15
+      # image has but does not select.
+      - name: Select Xcode 26 or later
+        if: runner.os == 'macOS'
+        run: |
+          if [ "$(xcodebuild -version | head -1 | cut -d' ' -f2 | cut -d. -f1)" -lt 26 ]; then
+            sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
+          fi
+          xcodebuild -version
+      # scrcpy's server for Android, checked by its SHA-256, and on macOS the iOS helpers built from
+      # native/ with the runner's Xcode and Rust; the package ships them as the helpers resource.
+      - name: Fetch and build the device helpers
+        run: node tools/install/device-helpers.mjs
+      - name: Package
+        if: env.MAC_SIGNED != 'true'
+        run: pnpm exec electron-builder ${{ matrix.target }} --publish never
+        env:
+          # Ad-hoc signed on macOS, unsigned elsewhere; keep electron-builder from picking an identity
+          # from the keychain.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      # notarytool takes the API key as a file; the secret holds the contents of the .p8 download.
+      - name: Write the App Store Connect API key
+        if: env.MAC_SIGNED == 'true' && needs.mac-signing.outputs.notarize == 'api-key'
+        run: |
+          (umask 077 && printf '%s\n' "$APPLE_API_KEY" > "$RUNNER_TEMP/notarization-key.p8")
+          if ! grep -q -- '-----BEGIN PRIVATE KEY-----' "$RUNNER_TEMP/notarization-key.p8"; then
+            echo "APPLE_API_KEY must hold the contents of the .p8 file" >&2
+            exit 1
+          fi
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      - name: Package, sign and notarize
+        if: env.MAC_SIGNED == 'true'
+        run: >-
+          pnpm exec electron-builder ${{ matrix.target }} --publish never
+          --config electron-builder.mac-signed.yml
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          # Only the credentials the mac-signing job chose: electron-builder takes an Apple ID over
+          # an API key whenever one is set.
+          APPLE_API_KEY: ${{ needs.mac-signing.outputs.notarize == 'api-key' && format('{0}/notarization-key.p8', runner.temp) || '' }}
+          APPLE_API_KEY_ID: ${{ needs.mac-signing.outputs.notarize == 'api-key' && secrets.APPLE_API_KEY_ID || '' }}
+          APPLE_API_ISSUER: ${{ needs.mac-signing.outputs.notarize == 'api-key' && secrets.APPLE_API_ISSUER || '' }}
+          APPLE_ID: ${{ needs.mac-signing.outputs.notarize == 'apple-id' && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ needs.mac-signing.outputs.notarize == 'apple-id' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ needs.mac-signing.outputs.notarize == 'apple-id' && secrets.APPLE_TEAM_ID || '' }}
+      # electron-builder skips notarization with only a warning when it lacks credentials, so every
+      # signed build is checked. Gatekeeper checks the app, not the dmg, which electron-builder
+      # leaves unsigned: the app is checked inside the dmg users download and the zip Squirrel.Mac
+      # installs.
+      - name: Check the signature and notarization
+        if: env.MAC_SIGNED == 'true'
+        shell: bash
+        run: |
+          check() {
+            codesign --verify --deep --strict --verbose=2 "$1"
+            # With assessments off, spctl accepts anything and would prove nothing.
+            if [ "$(spctl --status 2>&1)" = 'assessments enabled' ]; then
+              spctl --assess --type execute -vv "$1" 2>&1 | tee "$RUNNER_TEMP/spctl.txt"
+              if ! grep -q 'source=Notarized Developer ID' "$RUNNER_TEMP/spctl.txt"; then
+                echo "::error::Gatekeeper does not accept $1 as a notarized Developer ID app"
+                exit 1
+              fi
+            else
+              echo "::warning::Gatekeeper is off on this runner, so spctl could not assess $1"
+            fi
+            node tools/workflow/mac-stapler.mjs "$1"
+          }
+          mount="$(mktemp -d)"
+          hdiutil attach dist/*.dmg -nobrowse -readonly -mountpoint "$mount"
+          check "$mount/Kettu.app"
+          hdiutil detach "$mount"
+          unzipped="$(mktemp -d)"
+          ditto -x -k dist/*.zip "$unzipped"
+          check "$unzipped/Kettu.app"
+      # Only the installers and the update file leave the runner. A signed macOS build adds the zip
+      # that Squirrel.Mac installs from and its blockmap, from which electron-updater downloads only
+      # the changed blocks; other blockmaps and unpacked apps stay behind.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.os }}
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*-mac.zip.blockmap
+            dist/*-setup.exe
+            dist/*.AppImage
+            dist/latest*.yml
+          if-no-files-found: error
+      # An artifact of its own, so the installers' keeps dist/ as its root.
+      - if: runner.os != 'Windows' && matrix.target != '--mac --x64'
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-daemon-${{ matrix.os }}
+          path: daemon-package/kettu-daemon-*
+          if-no-files-found: error
+      - if: matrix.target == '--linux --x64'
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-web
+          path: |
+            kettu-web.tar.gz
+            kettu-web-sha256sums.txt
+          if-no-files-found: error
+
+  test:
+    name: Test
+    runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-24.04' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
+  publish:
+    needs: [mac-signing, build, test]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      # The install script goes up with the release, which the daemon's update runs; the update
+      # files are signed with the workflow's script against the app's own keys.
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            tools/daemon
+            tools/workflow
+            src/main/update-keys.json
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          pattern: release-*
+      - name: Join the update files
+        env:
+          MAC_SIGNED: ${{ needs.mac-signing.outputs.signed }}
+          NOTES: ${{ inputs.notes }}
+        run: |
+          mkdir release
+          cp artifacts/*/*.dmg artifacts/*/*-setup.exe artifacts/*/*.AppImage release/
+          # The daemon's packages, with one list of their checksums for the install script.
+          cp artifacts/*/kettu-daemon-*.tar.gz tools/daemon/install.sh release/
+          cat artifacts/*/kettu-daemon-*.tar.gz.sha256 > release/kettu-daemon-sha256sums.txt
+          packages="$(wc -l < release/kettu-daemon-sha256sums.txt)"
+          if [ "$packages" != 3 ]; then
+            echo "The checksums list $packages daemon packages, expected 3" >&2
+            exit 1
+          fi
+          # The hosted web client, with its checksum.
+          cp artifacts/release-web/kettu-web.tar.gz artifacts/release-web/kettu-web-sha256sums.txt release/
+          # A signed macOS build lists its zip next to its dmg and ships the zip's blockmap.
+          mac_files=2
+          if [ "$MAC_SIGNED" = true ]; then
+            cp artifacts/*/*.zip artifacts/*/*-mac.zip.blockmap release/
+            mac_files=4
+          fi
+          # Each build wrote the update file for its own architecture. macOS and Windows clients read
+          # one file that lists both, so the file lists are joined; Linux has a file per architecture.
+          for feed in latest.yml:2 latest-mac.yml:$mac_files latest-linux.yml:1 latest-linux-arm64.yml:1; do
+            name="${feed%:*}"
+            yq eval-all '. as $item ireduce ({}; . *+ $item)' artifacts/*/"$name" > "release/$name"
+            count="$(yq '.files | length' "release/$name")"
+            if [ "$count" != "${feed#*:}" ]; then
+              echo "$name lists $count files, expected ${feed#*:}" >&2
+              exit 1
+            fi
+            # The app reads the release's highlights from its signed update file alone.
+            if [ -n "$NOTES" ]; then
+              yq -i '.releaseNotes = strenv(NOTES)' "release/$name"
+            fi
+          done
+          ls -l release
+          tail -n +1 release/*.yml
+      # Every source serves these files, so the app takes one only with the release key's signature.
+      - name: Sign the update files
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: node tools/workflow/sign-update-files.mjs release/latest*.yml
+      # A draft creates no tag: publishing it tags the commit it targets. A run after a fix moves the
+      # draft to the newer commit.
+      - name: Upload to a draft release
+        if: inputs.version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+          NOTES: ${{ inputs.notes }}
+        run: |
+          tag="v$VERSION"
+          draft="$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null || true)"
+          if [ -z "$draft" ]; then
+            gh release create "$tag" release/* --draft --target "$GITHUB_SHA" \
+              --title "Kettu $VERSION" --notes "$NOTES"
+          elif [ "$draft" = true ]; then
+            gh release edit "$tag" --target "$GITHUB_SHA" --notes "$NOTES"
+            gh release upload "$tag" release/* --clobber
+          else
+            # Publishing created its tag, which a draft again could not move.
+            echo "Release $tag is published; release the fix as a new version" >&2
+            exit 1
+          fi

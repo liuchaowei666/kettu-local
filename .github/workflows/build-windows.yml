@@ -1,0 +1,161 @@
+name: build-on-upstream-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Build even when the upstream release has not changed
+        type: boolean
+        default: false
+  schedule:
+    # Every 15 minutes: when KettuAI/Kettu publishes a new release, build it.
+    - cron: '*/15 * * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-on-upstream-release
+  cancel-in-progress: false
+
+env:
+  npm_config_registry: https://registry.npmmirror.com
+  ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.11.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Which upstream release should be built?
+        id: pick
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          API="https://api.github.com/repos/KettuAI/Kettu/releases/latest"
+          BASE=$(curl -sSL -H "Authorization: token $GH_TOKEN" "$API" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);console.log((j.tag_name||'').replace(/^v/,''))})")
+          if [ -z "$BASE" ]; then echo "could not read the upstream release"; exit 1; fi
+          LAST=$(cat local-base.txt 2>/dev/null | tr -d '\r\n' || echo "")
+          echo "upstream=$BASE last=$LAST"
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          if [ "$BASE" = "$LAST" ] && [ "${{ inputs.force }}" != "true" ]; then
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Stop when the release is not new
+        if: steps.pick.outputs.skip == '1'
+        run: echo "No new upstream release since ${{ steps.pick.outputs.base }}."
+
+      - name: Fetch the release source and apply the local changes
+        if: steps.pick.outputs.skip == '0'
+        shell: bash
+        run: |
+          set -e
+          BASE="${{ steps.pick.outputs.base }}"
+          mkdir app
+          curl -sSL "https://github.com/KettuAI/Kettu/archive/refs/tags/v$BASE.tar.gz" | tar -xz -C app --strip-components=1
+          cd app
+          git init -q
+          git apply -v ../patches/local.patch
+          echo "applied local.patch onto v$BASE"
+
+      - name: Choose the version to publish
+        if: steps.pick.outputs.skip == '0'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BASE="${{ steps.pick.outputs.base }}"
+          node - "$BASE" <<'NODE'
+          const base = process.argv[2]
+          const fs = require('fs')
+          const p = JSON.parse(fs.readFileSync('app/package.json', 'utf8'))
+          const ours = JSON.parse(fs.readFileSync('local-versions.json', 'utf8'))
+          const parse = (v) => v.split('.').map(Number)
+          const cmp = (a, b) => {
+            const x = parse(a), y = parse(b)
+            for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]
+            return 0
+          }
+          let version = base
+          const used = new Set(ours)
+          for (const v of ours) if (cmp(v, version) > 0) version = v
+          while (used.has(version)) {
+            const v = parse(version)
+            v[2] += 1
+            version = v.join('.')
+          }
+          p.version = version
+          fs.writeFileSync('app/package.json', JSON.stringify(p, null, 2) + '\n')
+          fs.writeFileSync('chosen-version.txt', version)
+          console.log('publishing version', version)
+          NODE
+          echo "VERSION=$(cat chosen-version.txt)" >> "$GITHUB_ENV"
+
+      - name: Install
+        if: steps.pick.outputs.skip == '0'
+        working-directory: app
+        run: pnpm install --frozen-lockfile
+
+      - name: Device helpers
+        if: steps.pick.outputs.skip == '0'
+        working-directory: app
+        run: node tools/install/device-helpers.mjs
+        continue-on-error: true
+
+      - name: Computer-use driver
+        if: steps.pick.outputs.skip == '0'
+        working-directory: app
+        run: node tools/install/cua-driver.mjs
+        continue-on-error: true
+
+      - name: Build
+        if: steps.pick.outputs.skip == '0'
+        working-directory: app
+        run: pnpm build
+
+      - name: Package the Windows installer
+        if: steps.pick.outputs.skip == '0'
+        working-directory: app
+        run: pnpm exec electron-builder --win --config electron-builder.yml --publish never
+
+      - name: Publish the release
+        if: steps.pick.outputs.skip == '0'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: Kettu ${{ env.VERSION }} (upstream ${{ steps.pick.outputs.base }} + local)
+          body: |
+            Upstream release: v${{ steps.pick.outputs.base }}
+            Local changes: DeepSeek via Magpie routing group, balance in the usage page and composer.
+          files: |
+            app/dist/*.exe
+            app/dist/latest.yml
+            app/dist/*.blockmap
+
+      - name: Remember which release was built
+        if: steps.pick.outputs.skip == '0'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BASE="${{ steps.pick.outputs.base }}"
+          echo "$BASE" > local-base.txt
+          node -e "const fs=require('fs');const a=JSON.parse(fs.readFileSync('local-versions.json','utf8'));a.push(process.env.VERSION);fs.writeFileSync('local-versions.json',JSON.stringify(a))"
+          git config user.name "kettu-build"
+          git config user.email "kettu-build@users.noreply.github.com"
+          git add local-base.txt local-versions.json
+          git commit -m "build: upstream $BASE -> $VERSION"
+          git push

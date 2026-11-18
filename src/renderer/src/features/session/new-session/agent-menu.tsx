@@ -1,0 +1,1170 @@
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { ArrowRight01Icon, Search01Icon } from '@hugeicons/core-free-icons'
+import { useTranslation } from 'react-i18next'
+import { useShallow } from 'zustand/react/shallow'
+import type { AgentStatus } from '@shared/agent-host'
+import type { AgentId, ConfigOption } from '@shared/thread'
+import { AgentMark } from '@renderer/components/agents/agent-mark'
+import { AgentMarkHost } from '@renderer/components/agents/agent-mark-host'
+import { Button } from '@renderer/components/ui/button'
+import {
+  Combobox,
+  ComboboxCollection,
+  ComboboxContent,
+  ComboboxGroup,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxLabel,
+  ComboboxList,
+  ComboboxSeparator,
+  ComboboxTrigger,
+  useComboboxFilter,
+} from '@renderer/components/ui/combobox'
+import { InputGroupAddon } from '@renderer/components/ui/input-group'
+import { Separator } from '@renderer/components/ui/separator'
+import { Skeleton } from '@renderer/components/ui/skeleton'
+import { Spinner } from '@renderer/components/ui/spinner'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@renderer/components/ui/tabs'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
+import { ConfigSwitchRow } from '@renderer/features/session/composer/config-switch'
+import { ChoiceName, EffortSegments } from '@renderer/features/session/composer/control-row'
+import { levelsOf, splitName, type SelectOption } from '@renderer/features/session/composer/levels'
+import { shownChoice, shownValue } from '@renderer/features/session/composer/model-list'
+import { cliOutdated, listedInstalled } from '@renderer/features/agents/readiness'
+import { Ring } from '@renderer/features/session/composer/usage'
+import { planReset, tightestLimit } from '@renderer/features/sidebar/plan-usage'
+import { useLimitView } from '@renderer/hooks/use-limit-view'
+import { limitLabel } from '@renderer/lib/format'
+import { errorMessage, hostAt } from '@renderer/lib/host'
+import { LIMIT_TEXT, limitLevel, limitPercent, type LimitLevel } from '@renderer/lib/plan-limit'
+import { newestLimits } from '@renderer/lib/plan-readings'
+import { useNow } from '@renderer/lib/use-now'
+import { cn } from '@renderer/lib/utils'
+import {
+  agentKey,
+  optionsLoaded,
+  optionsOn,
+  picksOf,
+  preparedFor,
+  useAgentOptionsStore,
+  type OptionValues,
+} from '@renderer/stores/agent-options'
+import {
+  agentName,
+  agentsOn,
+  usableAgents,
+  useAgentsStore,
+  usePlanReadings,
+} from '@renderer/stores/agents'
+import { refreshLimits } from '@renderer/stores/usage'
+import { useHostLabel } from '@renderer/features/sidebar/host-label'
+import { openAgentSettings, openHarnessSettings } from '@renderer/stores/view'
+import {
+  agentNeed,
+  canStart,
+  isMoreKey,
+  itemKey,
+  menuAgents,
+  menuGroups,
+  menuModels,
+  moreKey,
+  parseItemKey,
+  preparedConfig,
+  startConfig,
+  type MenuAgent,
+  type MenuGroup,
+} from './start-options'
+import { readFirstOptions, refreshOnMenu, retryPrepare, setOption } from './prepared'
+import { useStartConfig } from './use-start-config'
+import { Glyph } from '@renderer/features/shell/glyph'
+
+const isSelect = (o: ConfigOption | undefined): o is SelectOption =>
+  !!o && o.type === 'select' && !!o.choices?.length
+
+/**
+ * The composer's agent-and-model button and its menu: the agents on a rail, the shown agent's
+ * models with its reasoning level and switches beside them, and one search over both. Choosing a
+ * model chooses its agent with it. With `modelOnly`, the chosen agent's models alone, under a
+ * button that names the model and its level.
+ */
+export function AgentMenu({
+  agentId,
+  onChoose,
+  values,
+  onValues,
+  folderless = false,
+  hostId = null,
+  modelOnly = false,
+  defaultOpen = false,
+  onClose,
+  emptyLabel,
+  triggerClassName,
+  label: buttonLabel,
+  only,
+  action = null,
+}: {
+  agentId: AgentId | null
+  onChoose: (agentId: AgentId, model: string | null) => void
+  modelOnly?: boolean
+  /** The button's label while no agent is chosen, in place of "Choose an agent". */
+  emptyLabel?: ReactNode
+  triggerClassName?: string
+  /** The button's accessible name, in place of "Agent and model". */
+  label?: string
+  /** The agents it lists, when only some can do the work. */
+  only?: (status: AgentStatus) => boolean
+  /** An action under the list that answers for the menu, such as going back to Auto. */
+  action?: { label: string; icon: ReactNode; onSelect: () => void } | null
+  /** Opens as it mounts, for a menu another control opened in its place. */
+  defaultOpen?: boolean
+  /** It closed, chosen or not, for Base UI's reason, or none when it closed itself. */
+  onClose?: (reason?: string) => void
+  /**
+   * The option values of the menu's own agent, when the caller keeps them itself, as a routine
+   * does; without them the menu shows and sets New session's picks.
+   */
+  values?: OptionValues
+  /** With `values`, each change to them; the caller saves it. */
+  onValues?: (optionId: string, value: string | boolean) => void
+  /** New session has no folder yet, so an agent shown with no options cached reads them once. */
+  folderless?: boolean
+  /** The other host New session's project is on, whose agents the menu lists; null for this computer. */
+  hostId?: string | null
+}) {
+  const { t } = useTranslation('session')
+  const hostLabel = useHostLabel(hostId)
+  const statuses = useAgentsStore(
+    useShallow((s) => {
+      const { order, byId } = agentsOn(s, hostId)
+      const listed = menuAgents(usableAgents(order, byId), true).filter(
+        (status) => !only || only(status),
+      )
+      return modelOnly ? listed.filter((status) => status.id === agentId) : listed
+    }),
+  )
+  // This computer's agents are read after launch: until then the list is loading, not empty.
+  const agentsRead = useAgentsStore((s) => hostId !== null || s.loaded)
+  const entries = useAgentOptionsStore((s) => optionsOn(s, hostId))
+  const picks = useAgentOptionsStore((s) => s.picks)
+  const loaded = useAgentOptionsStore((s) => optionsLoaded(s, hostId))
+  const prepared = useAgentOptionsStore((s) => s.prepared)
+  const [open, setOpen] = useState(false)
+  const [shown, setShown] = useState<AgentId | null>(agentId)
+  // Opened before the agents were read, it shows one once they are.
+  if (open && shown === null && agentsRead && statuses.length > 0) {
+    setShown(firstShown(statuses, agentId))
+  }
+  const shownPrepared = shown ? preparedFor({ prepared }, hostId, shown) : null
+  const firstRead = useAgentOptionsStore((s) =>
+    shown ? s.firstReads[agentKey(hostId, shown)] : undefined,
+  )
+  const [query, setQuery] = useState('')
+  // The agent whose older models the list shows.
+  const [expanded, setExpanded] = useState<AgentId | null>(null)
+  const { contains } = useComboboxFilter()
+  const body = useRef<HTMLDivElement>(null)
+  const rail = useRef<HTMLDivElement>(null)
+  const [size, setSize] = useState<{ rail: number; height: number } | null>(null)
+
+  const configs = useMemo(() => {
+    const map = new Map<AgentId, ConfigOption[]>()
+    for (const status of statuses) {
+      const entry = entries[status.id]
+      const live = preparedFor({ prepared }, hostId, status.id)?.summary?.prepared
+      const own = values && status.id === agentId ? values : picksOf({ picks }, hostId, status.id)
+      if (live) map.set(status.id, preparedConfig(live.config, entry?.levels ?? {}, own))
+      else if (entry) map.set(status.id, startConfig(entry, own))
+    }
+    return map
+  }, [statuses, entries, picks, prepared, values, agentId, hostId])
+  const agents: MenuAgent[] = statuses.map((status) => {
+    const model = configs.get(status.id)?.find((o) => o.category === 'model')
+    return {
+      agentId: status.id,
+      name: status.name,
+      model: isSelect(model) ? model : null,
+      choosable: canStart(status),
+    }
+  })
+  const groups = menuGroups(agents, shown, query, contains, expanded)
+  // Every item, so the chosen one's label resolves while the list shows another agent.
+  const allGroups = useMemo<MenuGroup[]>(
+    () =>
+      agents.map((a) => {
+        if (!a.model?.choices?.length)
+          return { agentId: a.agentId, items: [itemKey(a.agentId, null)] }
+        const { current, older } = menuModels(a.model.choices)
+        return {
+          agentId: a.agentId,
+          items: [
+            ...current.map((c) => itemKey(a.agentId, c.value)),
+            ...(older.length > 0 ? [moreKey(a.agentId)] : []),
+            ...older.map((c) => itemKey(a.agentId, c.value)),
+          ],
+        }
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- agents is derived from these
+    [statuses, configs],
+  )
+  const chosenModel = agentId ? agents.find((a) => a.agentId === agentId)?.model : null
+  const chosenChoice = chosenModel?.choices
+    ? shownChoice(chosenModel.choices, String(chosenModel.value))
+    : undefined
+  const value = agentId
+    ? itemKey(
+        agentId,
+        chosenModel
+          ? (shownValue(chosenModel.choices ?? [], String(chosenModel.value)) ?? null)
+          : null,
+      )
+    : null
+  const searching = query.trim().length > 0
+  const visibleRail = searching
+    ? statuses.filter((s) => groups.some((g) => g.agentId === s.id))
+    : statuses
+
+  const shownStatus = statuses.find((s) => s.id === shown)
+  const shownNeed = shownStatus ? agentNeed(shownStatus) : null
+  useEffect(() => {
+    // Only this computer's agents are read without a folder.
+    if (!open || !folderless || hostId !== null || !shown || !loaded) return
+    if (shownNeed === 'sign-in' || shownNeed === 'failed' || shownNeed === 'update') return
+    void readFirstOptions(hostId, shown)
+  }, [open, folderless, hostId, shown, loaded, shownNeed])
+
+  const label = (key: string) => {
+    const { agentId: id, model } = parseItemKey(key)
+    const choices = agents.find((a) => a.agentId === id)?.model?.choices
+    const choice = choices && model !== null ? shownChoice(choices, model) : undefined
+    return choice ? `${agentName(id, hostId)} ${choice.name}` : agentName(id, hostId)
+  }
+
+  const onOpenChange = (next: boolean, details?: { reason: string }) => {
+    setOpen(next)
+    if (!next) {
+      setQuery('')
+      setSize(null)
+      onClose?.(details?.reason)
+      return
+    }
+    setShown(agentsRead ? firstShown(statuses, agentId) : null)
+    setExpanded(chosenChoice?.older ? agentId : null)
+    for (const status of statuses) {
+      if (status.state !== 'ready' || !status.capabilities.reports) continue
+      refreshLimits(status.id, hostId).catch((error: unknown) =>
+        console.warn(`Could not read the plan limits: ${errorMessage(error)}`),
+      )
+    }
+    refreshOnMenu(
+      hostId,
+      statuses.filter((s) => s.state === 'ready').map((s) => s.id),
+    )
+  }
+
+  // The rail and the pane keep the sizes they had while a search narrows them, so nothing jumps.
+  const onQuery = (next: string) => {
+    if (!searching && next.trim() && body.current && rail.current) {
+      setSize({ rail: rail.current.offsetWidth, height: body.current.offsetHeight })
+    }
+    setQuery(next)
+  }
+
+  const close = () => onOpenChange(false)
+
+  const openedAtMount = useRef(false)
+  useEffect(() => {
+    if (!defaultOpen || openedAtMount.current) return
+    openedAtMount.current = true
+    onOpenChange(true)
+  })
+
+  // A caller that keeps the values itself hears of the changes to its own agent; another agent's
+  // changes are only a look at it until one of its models is chosen.
+  const pickOption = (id: AgentId, optionId: string, value: string | boolean) => {
+    if (onValues && id === agentId) onValues(optionId, value)
+    else setOption(hostId, id, optionId, value)
+  }
+
+  return (
+    // Marks inside show this host's agents, the second-account dots included.
+    <AgentMarkHost.Provider value={hostId}>
+      <Combobox
+        items={allGroups}
+        filteredItems={groups}
+        filter={null}
+        value={value}
+        onValueChange={(key: string | null, details) => {
+          if (!key) return
+          if (isMoreKey(key)) {
+            // The row only shows or hides the older models, so the menu stays open.
+            details.cancel()
+            const { agentId: id } = parseItemKey(key)
+            setExpanded((current) => (current === id ? null : id))
+            return
+          }
+          const choice = parseItemKey(key)
+          onChoose(choice.agentId, choice.model)
+        }}
+        open={open}
+        onOpenChange={onOpenChange}
+        inputValue={query}
+        onInputValueChange={onQuery}
+        itemToStringLabel={label}
+        autoHighlight
+      >
+        {modelOnly ? (
+          <ComboboxTrigger
+            render={
+              <Button
+                variant="quiet"
+                size="sm"
+                aria-label={t('newSession.modelMenu.label')}
+                className="h-7.5 min-w-0 shrink gap-1.25 overflow-hidden rounded-tile px-2 text-control font-normal text-tertiary"
+              />
+            }
+          >
+            <ModelButtonLabel agentId={agentId} values={values} hostId={hostId} />
+          </ComboboxTrigger>
+        ) : (
+          <ComboboxTrigger
+            render={
+              <Button
+                variant="quiet"
+                size="sm"
+                aria-label={buttonLabel ?? t('newSession.agentMenu.label')}
+                className={cn(
+                  'min-w-0 shrink gap-1 overflow-hidden px-2.25 text-control font-normal has-data-[icon=inline-end]:pr-2.25',
+                  triggerClassName,
+                )}
+              />
+            }
+          >
+            <AgentButtonLabel
+              agentId={agentId}
+              values={values}
+              hostId={hostId}
+              emptyLabel={emptyLabel}
+            />
+          </ComboboxTrigger>
+        )}
+        <ComboboxContent align="end" sideOffset={6} className="flex flex-col">
+          <ComboboxInput
+            showTrigger={false}
+            placeholder={t(
+              modelOnly ? 'newSession.modelMenu.search' : 'newSession.agentMenu.search',
+            )}
+            aria-label={t(
+              modelOnly ? 'newSession.modelMenu.search' : 'newSession.agentMenu.search',
+            )}
+            spellCheck={false}
+          >
+            <InputGroupAddon>
+              <Glyph icon={Search01Icon} className="size-3.5" />
+            </InputGroupAddon>
+          </ComboboxInput>
+          {!agentsRead ? (
+            // The rail and the pane at their own sizes, so nothing moves when the agents come.
+            <div className="flex min-h-0 flex-1 p-1.5" aria-hidden>
+              {!modelOnly && (
+                <>
+                  <div className="flex min-w-49 shrink-0 flex-col gap-1 pr-1.5">
+                    {[0, 1, 2].map((i) => (
+                      <Skeleton key={i} className="h-row w-full rounded-md" />
+                    ))}
+                  </div>
+                  <Separator orientation="vertical" className="bg-border-soft" />
+                </>
+              )}
+              <div className={cn('flex w-80 min-w-0 flex-col gap-1', !modelOnly && 'ml-1.5')}>
+                {[0, 1, 2].map((i) => (
+                  <Skeleton key={i} className="h-row w-full rounded-md" />
+                ))}
+              </div>
+            </div>
+          ) : statuses.length === 0 ? (
+            <p className="flex-1 px-3.5 py-3 text-ui text-muted-foreground">
+              {hostId === null
+                ? t('newSession.noAgent')
+                : t('newSession.noAgentOnHost', { host: hostLabel })}
+            </p>
+          ) : (
+            <Tabs
+              orientation="vertical"
+              value={shown}
+              onValueChange={(next: AgentId) => {
+                setShown(next)
+                setQuery('')
+              }}
+              className="min-h-0 flex-1 flex-row gap-0"
+            >
+              <div
+                ref={body}
+                className="flex min-h-0 flex-1 p-1.5"
+                style={searching && size ? { minHeight: size.height } : undefined}
+              >
+                {/* With the models alone the rail is one agent, so only its pane shows. */}
+                {!modelOnly && (
+                  <TabsList
+                    ref={rail}
+                    style={searching && size ? { minWidth: size.rail } : undefined}
+                    variant="rail"
+                    activateOnFocus
+                    aria-label={t('newSession.agentMenu.agents')}
+                    className="max-h-[min(--spacing(96),calc(var(--available-height)---spacing(12)))] w-auto min-w-49 shrink-0 scroll-fade-y justify-start overflow-y-auto overscroll-contain pr-1.5"
+                  >
+                    {visibleRail.map((status) => (
+                      <RailRow key={status.id} status={status} />
+                    ))}
+                  </TabsList>
+                )}
+                {!modelOnly && <Separator orientation="vertical" className="bg-border-soft" />}
+                <TabsContent
+                  value={shown ?? undefined}
+                  tabIndex={-1}
+                  keepMounted={false}
+                  className={cn('flex w-80 min-w-0 flex-col', !modelOnly && 'ml-1.5')}
+                >
+                  <Pane
+                    status={shownStatus ?? null}
+                    hostId={hostId}
+                    hostLabel={hostLabel}
+                    config={shown ? (configs.get(shown) ?? null) : null}
+                    loaded={loaded}
+                    opening={shownPrepared ? shownPrepared.opening : (firstRead?.reading ?? false)}
+                    failure={shownPrepared ? shownPrepared.error : (firstRead?.error ?? null)}
+                    onRetry={
+                      shownPrepared || !shown
+                        ? retryPrepare
+                        : () => void readFirstOptions(hostId, shown, true)
+                    }
+                    searching={searching}
+                    expanded={expanded}
+                    groups={groups}
+                    agents={agents}
+                    onLeave={close}
+                    onOption={pickOption}
+                  />
+                </TabsContent>
+              </div>
+            </Tabs>
+          )}
+          {action && (
+            <>
+              <Separator className="bg-border-soft" />
+              <div className="p-1.5">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-start gap-2 px-2 text-ui font-normal"
+                  onClick={() => {
+                    close()
+                    action.onSelect()
+                  }}
+                >
+                  {action.icon}
+                  {action.label}
+                </Button>
+              </div>
+            </>
+          )}
+          {/* Settings set up this computer's agents, not another host's. */}
+          {hostId === null && !modelOnly && (
+            <>
+              <Separator className="bg-border-soft" />
+              <div className="p-1.5">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-start px-2 text-ui font-normal"
+                  onClick={() => {
+                    close()
+                    openAgentSettings(null)
+                  }}
+                >
+                  {t('newSession.setUpAgents')}
+                </Button>
+              </div>
+            </>
+          )}
+        </ComboboxContent>
+      </Combobox>
+    </AgentMarkHost.Provider>
+  )
+}
+
+/** The agent the menu shows as it opens: its own, else the first installed one. */
+function firstShown(statuses: AgentStatus[], agentId: AgentId | null): AgentId | null {
+  return statuses.some((s) => s.id === agentId)
+    ? agentId
+    : ((statuses.find(listedInstalled) ?? statuses[0])?.id ?? null)
+}
+
+/** What the composer's button shows: the agent, the model it starts with and the level. */
+function AgentButtonLabel({
+  agentId,
+  values,
+  hostId,
+  emptyLabel,
+}: {
+  agentId: AgentId | null
+  values?: OptionValues
+  hostId: string | null
+  emptyLabel?: ReactNode
+}) {
+  const { t } = useTranslation('session')
+  const config = useStartConfig(agentId, values, hostId)
+  if (!agentId) {
+    return (
+      emptyLabel ?? (
+        <span className="truncate text-foreground">{t('newSession.chooseAgentShort')}</span>
+      )
+    )
+  }
+  const model = config?.find((o) => o.category === 'model')
+  const effort = config?.find((o) => o.category === 'thought_level')
+  const modelName = isSelect(model)
+    ? (shownChoice(model.choices, String(model.value))?.name ?? String(model.value))
+    : null
+  const level = isSelect(effort)
+    ? levelsOf(effort, String(effort.value), isSelect(model) ? String(model.value) : undefined)
+    : null
+  const levelName = level?.levels.find((c) => c.value === level.shown)?.name
+  return (
+    <>
+      <AgentMark agent={agentId} size={14} />
+      {/* On a narrow window the model's name gives way first, the agent's only after it. */}
+      <span className="min-w-0 truncate text-foreground" title={agentName(agentId, hostId)}>
+        {agentName(agentId, hostId)}
+      </span>
+      {modelName && (
+        <span className="min-w-0 shrink-100 truncate text-secondary" title={modelName}>
+          {splitName(modelName)[1]}
+        </span>
+      )}
+      {levelName && <span className="shrink-0 text-secondary">{levelName}</span>}
+    </>
+  )
+}
+
+/** The model button's label: the model the session starts with, then its level. */
+function ModelButtonLabel({
+  agentId,
+  values,
+  hostId,
+}: {
+  agentId: AgentId | null
+  values?: OptionValues
+  hostId: string | null
+}) {
+  const { t } = useTranslation('session')
+  const config = useStartConfig(agentId, values, hostId)
+  const model = config?.find((o) => o.category === 'model')
+  const effort = config?.find((o) => o.category === 'thought_level')
+  const modelName = isSelect(model)
+    ? (shownChoice(model.choices, String(model.value))?.name ?? String(model.value))
+    : null
+  const level = isSelect(effort)
+    ? levelsOf(effort, String(effort.value), isSelect(model) ? String(model.value) : undefined)
+    : null
+  const levelName = level?.levels.find((c) => c.value === level.shown)?.name
+  return (
+    <>
+      <span className="min-w-0 truncate text-secondary" title={modelName ?? undefined}>
+        {modelName ? splitName(modelName)[1] : t('newSession.modelMenu.model')}
+      </span>
+      {levelName && <span className="shrink-0">{levelName}</span>}
+    </>
+  )
+}
+
+/** One agent on the rail: its mark and name, then its plan usage or what it needs. */
+function RailRow({ status }: { status: AgentStatus }) {
+  const { t } = useTranslation('session')
+  const now = useNow()
+  const limits = newestLimits(usePlanReadings(), status)
+  const limit = tightestLimit(limits, now)
+  const need = agentNeed(status)
+  const trailing =
+    need === 'setup'
+      ? t('newSession.agentMenu.setsUp')
+      : need === 'update'
+        ? t('newSession.agentMenu.needsUpdate')
+        : need === 'installing'
+          ? t('newSession.agentMenu.installing')
+          : need === 'failed'
+            ? t('newSession.agentMenu.failed')
+            : need === 'sign-in'
+              ? t('newSession.agentMenu.signIn')
+              : null
+
+  return (
+    <TabsTrigger
+      value={status.id}
+      // The shown agent takes the selected fill, as a menu's rail does.
+      className="justify-start gap-2 rounded-md group-data-[variant=rail]/tabs-list:data-active:bg-selected dark:group-data-[variant=rail]/tabs-list:data-active:bg-selected"
+    >
+      <AgentMark agent={status.id} size={14} />
+      <span className="min-w-0 flex-1 truncate text-left">{status.name}</span>
+      {trailing ? (
+        <span
+          className={cn(
+            'shrink-0 pl-2 text-xs',
+            need === 'sign-in' || need === 'update'
+              ? 'text-warning'
+              : need === 'failed'
+                ? 'text-danger'
+                : 'text-muted-foreground',
+          )}
+        >
+          {trailing}
+        </span>
+      ) : (
+        limit && <UsageNote limits={limits} now={now} />
+      )}
+    </TabsTrigger>
+  )
+}
+
+const RING_TONE = {
+  ok: 'limit-ok',
+  warn: 'limit-warn',
+  bad: 'limit-bad',
+} as const satisfies Record<LimitLevel, string>
+
+/** The tightest window's pie and percentage, with every window in the tooltip. */
+function UsageNote({ limits, now }: { limits: AgentStatus['limits']; now: number }) {
+  const { t } = useTranslation('session')
+  const view = useLimitView()
+  const limit = tightestLimit(limits, now)
+  if (!limit) return null
+  const level = limitLevel(limit)
+  const percent = limitPercent(limit, view)
+  const current = limits.filter((l) => l.resetsAt === null || l.resetsAt > now)
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            className={cn(
+              'flex shrink-0 items-center gap-1.25 pl-2 text-xs tabular',
+              LIMIT_TEXT[level],
+            )}
+          />
+        }
+      >
+        <Ring share={(percent ?? 0) / 100} tone={RING_TONE[level]} className="size-3" />
+        {percent === null ? '—' : `${percent}%`}
+      </TooltipTrigger>
+      <TooltipContent side="right" className="flex flex-col items-start gap-0.5">
+        {current.map((l) => {
+          const reset = l.resetsAt && l.resetsAt > now ? planReset(l.resetsAt, now) : null
+          const shown = limitPercent(l, view)
+          const value =
+            shown === null
+              ? '—'
+              : t(
+                  view === 'left'
+                    ? 'newSession.agentMenu.valueLeft'
+                    : 'newSession.agentMenu.valueUsed',
+                  { percent: shown },
+                )
+          return (
+            <span key={l.window} className="tabular">
+              {reset
+                ? t('newSession.agentMenu.windowResets', { limit: limitLabel(l), value, reset })
+                : t('newSession.agentMenu.window', { limit: limitLabel(l), value })}
+            </span>
+          )
+        })}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+/** The right side: the shown agent's models, level and switches, or the search's results. */
+function Pane({
+  status,
+  hostId,
+  hostLabel,
+  config,
+  loaded,
+  opening,
+  failure,
+  onRetry,
+  searching,
+  expanded,
+  groups,
+  agents,
+  onLeave,
+  onOption,
+}: {
+  status: AgentStatus | null
+  /** The other host the agent is on, whose Settings this computer does not show; null for this one. */
+  hostId: string | null
+  hostLabel: string
+  config: ConfigOption[] | null
+  loaded: boolean
+  /** The agent's prepared session, or its first read of options, is under way. */
+  opening: boolean
+  /** Why the agent's prepared session could not open, or its options could not be read. */
+  failure: string | null
+  onRetry: () => void
+  searching: boolean
+  /** The agent whose older models are shown. */
+  expanded: AgentId | null
+  groups: MenuGroup[]
+  agents: MenuAgent[]
+  onLeave: () => void
+  /** Where an option's change goes: New session's picks, or the caller's own values. */
+  onOption: (agentId: AgentId, optionId: string, value: string | boolean) => void
+}) {
+  const { t } = useTranslation('session')
+  if (!status) return null
+  const name = status.name
+  const need = agentNeed(status)
+  // The options load with the list, and with a start until the agent has reported them.
+  const startingUp = loaded && !config && (opening || status.state === 'starting')
+  const loading = !loaded || startingUp
+  const model = config?.find((o) => o.category === 'model')
+  const effort = config?.find((o) => o.category === 'thought_level')
+  const switches = config?.filter((o) => o.type === 'boolean') ?? []
+
+  const install = (
+    <Button
+      variant="outline"
+      size="xs"
+      onClick={() => {
+        onLeave()
+        openHarnessSettings(status.harnessId)
+      }}
+    >
+      {t('newSession.agentMenu.install')}
+    </Button>
+  )
+  let notice = null
+  if (!searching) {
+    if (need === 'update') {
+      notice = (
+        <UpdateNotice status={status} hostId={hostId} hostLabel={hostLabel} onLeave={onLeave} />
+      )
+    } else if (status.versionWarning) {
+      notice = (
+        <VersionNotice status={status} hostId={hostId} hostLabel={hostLabel} onLeave={onLeave} />
+      )
+    } else if (need === 'setup') {
+      notice = (
+        <Notice
+          text={t('newSession.agentMenu.setsUpLong', { agent: name, command: status.cli?.command })}
+          tone="neutral"
+        >
+          {hostId === null && install}
+        </Notice>
+      )
+    } else if (need === 'failed') {
+      notice = (
+        <Notice
+          text={status.detail ?? t('newSession.agentMenu.failedLong', { agent: name })}
+          tone="danger"
+        >
+          <Button
+            variant="outline"
+            size="xs"
+            onClick={() =>
+              void hostAt(hostId, 'agents.retry', { agentId: status.id }).catch((error: unknown) =>
+                console.warn(`Could not retry ${status.id}: ${errorMessage(error)}`),
+              )
+            }
+          >
+            {t('newSession.agentMenu.retry')}
+          </Button>
+        </Notice>
+      )
+    } else if (need === 'sign-in' && hostId !== null) {
+      notice = (
+        <Notice
+          text={t('newSession.agentMenu.signInOnHost', { agent: name, host: hostLabel })}
+          tone="warning"
+        />
+      )
+    } else if (need === 'sign-in') {
+      notice = (
+        <Notice text={t('newSession.agentMenu.signInLong', { agent: name })} tone="warning">
+          <Button
+            variant="outline"
+            size="xs"
+            onClick={() => {
+              onLeave()
+              openAgentSettings(status.id)
+            }}
+          >
+            {t('newSession.agentMenu.signInAction')}
+          </Button>
+        </Notice>
+      )
+    } else if (failure && !opening) {
+      notice = (
+        <Notice
+          text={t('newSession.agentMenu.prepareFailed', { agent: name, error: failure })}
+          tone="danger"
+        >
+          <Button variant="outline" size="xs" onClick={onRetry}>
+            {t('newSession.agentMenu.retry')}
+          </Button>
+        </Notice>
+      )
+    } else if (!loading && !config) {
+      notice = <Notice text={t('newSession.agentMenu.modelsOnStart', { agent: name })} />
+    }
+  }
+
+  return (
+    <>
+      {notice}
+      {!searching && startingUp && (
+        // Words once a start takes longer than a moment; the space is kept, so nothing shifts.
+        <div
+          role="status"
+          className="flex animate-in items-center gap-1.5 px-2 pt-2 pb-1.5 text-xs text-muted-foreground fade-in fill-mode-backwards delay-1000 animation-duration-(--duration-base)"
+        >
+          <Spinner
+            className={cn('size-3 shrink-0', status.state === 'installing' && 'text-info')}
+          />
+          <span className="truncate shimmer">
+            {status.state === 'installing'
+              ? t('agentStart.installing', { agent: name })
+              : status.state === 'starting'
+                ? t('agentStart.starting', { agent: name })
+                : t('newSession.agentMenu.checking', { agent: name })}
+          </span>
+        </div>
+      )}
+      {!searching && config && opening && (
+        // The cached models stand in until the prepared session answers.
+        <div
+          role="status"
+          className="flex animate-in items-center gap-1.5 px-2 pt-2 pb-1.5 text-xs text-muted-foreground fade-in fill-mode-backwards delay-1000 animation-duration-(--duration-base)"
+        >
+          <Spinner className="size-3 shrink-0" />
+          <span className="truncate shimmer">
+            {t('newSession.agentMenu.checking', { agent: name })}
+          </span>
+        </div>
+      )}
+      {!searching && loading ? (
+        <div
+          className="flex animate-in flex-col gap-1 fade-in fill-mode-backwards delay-200 animation-duration-(--duration-base)"
+          aria-hidden
+        >
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} className="h-row w-full rounded-md" />
+          ))}
+        </div>
+      ) : (
+        <ComboboxList className="max-h-72 scroll-fade-y scroll-py-0 p-0">
+          {(group: MenuGroup) => (
+            <ModelGroup
+              key={group.agentId}
+              group={group}
+              agent={agents.find((a) => a.agentId === group.agentId)}
+              searching={searching}
+              expanded={expanded === group.agentId}
+            />
+          )}
+        </ComboboxList>
+      )}
+      {searching && groups.length === 0 && (
+        <p className="px-2 py-5 text-center text-small text-muted-foreground">
+          {t('newSession.agentMenu.noMatch')}
+        </p>
+      )}
+      {!searching && config && (isSelect(effort) || switches.length > 0) && (
+        <div className="flex flex-col">
+          {isSelect(effort) && (
+            <>
+              {isSelect(model) && <ComboboxSeparator />}
+              <EffortSegments
+                effort={effort}
+                value={String(effort.value)}
+                model={isSelect(model) ? String(model.value) : undefined}
+                onPick={(v) => onOption(status.id, effort.id, v)}
+                plain
+              />
+            </>
+          )}
+          {switches.length > 0 && (
+            <>
+              <ComboboxSeparator />
+              {switches.map((o) => (
+                <ConfigSwitchRow
+                  key={o.id}
+                  option={o}
+                  onSelect={(value) => onOption(status.id, o.id, value)}
+                />
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </>
+  )
+}
+
+function ModelGroup({
+  group,
+  agent,
+  searching,
+  expanded,
+}: {
+  group: MenuGroup
+  agent: MenuAgent | undefined
+  searching: boolean
+  /** Whether the agent's older models are shown under More models. */
+  expanded: boolean
+}) {
+  const { t } = useTranslation('session')
+  if (!agent) return null
+  const choices = agent.model?.choices ?? []
+  const older = menuModels(choices).older
+  return (
+    <ComboboxGroup items={group.items}>
+      {searching ? (
+        <ComboboxLabel className="flex items-center gap-1.5">
+          <AgentMark agent={agent.agentId} size={12} />
+          {agent.name}
+        </ComboboxLabel>
+      ) : (
+        agent.model && <ComboboxLabel>{agent.model.name}</ComboboxLabel>
+      )}
+      <ComboboxCollection>
+        {(key: string) => {
+          if (isMoreKey(key)) {
+            return <MoreRow key={key} value={key} count={older.length} expanded={expanded} />
+          }
+          const { model } = parseItemKey(key)
+          const choice = choices.find((c) => c.value === model)
+          return choice ? (
+            <Tooltip key={key}>
+              <TooltipTrigger render={<ComboboxItem value={key} className="items-center" />}>
+                <ChoiceName name={choice.name} className="flex-1 font-normal" />
+              </TooltipTrigger>
+              {choice.description && (
+                <TooltipContent side="right">{choice.description}</TooltipContent>
+              )}
+            </Tooltip>
+          ) : (
+            <ComboboxItem key={key} value={key} className="items-center">
+              <span className="min-w-0 flex-1 truncate font-medium">
+                {t('newSession.agentMenu.useAgent', { agent: agent.name })}
+              </span>
+            </ComboboxItem>
+          )
+        }}
+      </ComboboxCollection>
+    </ComboboxGroup>
+  )
+}
+
+/**
+ * The row that shows or hides the older models in place. Expanding it scrolls it to the top of the
+ * list, so the older models come into view below it.
+ */
+function MoreRow({ value, count, expanded }: { value: string; count: number; expanded: boolean }) {
+  const { t } = useTranslation('session')
+  const row = useRef<HTMLDivElement>(null)
+  const wasExpanded = useRef(expanded)
+  useLayoutEffect(() => {
+    if (expanded && !wasExpanded.current) row.current?.scrollIntoView({ block: 'start' })
+    wasExpanded.current = expanded
+  }, [expanded])
+  return (
+    <ComboboxItem
+      ref={row}
+      value={value}
+      aria-expanded={expanded}
+      className="items-center text-secondary"
+    >
+      <span className="min-w-0 flex-1 truncate">
+        {t('newSession.agentMenu.moreModels', { number: count })}
+      </span>
+      <Glyph
+        icon={ArrowRight01Icon}
+        className={cn(
+          'size-3 text-icon transition-transform duration-(--duration-fast)',
+          expanded && 'rotate-90',
+        )}
+      />
+    </ComboboxItem>
+  )
+}
+
+const NOTICE_TONE = {
+  warning: 'bg-warning-tint text-foreground',
+  danger: 'bg-danger-tint text-danger',
+  neutral: 'bg-subtle text-foreground',
+} as const
+
+/**
+ * A line about the shown agent above its models: on a tint by what it asks of you, with the action
+ * that helps, or plain when it only says what comes next.
+ */
+/**
+ * The user's own program is older than Kettu needs: updating it is the fix, which this runs the
+ * way the program was installed. Another host's program is updated on that host.
+ */
+function UpdateNotice({
+  status,
+  hostId,
+  hostLabel,
+  onLeave,
+}: {
+  status: AgentStatus
+  hostId: string | null
+  hostLabel: string
+  onLeave: () => void
+}) {
+  const { t } = useTranslation('session')
+  if (hostId !== null) {
+    return (
+      <Notice
+        text={t('newSession.agentMenu.updateOnHost', { agent: status.name, host: hostLabel })}
+        tone="warning"
+      />
+    )
+  }
+  const update = status.cli?.update ?? null
+  const task = status.task?.kind === 'update' ? status.task : null
+  const running = task?.state === 'running'
+  const failure = task?.state === 'failed' ? (task.error ?? null) : null
+  return (
+    <Notice
+      text={
+        failure ??
+        t('newSession.agentMenu.updateLong', {
+          command: status.cli?.command,
+          current: status.cli?.installed?.version ?? '',
+          minimum: cliOutdated(status) ?? '',
+        })
+      }
+      tone={failure ? 'danger' : 'warning'}
+    >
+      <Button
+        variant="outline"
+        size="xs"
+        disabled={running}
+        onClick={() => {
+          if (update) {
+            void useAgentsStore.getState().updateCli(status.id)
+            return
+          }
+          onLeave()
+          openHarnessSettings(status.harnessId)
+        }}
+      >
+        {running ? (
+          <>
+            <Spinner className="size-3" />
+            {t('newSession.agentMenu.updating')}
+          </>
+        ) : update ? (
+          t('newSession.agentMenu.updateTo', { version: update.version })
+        ) : (
+          t('newSession.agentMenu.howToUpdate')
+        )}
+      </Button>
+    </Notice>
+  )
+}
+
+/**
+ * The user's own program is a version Kettu's checks say does not work: its update when there is
+ * one, else the harness's page, which says what to change it to. Another host's program is
+ * changed on that host.
+ */
+function VersionNotice({
+  status,
+  hostId,
+  hostLabel,
+  onLeave,
+}: {
+  status: AgentStatus
+  hostId: string | null
+  hostLabel: string
+  onLeave: () => void
+}) {
+  const { t } = useTranslation('session')
+  const warning = status.versionWarning
+  if (!warning) return null
+  if (hostId !== null) {
+    return (
+      <Notice
+        text={t('newSession.agentMenu.versionOnHost', { agent: status.name, host: hostLabel })}
+        tone="warning"
+      />
+    )
+  }
+  const command = status.cli?.command ?? status.binaryCommand ?? status.harnessName
+  const update = status.cli?.update ?? null
+  const running = status.task?.kind === 'update' && status.task.state === 'running'
+  return (
+    <Notice
+      text={
+        warning.broken || !warning.supported
+          ? t('newSession.agentMenu.versionBroken', { command, version: warning.version })
+          : t('newSession.agentMenu.versionUnsupported', {
+              command,
+              version: warning.version,
+              supported: warning.supported,
+            })
+      }
+      tone="warning"
+    >
+      <Button
+        variant="outline"
+        size="xs"
+        disabled={running}
+        onClick={() => {
+          if (update) {
+            void useAgentsStore.getState().updateCli(status.id)
+            return
+          }
+          onLeave()
+          openHarnessSettings(status.harnessId)
+        }}
+      >
+        {running ? (
+          <>
+            <Spinner className="size-3" />
+            {t('newSession.agentMenu.updating')}
+          </>
+        ) : update ? (
+          t('newSession.agentMenu.updateTo', { version: update.version })
+        ) : (
+          t('newSession.agentMenu.howToChange')
+        )}
+      </Button>
+    </Notice>
+  )
+}
+
+function Notice({
+  text,
+  tone,
+  children,
+}: {
+  text: string
+  tone?: keyof typeof NOTICE_TONE
+  children?: ReactNode
+}) {
+  if (!tone) return <p className="px-2 pt-2 pb-1.5 text-xs text-muted-foreground">{text}</p>
+  return (
+    <div
+      className={cn(
+        'mx-0.5 mt-0.5 mb-1.5 flex items-center gap-2 rounded-md py-2 pr-2 pl-2.5 text-small',
+        NOTICE_TONE[tone],
+      )}
+    >
+      <p className="min-w-0 flex-1">{text}</p>
+      {children}
+    </div>
+  )
+}

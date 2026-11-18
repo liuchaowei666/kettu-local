@@ -1,0 +1,426 @@
+import { useState, type ReactNode } from 'react'
+import {
+  AlertCircleIcon,
+  Archive01Icon,
+  ArrowUp02Icon,
+  Bug01Icon,
+  RefreshIcon,
+  WifiDisconnected01Icon,
+} from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
+import { useTranslation } from 'react-i18next'
+import type { AgentId, UserContent } from '@shared/thread'
+import { unarchiveSession } from '@renderer/app/actions'
+import { Button } from '@renderer/components/ui/button'
+import { InputGroup, InputGroupAddon, InputGroupButton } from '@renderer/components/ui/input-group'
+import { Skeleton } from '@renderer/components/ui/skeleton'
+import { Spinner } from '@renderer/components/ui/spinner'
+import { connectionText } from '@renderer/features/settings/host-text'
+import { HostAwayAction } from '@renderer/features/shell/host-away-action'
+import { errorMessage } from '@renderer/lib/host'
+import { useNow } from '@renderer/lib/use-now'
+import { cn } from '@renderer/lib/utils'
+import { agentName, agentsOn, useAgentsStore } from '@renderer/stores/agents'
+import type { OtherHost } from '@renderer/stores/hosts'
+import { openReport } from '@renderer/stores/report'
+import { contentAttachments } from './composer/attachments'
+import { SentAttachments, UserContentView } from './entries/user-content'
+
+/**
+ * The scroller every view of the column but the thread sits in. Like the thread's, it keeps the
+ * scrollbar's gutter on its right whether or not it scrolls, so nothing moves sideways when one view
+ * replaces another.
+ */
+export function ColumnScroller({
+  className,
+  children,
+}: {
+  className?: string
+  children: ReactNode
+}) {
+  return (
+    <div
+      className={cn(
+        'min-h-0 flex-1 overflow-y-auto scrollbar-thin scrollbar-gutter-stable',
+        className,
+      )}
+    >
+      {children}
+    </div>
+  )
+}
+
+/**
+ * A thread's shape while it loads: a message and a reply at their real sizes and spacing. It fades
+ * in late, so a thread that loads at once shows nothing in between.
+ */
+export function ThreadSkeleton({ className }: { className?: string }) {
+  return (
+    <div
+      className={cn(
+        'ks-thread__column mx-auto flex w-full animate-in flex-col px-8 pt-8 fade-in fill-mode-backwards delay-200 animation-duration-(--duration-slow)',
+        className,
+      )}
+      aria-hidden
+    >
+      <Skeleton className="ml-auto h-[42px] w-2/5 rounded-2xl" />
+      {/* Bars of 10 px on the prose's 26 px lines, and a folded run's shorter line between. */}
+      <div className="flex flex-col gap-4 pt-12">
+        <Skeleton className="h-2.5 w-11/12" />
+        <Skeleton className="h-2.5 w-4/5" />
+      </div>
+      <Skeleton className="mt-6 h-2.5 w-44 opacity-60" />
+      <div className="flex flex-col gap-4 pt-6">
+        <Skeleton className="h-2.5 w-full" />
+        <Skeleton className="h-2.5 w-10/12" />
+        <Skeleton className="h-2.5 w-3/5" />
+      </div>
+    </div>
+  )
+}
+
+const NO_LINES: string[] = []
+
+/** "Starting Codex…" with the latest lines the agent printed, or "Installing Codex…" with npm's. */
+export function StartingAgent({ agentId, hostId }: { agentId: AgentId; hostId: string | null }) {
+  const { t } = useTranslation('session')
+  const progress = useAgentsStore((s) => agentsOn(s, hostId).byId[agentId]?.progress ?? NO_LINES)
+  const state = useAgentsStore((s) => agentsOn(s, hostId).byId[agentId]?.state)
+  return (
+    <div className="flex flex-col items-center gap-2 px-6 pt-6 pb-2 text-center" role="status">
+      <span className="inline-flex items-center gap-2 text-ui text-muted-foreground">
+        <Spinner className={cn('size-3.5', state === 'installing' && 'text-info')} />
+        <span className="shimmer">
+          {t(state === 'installing' ? 'agentStart.installing' : 'agentStart.starting', {
+            agent: agentName(agentId, hostId),
+          })}
+        </span>
+      </span>
+      {progress.length > 0 && (
+        <div className="flex max-w-[560px] flex-col gap-0.5 font-mono text-meta text-tertiary">
+          {progress.slice(-3).map((line, i) => (
+            <span
+              key={`${i}-${line}`}
+              className="truncate animate-in fade-in animation-duration-(--duration-base)"
+            >
+              {line}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The composer's frame while a session opens, saying what it waits for where the prompt goes:
+ * "Starting Codex…", or "Loading the conversation…" once the agent runs, with the agent's latest
+ * line under it. The composer takes its place without a shift.
+ */
+export function ComposerPlaceholder({
+  agentId,
+  hostId,
+}: {
+  agentId: AgentId
+  hostId: string | null
+}) {
+  const { t } = useTranslation('session')
+  const progress = useAgentsStore((s) => agentsOn(s, hostId).byId[agentId]?.progress.at(-1))
+  const state = useAgentsStore((s) => agentsOn(s, hostId).byId[agentId]?.state)
+  const text =
+    state === 'ready'
+      ? t('agentStart.loading')
+      : t(state === 'installing' ? 'agentStart.installing' : 'agentStart.starting', {
+          agent: agentName(agentId, hostId),
+        })
+  return (
+    <div className="flex flex-col">
+      <InputGroup variant="composer">
+        <div
+          role="status"
+          className="flex min-h-(--composer-min) min-w-0 flex-1 items-center py-[15px] pr-1 pl-4 text-prose leading-[22px] text-muted-foreground"
+        >
+          <span className="flex min-w-0 animate-in items-center gap-2 fade-in fill-mode-backwards delay-200 animation-duration-(--duration-base)">
+            <Spinner className="size-3.5 shrink-0" />
+            <span className="truncate shimmer">{text}</span>
+          </span>
+        </div>
+        <InputGroupAddon
+          align="inline-end"
+          className="self-end pr-2.5 pb-2.5 pl-1.5 has-[>button]:mr-0"
+        >
+          <InputGroupButton
+            size="round"
+            variant="secondary"
+            disabled
+            tabIndex={-1}
+            aria-hidden
+            className="disabled:text-disabled disabled:opacity-100"
+          >
+            <HugeiconsIcon icon={ArrowUp02Icon} strokeWidth={1.9} aria-hidden />
+          </InputGroupButton>
+        </InputGroupAddon>
+      </InputGroup>
+      <div className="flex min-h-9 items-center px-2">
+        {progress && (
+          <span
+            key={progress}
+            className="truncate font-mono text-meta text-tertiary animate-in fade-in animation-duration-(--duration-base)"
+          >
+            {progress}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The first message of a session being created, as its thread will show it, with what the session
+ * waits for under it, so a send shows at once.
+ */
+export function FirstMessage({
+  agentId,
+  hostId,
+  content,
+}: {
+  agentId: AgentId
+  hostId: string | null
+  content: UserContent[]
+}) {
+  const { t } = useTranslation('session')
+  const progress = useAgentsStore((s) => agentsOn(s, hostId).byId[agentId]?.progress ?? NO_LINES)
+  const installing = useAgentsStore(
+    (s) => agentsOn(s, hostId).byId[agentId]?.state === 'installing',
+  )
+  const attachments = contentAttachments(content)
+  const rest = content.filter((c) => c.type !== 'ref' || c.ref.kind !== 'attachment')
+  return (
+    <ColumnScroller className="ks-thread">
+      <div className="ks-thread__column mx-auto flex w-full flex-col px-8 pt-8">
+        {/* As the thread shows a user entry, so nothing moves when the session takes over. */}
+        <div className="ks-user">
+          {attachments.length > 0 && (
+            <div className="flex w-full justify-end pb-1">
+              <SentAttachments sessionId={null} entryId={null} attachments={attachments} />
+            </div>
+          )}
+          {rest.length > 0 && (
+            <div className="ks-user__bubble">
+              <UserContentView content={rest} />
+            </div>
+          )}
+        </div>
+        <div role="status" className="flex flex-col gap-0.5 pt-2.5">
+          <p className="text-prose text-muted-foreground">
+            <span className="shimmer">
+              {t(installing ? 'agentStart.installing' : 'agentStart.starting', {
+                agent: agentName(agentId, hostId),
+              })}
+            </span>
+          </p>
+          {progress.slice(-3).map((line, i) => (
+            <span
+              key={`${i}-${line}`}
+              className="truncate font-mono text-meta text-tertiary animate-in fade-in animation-duration-(--duration-base)"
+            >
+              {line}
+            </span>
+          ))}
+        </div>
+      </div>
+    </ColumnScroller>
+  )
+}
+
+/** The error and its detail, with Retry and Export diagnostics. */
+export function FailedState({
+  title,
+  message,
+  detail,
+  onRetry,
+  report,
+}: {
+  title: string
+  message: string
+  detail?: string
+  onRetry: () => void
+  /** What the report carries of where it failed, and the host it failed on. */
+  report?: { hostId: string | null; sessionId?: string; agentId?: AgentId }
+}) {
+  return (
+    <div
+      className="flex animate-in flex-col gap-2.5 rounded-xl bg-card px-3.5 py-3 shadow-card fade-in animation-duration-(--duration-base)"
+      role="alert"
+    >
+      <div className="flex items-start gap-2">
+        <HugeiconsIcon
+          icon={AlertCircleIcon}
+          strokeWidth={1.9}
+          aria-hidden
+          className="mt-px size-4 shrink-0 text-danger"
+        />
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="text-ui font-medium">{title}</span>
+          <span className="text-ui text-muted-foreground" data-selectable="">
+            {message}
+          </span>
+        </div>
+      </div>
+      {detail && (
+        <pre
+          data-selectable=""
+          className="max-h-40 overflow-auto rounded-lg bg-muted px-2.5 py-2 font-mono text-meta leading-relaxed whitespace-pre-wrap text-muted-foreground"
+        >
+          {detail}
+        </pre>
+      )}
+      <FailedActions
+        className="pl-6"
+        onRetry={onRetry}
+        report={report}
+        error={detail ? `${message}\n${detail}` : message}
+      />
+    </div>
+  )
+}
+
+/** A failure's next steps: Retry, and Report a problem with the error and where it happened. */
+export function FailedActions({
+  onRetry,
+  retrying = false,
+  report,
+  error,
+  className,
+}: {
+  onRetry: () => void
+  retrying?: boolean
+  report?: { hostId: string | null; sessionId?: string; agentId?: AgentId }
+  error: string
+  className?: string
+}) {
+  const { t } = useTranslation(['session', 'common'])
+  return (
+    <div className={cn('flex flex-wrap items-center gap-1.5', className)}>
+      <Button size="compact" disabled={retrying} onClick={onRetry}>
+        {retrying ? (
+          <Spinner data-icon="inline-start" />
+        ) : (
+          <HugeiconsIcon
+            icon={RefreshIcon}
+            strokeWidth={1.9}
+            aria-hidden
+            data-icon="inline-start"
+          />
+        )}
+        {t('common:actions.retry')}
+      </Button>
+      <Button
+        variant="outline"
+        size="compact"
+        onClick={() =>
+          void openReport({
+            hostId: report?.hostId ?? null,
+            context: {
+              sessionId: report?.sessionId ?? null,
+              agentId: report?.agentId ?? null,
+              error,
+            },
+          })
+        }
+      >
+        <HugeiconsIcon icon={Bug01Icon} strokeWidth={1.9} aria-hidden data-icon="inline-start" />
+        {t('failed.reportProblem')}
+      </Button>
+    </div>
+  )
+}
+
+/** In place of the composer: an archived session stays readable, and takes no further message. */
+export function ArchivedComposer({ sessionId }: { sessionId: string }) {
+  const { t } = useTranslation('session')
+  const [restoring, setRestoring] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const restore = async () => {
+    setRestoring(true)
+    setError(null)
+    try {
+      await unarchiveSession(sessionId)
+    } catch (e) {
+      setError(errorMessage(e))
+    } finally {
+      setRestoring(false)
+    }
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="ks-bar">
+        <HugeiconsIcon
+          icon={Archive01Icon}
+          strokeWidth={1.9}
+          aria-hidden
+          className="ks-bar__icon size-4 shrink-0"
+        />
+        <p>{t('view.archivedComposer')}</p>
+        <Button
+          variant="outline"
+          className="ks-btn"
+          disabled={restoring}
+          onClick={() => void restore()}
+        >
+          {t('view.restore')}
+        </Button>
+      </div>
+      {error && (
+        <p role="alert" className="px-1 text-xs text-danger">
+          {error}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * A session whose host is offline: in place of the thread while none was read, or of the composer
+ * under the one that was. It opens again by itself once the host is back.
+ */
+export function HostAway({ host, inline = false }: { host: OtherHost; inline?: boolean }) {
+  const { t } = useTranslation('session')
+  const { t: ts } = useTranslation('settings')
+  const now = useNow()
+  const state = connectionText(ts, host, now)
+  if (inline) {
+    return (
+      <div role="status" className="ks-bar">
+        <HugeiconsIcon
+          icon={WifiDisconnected01Icon}
+          strokeWidth={1.9}
+          aria-hidden
+          className="ks-bar__icon size-4 shrink-0"
+        />
+        <span className="min-w-0 flex-1 text-pretty">
+          {t('host.awayComposer', { name: host.name, state })}
+        </span>
+        <HostAwayAction connection={host.connection} className="ks-btn" />
+      </div>
+    )
+  }
+  return (
+    <div
+      role="status"
+      className="flex max-w-sm animate-in flex-col items-center gap-1.5 text-center fade-in animation-duration-(--duration-slow)"
+    >
+      <HugeiconsIcon
+        icon={WifiDisconnected01Icon}
+        strokeWidth={1.9}
+        aria-hidden
+        className="mb-1 size-5 text-icon"
+      />
+      <span className="text-ui font-medium text-primary">
+        {t('host.away', { name: host.name })}
+      </span>
+      <span className="text-ui text-pretty text-tertiary">{t('host.awayBody', { state })}</span>
+      <HostAwayAction connection={host.connection} className="mt-2" />
+    </div>
+  )
+}

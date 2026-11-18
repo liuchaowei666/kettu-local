@@ -1,0 +1,396 @@
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import {
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
+  Cancel01Icon,
+  Globe02Icon,
+  LinkSquare02Icon,
+  PlusSignIcon,
+  ReloadIcon,
+} from '@hugeicons/core-free-icons'
+import { useTranslation } from 'react-i18next'
+import type { BrowserNotice } from '@shared/browser'
+import { onAppEvent } from '@renderer/app/events'
+import { useControlAgent } from '@renderer/components/control/use-control-agent'
+import {
+  PaneEmpty,
+  PaneHead,
+  PaneIcon,
+  PaneSheet,
+  PanelButton,
+} from '@renderer/features/shell/panel-button'
+import { hostOfPath } from '@renderer/lib/host-paths'
+import { isMac } from '@renderer/lib/platform'
+import { agentName } from '@renderer/stores/agents'
+import { useSessionsStore } from '@renderer/stores/sessions'
+import { useBrowserStore } from '@renderer/stores/browser'
+import { useOverlayOpen } from '@renderer/stores/overlays'
+import { useSettingsStore } from '@renderer/stores/settings'
+import { panelSession, toggleSidePane } from '@renderer/stores/view'
+import { AddressField } from './address-field'
+import { BrowserTabs, TabCountMenu } from './browser-tabs'
+import { OriginBar } from './origin-bar'
+import { BringSignInsOffer, SignInChip } from './sign-in-offer'
+
+/**
+ * The side panel's Browser pane: a session's tabs, the selected one's page drawn by main over the
+ * pane's page area.
+ */
+export function BrowserPane({ panel, maximized }: { panel: string; maximized: boolean }) {
+  const { t } = useTranslation(['browser', 'common'])
+  const sessionId = panelSession(panel)
+  const state = useBrowserStore((s) => (sessionId ? s.bySession[sessionId] : undefined))
+  const still = useBrowserStore((s) => (sessionId ? s.stills[sessionId] : undefined))
+  const hidden = useBrowserStore((s) => (sessionId ? !!s.unseen[sessionId] : false))
+  const agentId = useSessionsStore((s) => (sessionId ? s.byId[sessionId]?.agentId : null)) ?? null
+  const hostId = useSessionsStore((s) =>
+    sessionId ? hostOfPath(s.byId[sessionId]?.projectPath ?? '') : null,
+  )
+  const agent = useControlAgent(agentId, hostId)
+  const overlayOpen = useOverlayOpen()
+  const zoom = useSettingsStore((s) => s.settings.appearance.zoom)
+  // The frame the page fills.
+  const page = useRef<HTMLDivElement>(null)
+  const address = useRef<HTMLInputElement>(null)
+  const [collapsed, setCollapsed] = useState(false)
+  const name = agentId ? agentName(agentId, hostId) : t('empty.agent')
+
+  // The pane shows the page, so the toggle's dot has done its work.
+  useEffect(() => {
+    if (sessionId) useBrowserStore.getState().seen(sessionId)
+  }, [sessionId, hidden])
+
+  const closePage = useCallback(() => {
+    if (!sessionId) return
+    void window.kettu.browser
+      .close(sessionId)
+      .catch((error: unknown) => console.error('Could not close the page', error))
+  }, [sessionId])
+
+  const newTab = useCallback(() => {
+    if (!sessionId) return
+    void window.kettu.browser
+      .newTab(sessionId)
+      .catch((error: unknown) => console.error('Could not open a tab', error))
+  }, [sessionId])
+
+  const selectTab = (tabId: string) => {
+    if (sessionId) void window.kettu.browser.selectTab(sessionId, tabId)
+  }
+
+  const closeTab = (tabId: string) => {
+    if (sessionId) void window.kettu.browser.closeTab(sessionId, tabId)
+  }
+
+  // Mod+W closes the selected tab, and with the last one the browser, folding the pane away;
+  // Mod+T opens a tab; Mod+L in the page goes to its address.
+  useEffect(
+    () =>
+      onAppEvent((event) => {
+        if (event.kind === 'focus-browser-address') {
+          if (event.sessionId === sessionId) address.current?.focus()
+          return
+        }
+        if (event.kind === 'new-browser-tab') {
+          newTab()
+          return
+        }
+        if (event.kind !== 'close-browser') return
+        const current = sessionId ? useBrowserStore.getState().bySession[sessionId] : undefined
+        if (sessionId && current?.selected && current.tabs.length > 1) {
+          void window.kettu.browser.closeTab(sessionId, current.selected)
+          return
+        }
+        closePage()
+        toggleSidePane(panel, 'browser', false)
+      }),
+    [closePage, newTab, panel, sessionId],
+  )
+
+  const navigate = (url: string) => {
+    if (sessionId) void window.kettu.browser.navigate(sessionId, url)
+  }
+
+  // Main shows the session's page while the pane is open, and keeps it while the pane is hidden;
+  // the pill on the page names the session's agent.
+  useEffect(() => {
+    if (!sessionId) return
+    void window.kettu.browser.show(sessionId, agent)
+    return () => {
+      void window.kettu.browser.hide(sessionId)
+    }
+  }, [sessionId, agent])
+
+  // The page's frame, in the window's own pixels: the renderer's zoom scales CSS pixels. Main
+  // rounds the page's corners as the frame's are, since nothing in the renderer can clip a view.
+  const report = useCallback(() => {
+    const element = page.current
+    if (!element || !sessionId) return
+    const rect = element.getBoundingClientRect()
+    // With no page there is no frame; the page keeps the last one until it comes back.
+    if (rect.width === 0 || rect.height === 0) return
+    const radius = parseFloat(getComputedStyle(element).borderBottomLeftRadius) || 0
+    void window.kettu.browser.setBounds(sessionId, {
+      x: Math.round(rect.left * zoom),
+      y: Math.round(rect.top * zoom),
+      width: Math.round(rect.width * zoom),
+      height: Math.round(rect.height * zoom),
+      radius: Math.round(radius * zoom),
+    })
+  }, [sessionId, zoom])
+
+  // A notice, the address row or the origin card moves the page's frame without resizing it.
+  useLayoutEffect(report)
+
+  useLayoutEffect(() => {
+    const element = page.current
+    if (!element) return
+    const observer = new ResizeObserver(report)
+    observer.observe(element)
+    window.addEventListener('resize', report)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', report)
+    }
+  }, [report])
+
+  // An overlay that covers the page takes a still in its place: a web view is a native layer the
+  // renderer cannot draw over.
+  useEffect(() => {
+    if (!sessionId) return
+    if (!overlayOpen) {
+      if (!useBrowserStore.getState().stills[sessionId]) return
+      void window.kettu.browser.thaw(sessionId).finally(() => {
+        useBrowserStore.getState().setStill(sessionId, null)
+      })
+      return
+    }
+    let cancelled = false
+    const frame = requestAnimationFrame(() => {
+      const area = page.current
+      if (!area || !covers(area)) return
+      void window.kettu.browser
+        .freeze(sessionId)
+        .then((image) => {
+          // The overlay may have closed while the page was captured; then nothing is shown.
+          if (!image) return
+          if (cancelled) void window.kettu.browser.thaw(sessionId)
+          else useBrowserStore.getState().setStill(sessionId, image)
+        })
+        .catch(() => {})
+    })
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(frame)
+    }
+  }, [overlayOpen, sessionId])
+
+  // Leaving the pane or its session drops a still that is no longer in front of anything.
+  useEffect(() => {
+    if (!sessionId) return
+    return () => {
+      if (!useBrowserStore.getState().stills[sessionId]) return
+      void window.kettu.browser.thaw(sessionId)
+      useBrowserStore.getState().setStill(sessionId, null)
+    }
+  }, [sessionId])
+
+  const url = state?.url ?? null
+  const hasTabs = !!state && state.tabs.length > 0
+
+  return (
+    <PaneSheet pane="browser" maximized={maximized} data-browser-panel="">
+      <PaneHead
+        panel={panel}
+        pane="browser"
+        maximized={maximized}
+        tools={
+          <>
+            {hasTabs && collapsed && (
+              <TabCountMenu state={state} agentName={name} onSelect={selectTab} />
+            )}
+            <PanelButton
+              label={t('actions.openExternal')}
+              disabled={!url}
+              onClick={() => sessionId && void window.kettu.browser.openExternal(sessionId)}
+            >
+              <PaneIcon icon={LinkSquare02Icon} />
+            </PanelButton>
+          </>
+        }
+      >
+        {hasTabs ? (
+          <BrowserTabs
+            state={state}
+            agentName={name}
+            onSelect={selectTab}
+            onClose={(tabId) => (state.tabs.length > 1 ? closeTab(tabId) : closePage())}
+            onCollapsed={setCollapsed}
+          />
+        ) : (
+          <span className="kp-head__title">{t('title')}</span>
+        )}
+        {sessionId && (
+          <PanelButton
+            label={t('actions.newTab')}
+            shortcut={isMac ? '⌘T' : 'Ctrl+T'}
+            size="icon-xs"
+            className="kp-bnew"
+            onClick={newTab}
+          >
+            <PaneIcon icon={PlusSignIcon} size={14} />
+          </PanelButton>
+        )}
+      </PaneHead>
+      <div className="kp-body">
+        {/* A page without an address, such as a popup still at about:blank, is on screen too. */}
+        {state && (url || state.page) ? (
+          <>
+            <div className="kp-addr-row">
+              <PanelButton
+                label={t('actions.back')}
+                shortcut={isMac ? '⌘[' : 'Ctrl+['}
+                disabled={!state.canGoBack}
+                onClick={() => sessionId && void window.kettu.browser.back(sessionId)}
+              >
+                <PaneIcon icon={ArrowLeft01Icon} />
+              </PanelButton>
+              <PanelButton
+                label={t('actions.forward')}
+                shortcut={isMac ? '⌘]' : 'Ctrl+]'}
+                disabled={!state.canGoForward}
+                onClick={() => sessionId && void window.kettu.browser.forward(sessionId)}
+              >
+                <PaneIcon icon={ArrowRight01Icon} />
+              </PanelButton>
+              {state.loading ? (
+                <PanelButton
+                  label={t('actions.stop')}
+                  onClick={() => sessionId && void window.kettu.browser.stop(sessionId)}
+                >
+                  <PaneIcon icon={Cancel01Icon} />
+                </PanelButton>
+              ) : (
+                <PanelButton
+                  label={t('actions.reload')}
+                  shortcut={isMac ? '⌘R' : 'Ctrl+R'}
+                  onClick={() => sessionId && void window.kettu.browser.reload(sessionId)}
+                >
+                  <PaneIcon icon={ReloadIcon} />
+                </PanelButton>
+              )}
+              <AddressField
+                key={state.selected}
+                ref={address}
+                url={url}
+                onNavigate={navigate}
+                trailing={
+                  <SignInChip
+                    url={url}
+                    sessionId={sessionId}
+                    hidden={state.control.kind === 'agent' && state.selected === state.agentTab}
+                  />
+                }
+              />
+              {state.loading && (
+                <span role="progressbar" aria-label={t('loading')} className="kp-load" />
+              )}
+            </div>
+            {sessionId && state.originRequest && (
+              <OriginBar
+                request={state.originRequest}
+                agent={agentId}
+                hostId={hostId}
+                agentName={agentId ? agentName(agentId, hostId) : ''}
+                onAnswer={(decision) =>
+                  void window.kettu.browser.answerOrigin(
+                    sessionId,
+                    state.originRequest!.id,
+                    decision,
+                  )
+                }
+              />
+            )}
+            {state.notice && <Notice notice={state.notice} sessionId={sessionId} />}
+            <div ref={page} className="kp-view">
+              {still && <img src={still} alt="" aria-hidden className="kp-view__still" />}
+            </div>
+          </>
+        ) : (
+          <>
+            <PaneEmpty
+              icon={<PaneIcon icon={Globe02Icon} size={20} />}
+              title={sessionId ? t('empty.title') : t('empty.noSession')}
+              text={sessionId ? t('empty.hint', { agent: name }) : t('empty.noSessionHint')}
+            >
+              {sessionId && (
+                <div className="kp-addr-row kp-addr-row--empty">
+                  <AddressField
+                    key={state?.selected ?? ''}
+                    ref={address}
+                    url={null}
+                    onNavigate={navigate}
+                    autoFocus
+                  />
+                </div>
+              )}
+              {sessionId && <BringSignInsOffer />}
+            </PaneEmpty>
+            {/* Main keeps a closed page's view hidden, but still needs a place for the next one. */}
+            <div ref={page} hidden />
+          </>
+        )}
+      </div>
+    </PaneSheet>
+  )
+}
+
+/** A blocked download, a page lost to make room, or a page that did not load, crashed or hangs. */
+function Notice({ notice, sessionId }: { notice: BrowserNotice; sessionId: string | null }) {
+  const { t } = useTranslation('browser')
+  const open = () => {
+    if (sessionId) void window.kettu.browser.openExternal(sessionId)
+  }
+  return (
+    <div role="status" className="kp-origin" data-answered="" data-denied="">
+      <span className="kp-origin__text">
+        <span className="truncate">
+          {notice.kind === 'download-blocked' && t('notice.downloadBlocked')}
+          {notice.kind === 'load-failed' && t('notice.loadFailed', { error: notice.description })}
+          {notice.kind === 'crashed' && t('notice.crashed')}
+          {notice.kind === 'unresponsive' && t('notice.unresponsive')}
+        </span>
+      </span>
+      {notice.kind === 'download-blocked' && (
+        <button type="button" onClick={open} className="kp-link">
+          {t('actions.openExternal')}
+        </button>
+      )}
+      {notice.kind !== 'download-blocked' && sessionId && (
+        <button
+          type="button"
+          onClick={() => void window.kettu.browser.reload(sessionId)}
+          className="kp-link"
+        >
+          {notice.kind === 'load-failed' ? t('actions.tryAgain') : t('actions.reload')}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** Whether an open overlay covers the page's area. */
+function covers(area: Element): boolean {
+  const bounds = area.getBoundingClientRect()
+  for (const overlay of document.querySelectorAll('[data-overlay-layer]')) {
+    if (overlay.closest('[data-closed]')) continue
+    const rect = overlay.getBoundingClientRect()
+    const apart =
+      rect.right <= bounds.left ||
+      rect.left >= bounds.right ||
+      rect.bottom <= bounds.top ||
+      rect.top >= bounds.bottom
+    if (!apart) return true
+  }
+  return false
+}

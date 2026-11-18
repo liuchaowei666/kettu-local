@@ -1,0 +1,103 @@
+import type { AgentColor } from '@shared/settings'
+import { harnessOf, type AgentId } from '@shared/thread'
+import { cn } from '@renderer/lib/utils'
+import { useAgentDot } from './use-agent-dot'
+import { AGENT_MARKS } from './marks'
+
+interface AgentMarkProps {
+  agent: AgentId
+  size?: number
+  /** Draw the mark in `currentColor` instead of its brand colors. */
+  mono?: boolean
+  className?: string
+  /** The host the agent is on, where the mark shows outside that host's scope, as a session's. */
+  hostId?: string | null
+  /** The dot to draw, in place of the one the agent's host reports; null for none. */
+  dot?: AgentColor | null
+}
+
+/** The ring matches the surface unless an ancestor sets `--agent-dot-ring`. */
+function AgentDot({ color, size }: { color: AgentColor; size: number }) {
+  const diameter = Math.max(3, Math.min(7, Math.round(size / 4)))
+  const ring = Math.min(1.5, diameter / 4)
+  return (
+    <span
+      aria-hidden
+      style={{
+        backgroundColor: `var(--agent-${color})`,
+        width: diameter,
+        height: diameter,
+        right: -ring,
+        bottom: -ring,
+        boxShadow: `0 0 0 ${ring}px var(--agent-dot-ring,var(--bg-surface))`,
+      }}
+      className="absolute rounded-full"
+    />
+  )
+}
+
+/**
+ * The mark of the agent's harness in its own colors, the only brand colors in the interface; the
+ * agents of one harness share it, an added agent's with its dot.
+ */
+export function AgentMark({
+  agent,
+  size = 14,
+  mono = false,
+  className,
+  hostId,
+  dot,
+}: AgentMarkProps) {
+  const { viewBox, Body } = AGENT_MARKS[harnessOf(agent)]
+  const own = useAgentDot(agent, hostId)
+  const color = dot === undefined ? own : dot
+  const mark = (
+    <svg
+      width={size}
+      height={size}
+      aria-hidden
+      viewBox={viewBox}
+      className={cn('block shrink-0', !color && className)}
+    >
+      <Body mono={mono} />
+    </svg>
+  )
+  if (!color) return mark
+  return (
+    <span aria-hidden className={cn('relative block shrink-0', className)}>
+      {mark}
+      <AgentDot color={color} size={size} />
+    </span>
+  )
+}
+
+/**
+ * A flat avatar with consistent mark and dot proportions across sizes. A one-color mark is in the
+ * primary text color, like the name beside it.
+ */
+export function AgentTile({
+  agent,
+  mono,
+  size = 32,
+  hostId,
+  dot,
+}: {
+  agent: AgentId
+  mono?: boolean
+  size?: number
+  hostId?: string | null
+  dot?: AgentColor | null
+}) {
+  const own = useAgentDot(agent, hostId)
+  const color = dot === undefined ? own : dot
+  return (
+    <span
+      aria-hidden
+      style={{ width: size, height: size }}
+      className="relative grid shrink-0 place-items-center text-primary"
+    >
+      <AgentMark agent={agent} size={Math.round(size * 0.75)} mono={mono} dot={null} />
+      {color && <AgentDot color={color} size={size} />}
+    </span>
+  )
+}

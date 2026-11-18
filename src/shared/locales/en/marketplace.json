@@ -1,0 +1,957 @@
+{
+  "page": {
+    "title": "Marketplace",
+    "description": "Plugins, skills, MCP servers and workflows for your agents, from the makers of the tools you use and from the community.",
+    "descriptionThisMac": "Plugins, skills, MCP servers and workflows for the agents on this Mac, from the makers of the tools you use and from the community.",
+    "descriptionThisComputer": "Plugins, skills, MCP servers and workflows for the agents on this computer, from the makers of the tools you use and from the community.",
+    "descriptionOn": "Plugins, skills, MCP servers and workflows for the agents on {{host}}, from the makers of the tools you use and from the community.",
+    "descriptionAllMac": "With all hosts shown, this page manages this Mac. Choose one host to manage its plugins, skills, MCP servers and workflows.",
+    "descriptionAllComputer": "With all hosts shown, this page manages this computer. Choose one host to manage its plugins, skills, MCP servers and workflows.",
+    "search": "Search the Marketplace",
+    "tabs": {
+      "all": "All",
+      "mcp": "MCP servers",
+      "installed": "Installed",
+      "plugins": "Plugins",
+      "skills": "Skills",
+      "workflow": "Workflows",
+      "published": "Published"
+    },
+    "searchPublished": "Search what you published"
+  },
+  "add": {
+    "button": "Add",
+    "heading": "Add your own",
+    "mcp": "An MCP server…",
+    "mcpLine": "A command to run, or a URL",
+    "marketplace": "A marketplace…",
+    "marketplaceLine": "A GitHub repository or Git URL",
+    "skillGithub": "A skill from GitHub…",
+    "skillGithubLine": "A repository, or a folder in one",
+    "skillFolder": "A skill from a folder…",
+    "skillFolderLine": "A folder with a SKILL.md",
+    "workflowGithub": "A workflow from GitHub…",
+    "workflowGithubLine": "A file in a GitHub repository",
+    "workflowFile": "A workflow from a file…",
+    "workflowFileLine": "A .yaml file on this computer"
+  },
+  "sections": {
+    "featured": "Featured",
+    "development": "Developer tools",
+    "data": "Data",
+    "productivity": "Productivity",
+    "design": "Design",
+    "other": "More servers",
+    "results": "From the MCP Registry",
+    "anthropic": "From Anthropic",
+    "codex": "For Codex",
+    "otherPlugins": "Other plugins",
+    "from": "From {{publisher}}",
+    "plugins": "Plugins",
+    "skills": "Skills",
+    "mcp": "MCP servers",
+    "workflow": "Workflows",
+    "community": "Community",
+    "yours": "Yours"
+  },
+  "row": {
+    "install": "Install",
+    "manage": "Manage {{name}}",
+    "manageTitle": "Installed – open to manage",
+    "setUp": "Set up",
+    "add": "Add",
+    "connect": "Connect",
+    "connecting": "Connecting…",
+    "action": "{{action}} {{name}}"
+  },
+  "more": {
+    "two": "{{first}} and {{second}}",
+    "many_one": "{{first}}, {{second}} and {{count}} more",
+    "many_other": "{{first}}, {{second}} and {{count}} more",
+    "oneOpen": "{{first}} and more",
+    "twoOpen": "{{first}}, {{second}} and more",
+    "load": "Show more"
+  },
+  "catalog": {
+    "failedTitle": "Couldn’t reach the MCP Registry",
+    "emptyTitle": "The catalog is empty",
+    "emptyText": "The MCP Registry lists no servers your agents can run right now.",
+    "stale": "The MCP Registry couldn’t be reached, so the catalog may be out of date.",
+    "staleSince": "The MCP Registry couldn’t be reached, so this is the catalog from {{ago}}."
+  },
+  "search": {
+    "noneTitle": "Nothing found",
+    "none": "Nothing matches “{{query}}”.",
+    "failedTitle": "Couldn’t search the MCP Registry"
+  },
+  "install": {
+    "title": "Install {{name}}",
+    "note": "Kettu keeps it and hands it to these agents when a session starts.",
+    "useIn": "Use in",
+    "allAgents": "All agents",
+    "required": "Required",
+    "secretHint": "Kept on this computer and never shown again.",
+    "valueHint": "Kept on this computer.",
+    "submit": "Install",
+    "installing": "Installing",
+    "noSkills": "Doesn't take skills yet"
+  },
+  "toast": {
+    "ready": "{{name}} is ready for every agent",
+    "readyFor": "{{name}} is ready for {{agents}}",
+    "keysNotSaved": "{{name}} is installed, but its keys weren’t saved: {{error}}",
+    "signInUnchecked": "Couldn’t check whether {{name}} needs a sign-in: {{error}}. Agents get it as you entered it.",
+    "installFailed": "Couldn’t install {{name}}: {{error}}",
+    "changeFailed": "Couldn’t change {{name}}: {{error}}",
+    "uninstalled": "{{name}} uninstalled",
+    "keysSaved": "Keys for {{name}} saved",
+    "pluginReady": "{{name}} is installed in {{agent}}",
+    "uninstalledFrom": "{{name}} uninstalled from {{agent}}",
+    "marketplaceAdded": "{{name}} added to {{agent}}",
+    "marketplaceRemoved": "{{name}} removed",
+    "skillFailed": "Couldn’t add the skill: {{error}}",
+    "connected": "Connected to {{name}}; every chosen agent can use it",
+    "disconnected": "Disconnected from {{name}}",
+    "disconnectFailed": "Couldn’t disconnect {{name}}: {{error}}",
+    "updated": "{{name}} updated to {{version}}",
+    "updateFailed": "Couldn’t update {{name}}: {{error}}",
+    "reported": "Report sent to the Kettu Marketplace",
+    "listingFailed": "Couldn’t read the listing: {{error}}",
+    "workflowAdded": "Added {{name}}. Approve it to start tasks with it.",
+    "workflowUpdated": "{{name}} updated to {{version}}. Approve the new version to use it."
+  },
+  "listing": {
+    "back": "Marketplace",
+    "kind": "MCP server",
+    "official": "Official",
+    "addedByYou": "Added by you",
+    "installed": "Installed",
+    "switch": "{{name}} on",
+    "more": "More for {{name}}",
+    "changeKeys": "Change keys…",
+    "chooseAgents": "Choose agents…",
+    "uninstall": "Uninstall…",
+    "facts": {
+      "worksWith": "Works with",
+      "source": "From",
+      "version": "Version",
+      "updated": "Updated"
+    },
+    "everyAgent": "Every agent",
+    "registry": "MCP Registry",
+    "manual": "Added by you",
+    "runs": "Runs and needs",
+    "connectsTo": "Connects to it over {{transport}}",
+    "runsHere": "Runs on this computer",
+    "transport": {
+      "streamable-http": "Streamable HTTP",
+      "sse": "SSE"
+    },
+    "input": {
+      "set": "Set",
+      "notSet": "Not set",
+      "notSetRequired": "Not set · required",
+      "asked": "Asked for when you install",
+      "secret": "Secret",
+      "prefix": "Sent after “{{prefix}}”"
+    },
+    "side": {
+      "publisher": "Publisher",
+      "name": "Registry name",
+      "repository": "Source",
+      "website": "Website",
+      "listedIn": "Listed in"
+    },
+    "related": "More like this",
+    "relatedFrom": "More from {{publisher}}",
+    "missingTitle": "This server isn’t listed",
+    "missingText": "It may have left the MCP Registry, or been uninstalled.",
+    "backToDirectory": "Back to the Marketplace",
+    "signsIn": "Signs in with {{service}} in your browser",
+    "signsInDevice": "Connects with a code at {{service}}",
+    "signsInNote": "Kettu keeps the sign-in; no agent sees the token",
+    "verified": "Verified publisher",
+    "community": "Community"
+  },
+  "installed": {
+    "builtIn": "Built in",
+    "kept": "MCP servers",
+    "noMatch": "Nothing installed matches “{{query}}”.",
+    "off": "Off",
+    "forAgents_one": "For {{count}} agent",
+    "forAgents_other": "For {{count}} agents",
+    "plugins": "Plugins",
+    "noPlugins": "No agent has a plugin yet. Install one from Plugins.",
+    "marketplaces": "Plugin marketplaces",
+    "marketplacesNote": "Where each agent finds plugins. Its harness’s own marketplace stays.",
+    "marketplaceKept": "Built in",
+    "removeMarketplace": "Remove {{name}}",
+    "skills": "Skills",
+    "noSkills": "Kettu keeps no skills yet. Install one from Skills.",
+    "noServers": "Kettu keeps no MCP servers yet. Install one from MCP servers.",
+    "noWorkflows": "Kettu has no workflows yet. Add one from Workflows.",
+    "own": "From your agents",
+    "ownNote": "The skills and MCP servers each agent keeps itself. Kettu shows them; change them in the agent.",
+    "mcpConfig": "MCP configuration",
+    "offIn": "Off in {{agents}}",
+    "notCreated": "{{path}} · not created yet",
+    "workflows": "Workflows"
+  },
+  "kettu": {
+    "note": "Artifacts, sessions and the browser reach every agent through Kettu’s own server.",
+    "builtIn": "Built in",
+    "tools_one": "{{count}} tool",
+    "tools_other": "{{count}} tools",
+    "running": "Running",
+    "notRunning": "Not running",
+    "notRunningTitle": "Kettu’s server isn’t running",
+    "notRunningBody": "Sessions start without its tools until it runs.",
+    "readFailed": "Couldn’t read the MCP servers",
+    "agent": {
+      "switch": "Kettu’s tools in {{name}}",
+      "takesNone": "{{name}} takes no MCP servers over HTTP.",
+      "nextStart": "Takes effect from {{name}}’s next start."
+    },
+    "agents_one": "{{count}} agent",
+    "agents_other": "{{count}} agents",
+    "agentsSome_one": "{{on}} of {{count}} agent",
+    "agentsSome_other": "{{on}} of {{count}} agents",
+    "agentsTitle": "Kettu’s tools in each agent",
+    "agentsLabel": "Choose which agents get Kettu’s tools"
+  },
+  "own": {
+    "withCommand": "Its own servers too. Type {{command}} in a session to see them, or add {{file}} to a project.",
+    "withCommandFrom": "Its own servers too, from {{path}}. Type {{command}} in a session to see them, or add {{file}} to a project.",
+    "withCommandMissing": "Its own servers too. Type {{command}} in a session to see them, or add {{file}} to a project. {{path}} is not created yet.",
+    "from": "Its own servers too, from {{path}} and {{file}} in a project.",
+    "fromMissing": "Its own servers too, from {{file}} in a project. {{path}} is not created yet.",
+    "pathNote": "{{path}} ({{note}})"
+  },
+  "dialogs": {
+    "keys": {
+      "title": "Keys for {{name}}",
+      "description": "Type a value to replace the one kept on this computer. Kettu never shows a secret again.",
+      "replace": "Set · type to replace",
+      "notSet": "Not set",
+      "cleared": "Cleared when you save",
+      "clear": "Clear",
+      "save": "Save",
+      "failed": "Couldn’t save the keys: {{error}}"
+    },
+    "agents": {
+      "title": "Agents for {{name}}",
+      "description": "Their new sessions get the server; sessions already open keep what they started with.",
+      "save": "Save"
+    },
+    "uninstall": {
+      "title": "Uninstall {{name}}?",
+      "body": "New sessions start without it, and its keys are deleted from this computer.",
+      "confirm": "Uninstall"
+    },
+    "add": {
+      "title": "Add an MCP server",
+      "description": "Every agent gets it when a session starts. A server that needs a sign-in opens it in your browser once added. Values marked secret are kept on this computer and never shown again.",
+      "name": "Name",
+      "namePlaceholder": "my-server",
+      "nameHint": "What agents call it: lowercase letters, digits, - and _.",
+      "nameEmpty": "Give it a name.",
+      "nameFormat": "Use lowercase letters, digits, - and _, starting with a letter or digit.",
+      "nameReserved": "kettu is the name of Kettu’s own server.",
+      "nameTaken": "Another server already has this name.",
+      "kind": "Connects through",
+      "kindUrl": "A URL",
+      "kindCommand": "A command",
+      "url": "URL",
+      "urlPlaceholder": "https://",
+      "urlInvalid": "Enter an http or https address.",
+      "transport": "Transport",
+      "command": "Command",
+      "commandPlaceholder": "npx -y @modelcontextprotocol/server-everything",
+      "commandHint": "The program and its arguments; quote an argument with spaces.",
+      "commandEmpty": "Enter the command that starts the server.",
+      "commandQuote": "A quote is left open.",
+      "headers": "Headers",
+      "env": "Environment",
+      "headerPlaceholder": "Authorization",
+      "envPlaceholder": "API_KEY",
+      "valueName": "Name",
+      "value": "Value",
+      "secret": "Secret",
+      "remove": "Remove {{name}}",
+      "addHeader": "Add header",
+      "addVariable": "Add variable",
+      "secretHint": "Agents receive every value; a secret is kept apart from the settings.",
+      "valueNameInvalid": "This name can’t be used here.",
+      "valueNameTaken": "This name is already used above.",
+      "secretEmpty": "A secret needs a value.",
+      "submit": "Add",
+      "failed": "Couldn’t add the server: {{error}}"
+    },
+    "failed": "It didn’t work: {{error}}",
+    "uninstallPlugin": {
+      "title": "Uninstall {{name}}?",
+      "body": "{{agent}} removes it from its configuration; its sessions start without it."
+    },
+    "removeSkill": {
+      "title": "Remove {{name}}?",
+      "body": "Agents’ new sessions start without it, and its files are deleted from this computer.",
+      "confirm": "Remove"
+    },
+    "removeMarketplace": {
+      "title": "Remove {{name}}?",
+      "body": "{{agent}} stops listing its plugins; plugins already installed from it may stop working.",
+      "confirm": "Remove"
+    },
+    "marketplace": {
+      "title": "Add a plugin marketplace",
+      "description": "A marketplace lists plugins for Claude Code or Codex. The agent you pick keeps it in its own configuration.",
+      "agent": "Agent",
+      "noAgents": "Add a Claude Code or Codex agent first.",
+      "source": "Source",
+      "sourceHint": "A GitHub repository as owner/repo, or a Git URL.",
+      "sourcePlaceholder": "owner/repo",
+      "submit": "Add"
+    },
+    "skill": {
+      "title": "Add a skill from GitHub",
+      "description": "Kettu copies the skill to this computer and hands it to the agents you choose.",
+      "url": "URL",
+      "urlPlaceholder": "https://github.com/owner/repo",
+      "urlHint": "A repository, or a folder in it with a SKILL.md.",
+      "urlInvalid": "Enter a github.com address.",
+      "submit": "Add"
+    },
+    "remove": {
+      "title": "Remove {{name}}?",
+      "body": "New sessions start without it, and Kettu signs out of it on this computer.",
+      "confirm": "Remove"
+    }
+  },
+  "kind": {
+    "mcp": "MCP",
+    "plugin": "Plugin",
+    "skill": "Skill",
+    "workflow": "Workflow"
+  },
+  "notes": {
+    "plugins": "Couldn’t list the plugins: {{error}}",
+    "agentPlugins": "Couldn’t read {{agent}}’s plugins: {{error}}",
+    "skills": "Couldn’t read the skills catalog, so it may be out of date: {{error}}",
+    "catalog": "Couldn’t reach the MCP Registry: {{error}}",
+    "search": "Couldn’t search the MCP Registry: {{error}}",
+    "community": "Couldn’t read the Kettu Marketplace: {{error}}",
+    "communityMore": "Couldn’t read more of the Kettu Marketplace: {{error}}",
+    "skillRepository": "Couldn’t read {{repository}}: {{error}}",
+    "skillRepositoryStale": "Couldn’t read {{repository}} again, so these may be out of date: {{error}}"
+  },
+  "empty": {
+    "pluginsTitle": "No plugins to show",
+    "plugins": "Claude Code and Codex list no plugins yet. Add a marketplace with Add.",
+    "skillsTitle": "No skills to show",
+    "skills": "The skills catalog is empty. Add a skill from GitHub or a folder with Add."
+  },
+  "plugin": {
+    "installs_one": "{{value}} install",
+    "installs_other": "{{value}} installs",
+    "installNote": "{{harness}} installs it into the agent’s own configuration, so its terminal sees it too.",
+    "agent": "Agent",
+    "noAgents": "Add a {{harness}} agent first.",
+    "scope": "Scope",
+    "scopeUser": "Every project",
+    "scopeProject": "One project",
+    "project": "Project",
+    "scopeProjectIn": "In {{project}}",
+    "scopeLocalIn": "In {{project}}, for you only",
+    "hooksWarning": "Has hooks: they run commands on this computer by themselves, outside the agent’s sandbox.",
+    "hooksUnchecked": "Couldn’t check it for hooks: {{error}}",
+    "facts": {
+      "installs": "Installs",
+      "category": "Category"
+    },
+    "side": {
+      "marketplace": "Marketplace",
+      "id": "Plugin",
+      "homepage": "Homepage"
+    },
+    "installAnother": "Install for another agent",
+    "installedIn": "Installed in",
+    "switch": "{{name}} in {{agent}}",
+    "uninstall": "Uninstall",
+    "uninstallFrom": "Uninstall {{name}} from {{agent}}",
+    "adds": "Adds",
+    "willAdd": "Will add",
+    "detailsFailed": "Couldn’t read what it adds: {{error}}",
+    "parts": {
+      "skills": "Skills",
+      "commands": "Commands",
+      "agents": "Subagents",
+      "hooks": "Hooks",
+      "mcpServers": "MCP servers",
+      "lspServers": "LSP servers",
+      "context": "Context"
+    },
+    "tokensEachTurn": "About {{value}} tokens in every session"
+  },
+  "skill": {
+    "installNote": "Kettu keeps it on this computer and hands it to these agents when a session starts.",
+    "source": {
+      "catalog": "Skills catalog",
+      "github": "GitHub",
+      "local": "A folder"
+    },
+    "howItWorks": "An agent reads a skill when a task calls for it, so it costs little until then.",
+    "side": {
+      "path": "Folder",
+      "folder": "Copied from",
+      "license": "License"
+    },
+    "remove": "Remove…",
+    "tools": "Lets the agent use these tools without asking",
+    "toolsShort": "Uses without asking",
+    "nameTaken": "You’ve already added a skill named {{name}}, from {{from}}. Remove it first: an agent keeps only one of two skills with the same name."
+  },
+  "connect": {
+    "title": "Connect {{name}}",
+    "browserNote": "You sign in with {{service}} in your browser. Kettu keeps the sign-in, and these agents reach the server through Kettu.",
+    "deviceNote": "You enter a code at {{service}}. Kettu keeps the sign-in, and these agents reach the server through Kettu.",
+    "browserOnHost": "This service finishes its sign-in in a browser on the host itself, so connect it in Kettu on that host.",
+    "submit": "Connect",
+    "browserWaiting": "Finish signing in in your browser",
+    "browserHint": "Didn’t the page open? Copy the link into your browser.",
+    "copyLink": "Copy link",
+    "copyCode": "Copy code",
+    "copied": "Copied",
+    "deviceTitle": "Enter this code at {{service}}",
+    "openService": "Open {{service}}",
+    "deviceWaiting": "Waiting for {{service}}…",
+    "failed": "Couldn’t connect: {{error}}",
+    "timedOut": "Signing in took longer than five minutes, so Kettu stopped waiting.",
+    "notConnected": "The sign-in did not finish."
+  },
+  "connection": {
+    "connected": "Connected",
+    "connectedAs": "Connected as {{account}}",
+    "needsReconnect": "Needs reconnecting",
+    "error": "Error: {{message}}",
+    "disconnected": "Not connected",
+    "connect": "Connect",
+    "reconnect": "Reconnect",
+    "disconnect": "Disconnect",
+    "remove": "Remove…"
+  },
+  "workflow": {
+    "intro": "A workflow is a flowchart that has several agents carry out one piece of work. Who does each step is picked when it starts, by the agent handing off to it, unless you pin one. The workflows you can use show up in New session, and agents can suggest them in a conversation.",
+    "by": {
+      "github": "{{owner}} · Community",
+      "file": "From a file",
+      "agent": "Made by an agent",
+      "you": "Written by you",
+      "community": "{{handle}} · Community"
+    },
+    "yours": "Yours",
+    "state": {
+      "pending": "Needs approval",
+      "changed": "Changed",
+      "problems": "Has problems",
+      "unreadable": "Can’t be read"
+    },
+    "stateTitle": {
+      "pending": "It can start tasks once you approve it.",
+      "changed": "It changed since you approved it; approve it again to use it.",
+      "problems": "It can start tasks once its problems are fixed.",
+      "unreadable": "Its file doesn’t read as a workflow."
+    },
+    "groups": {
+      "added": "Added from GitHub",
+      "addedOrFile": "Added from GitHub or a file",
+      "yours": "Yours",
+      "community": "Community"
+    },
+    "yoursEmpty": "None yet. Ask an agent in any session to write one for you; it waits here for your approval.",
+    "readFailed": "Couldn’t read the workflows: {{error}}",
+    "readFailedTitle": "Couldn’t read the workflows",
+    "missingTitle": "This workflow isn’t here",
+    "missingText": "It may have been deleted.",
+    "related": {
+      "added": "More workflows you added",
+      "yours": "More of yours",
+      "community": "More from the community"
+    },
+    "add": {
+      "rowTitle": "Add a workflow someone shared",
+      "rowLine": "Paste a GitHub file URL or choose a .yaml file",
+      "rowButton": "Add…",
+      "title": "Add workflow",
+      "description": "Paste the address of a workflow file on GitHub, or choose a .yaml file. It can start tasks once you approve it.",
+      "url": "GitHub file URL",
+      "urlHint": "The file’s page or its raw address on GitHub.",
+      "urlInvalid": "Enter the address of a file in a GitHub repository.",
+      "urlPlaceholder": "https://github.com/owner/repo/blob/main/workflow.yaml",
+      "chooseFile": "Choose a file…",
+      "submit": "Add",
+      "failed": "Couldn’t add the workflow: {{error}}",
+      "notYaml": "Choose a .yaml or .yml file.",
+      "tooLarge": "The file is larger than {{size}} KB."
+    },
+    "update": {
+      "check": "Check for update",
+      "checking": "Checking…",
+      "changed": "{{name}} changed; approve the new version to use it",
+      "same": "{{name}} is up to date",
+      "failed": "Couldn’t check {{name}} for an update: {{error}}",
+      "button": "Update"
+    },
+    "remove": {
+      "menu": "Delete…",
+      "title": "Delete {{name}}?",
+      "body": "Its file and its pins are removed. Tasks already running through it carry on with their own copy.",
+      "confirm": "Delete"
+    },
+    "approval": {
+      "title": "You can use this workflow once you approve it",
+      "agentTitle": "An agent made this workflow. You can use it once you approve it.",
+      "changedTitle": "This workflow changed since you approved it",
+      "changedText": "It can’t start tasks until you approve this version. Look at each step and its file again, then decide.",
+      "agentText": "{{agent}} wrote it with create_workflow in a session.",
+      "agentInBefore": "{{agent}} wrote it with create_workflow in the session “",
+      "agentInAfter": "”.",
+      "untitled": "Untitled session",
+      "githubText": "Added from {{repo}} on GitHub.",
+      "fileText": "Added from {{file}}.",
+      "userText": "A file put in this host’s workflow folder.",
+      "check": "Look at what each step does, the tools it uses and where it waits for you, then decide. You approve this version; any later change needs approval again.",
+      "approve": "Approve",
+      "delete": "Delete",
+      "fileNote": "The version you approve",
+      "notRead": "The file is still being read.",
+      "changedWhileShown": "The file changed while you were looking at it. This is the new version; look at it again before you approve.",
+      "failed": "Couldn’t approve it: {{error}}",
+      "communityText": "Added from {{publisher}} on the Kettu Marketplace, version {{version}}.",
+      "missingTools": "It names MCP servers or Skills that aren’t installed in Kettu on this computer: {{tools}}. Install them before it can start a task."
+    },
+    "file": {
+      "title": "File",
+      "show": "Show",
+      "hide": "Hide",
+      "failed": "Couldn’t read the file: {{error}}",
+      "gone": "The file is gone."
+    },
+    "problems": {
+      "title_one": "{{count}} problem keeps it from starting tasks",
+      "title_other": "{{count}} problems keep it from starting tasks",
+      "unreadable": "The file doesn’t read as a workflow"
+    },
+    "from": {
+      "agent": "Made by {{agent}}",
+      "you": "Written by you"
+    },
+    "facts": {
+      "runBy": "Steps run by",
+      "added": "Added",
+      "steps": "Steps",
+      "stepsWait_one": "{{steps}} · {{count}} waits for you",
+      "stepsWait_other": "{{steps}} · {{count}} wait for you",
+      "sendBack": "Sends back",
+      "sendBackLimit_one": "Up to {{count}} time each",
+      "sendBackLimit_other": "Up to {{count}} times each"
+    },
+    "flow": {
+      "title": "Flow",
+      "back_one": "{{from}} can send it back to {{to}} ({{outcome}}), up to {{count}} time.",
+      "back_other": "{{from}} can send it back to {{to}} ({{outcome}}), up to {{count}} times.",
+      "dropped": "{{from}} can end the task: {{outcome}}."
+    },
+    "you": "You",
+    "youReview": "You review",
+    "end": {
+      "done": "Done",
+      "dropped": "Dropped"
+    },
+    "auto": "Auto",
+    "steps": {
+      "title": "Steps",
+      "autoAgents": "Agents Auto can pick",
+      "step": "Step",
+      "forPicker": "For whoever picks",
+      "who": "Who does it",
+      "more": "More",
+      "less": "Less",
+      "outcomes": "Outcomes",
+      "upTo_one": "up to {{count}} time",
+      "upTo_other": "up to {{count}} times",
+      "yourStep": "Your step: Kettu asks you and waits for your answer",
+      "first": "First step: the agent you start with",
+      "reviews": "Reviews {{steps}}; never the same agent and model",
+      "hint": "“{{hint}}”",
+      "uses": "Uses {{tools}}"
+    },
+    "pin": {
+      "afterApproval": "Pin once it’s approved",
+      "notStepAgent": "Only Claude Code and Codex agents can do a step.",
+      "failed": "Couldn’t pin it: {{error}}",
+      "autoLabel": "Who does {{step}}: Auto",
+      "backToAuto": "Back to Auto",
+      "pinnedLabel": "Who does {{step}}: pinned"
+    },
+    "needs": {
+      "title": "It lets agents",
+      "titlePending": "Once approved, it lets agents",
+      "work": "Edit files and run commands in the task’s folder",
+      "tools": "Use these MCP servers and Skills",
+      "wait": "Stop and wait for you"
+    },
+    "side": {
+      "none": "None",
+      "you": "You",
+      "kind": "Kind",
+      "file": "File",
+      "mcp": "MCP servers",
+      "skills": "Skills",
+      "madeIn": "Made in",
+      "sessionGone": "A session that is gone"
+    },
+    "newVersion": "New version {{version}}",
+    "communityEmpty": "Nothing here yet. Workflows people publish to the Kettu Marketplace show up here."
+  },
+  "community": {
+    "skillNote": "Kettu downloads it from the Kettu Marketplace, checks every file, keeps it on this computer and hands it to these agents when a session starts.",
+    "pluginNote": "Kettu downloads it from the Kettu Marketplace and checks every file, then {{harness}} installs it into the agent’s configuration.",
+    "signedOut": "Sign in to Kettu to see what the community published.",
+    "servicesOff": "Turn on Kettu’s services to see what the community published.",
+    "signIn": "Sign in",
+    "openAccount": "Account settings",
+    "readFailed": "Couldn’t read this listing",
+    "gone": "This is no longer in the Kettu Marketplace.",
+    "goneTitle": "No longer listed",
+    "goneKept": "{{name}} is no longer in the Kettu Marketplace. What you installed stays, without updates.",
+    "takenDown": "This was taken down from the Kettu Marketplace.",
+    "takenDownTitle": "Taken down",
+    "preview": {
+      "title": "Viewing as others",
+      "public": "This is how your listing looks to other people. Install and Report a problem are off here.",
+      "unlisted": "It’s unlisted, so it’s out of the directory and search. Only people who installed it can open this page.",
+      "takenDown": "Kettu took it down, so this is all others see. The reason shows only on your listing’s page.",
+      "private": "Only you can see it",
+      "privateText": "It’s Only me, so no one else can open this page.",
+      "back": "Back to your listing",
+      "installOff": "Install from the listing’s own page, not from this preview."
+    },
+    "takenDownKept": "{{name}} was taken down from the Kettu Marketplace. What you installed stays until you remove it, without updates.",
+    "byYou": "{{handle}} · you",
+    "trust": "Community",
+    "kettu": "Kettu",
+    "source": "Kettu Marketplace",
+    "onlyMe": "Only me",
+    "cannotRun": "Kettu can’t run this MCP server: it names no package or https remote that Kettu runs.",
+    "pluginFor": "Plugin for {{harness}}",
+    "kinds": {
+      "mcp": "MCP server",
+      "plugin": "Plugin",
+      "skill": "Skill",
+      "workflow": "Workflow"
+    },
+    "side": {
+      "trust": "Trust level",
+      "kind": "Kind",
+      "name": "Listing"
+    },
+    "adds": {
+      "skills": "Skills",
+      "commands": "Commands",
+      "agents": "Subagents",
+      "hooks": "Hooks",
+      "servers": "MCP servers"
+    },
+    "report": "Report a problem",
+    "reportTitle": "Report {{name}}",
+    "reportDescription": "Tell the Kettu Marketplace what’s wrong with it. Only your message goes, with your account.",
+    "reportLabel": "What’s wrong",
+    "reportPlaceholder": "It does more than it says, it doesn’t work, it copies someone else’s…",
+    "reportSend": "Send report",
+    "update": "Update to {{version}}",
+    "updating": "Updating",
+    "updateLine": "{{version}} available",
+    "takenDownLine": "Taken down",
+    "workflowTools": "It can start a task once you approve it and every MCP server and Skill it names is installed in Kettu on this computer."
+  },
+  "published": {
+    "publish": "Publish",
+    "ask": "Ask an agent",
+    "askLine": "Start a session that publishes a folder",
+    "folder": "From a folder…",
+    "folderLine": "Kettu checks it and asks you to confirm",
+    "askPrompt": "Check the skill, plugin or MCP server in this project and publish it to the Kettu Marketplace.",
+    "askVersionPrompt": "Publish a new version of {{name}} from {{folder}} to the Kettu Marketplace, with short notes on what changed.",
+    "askVersionPromptAnywhere": "Publish a new version of {{name}} to the Kettu Marketplace, with short notes on what changed.",
+    "fromOrigin": "From {{folder}}",
+    "fromOriginLine": "The folder it was last published from",
+    "me": {
+      "since": "Publishing since {{date}}",
+      "noHandle": "You choose your publisher name at your first publish",
+      "editProfile": "Edit profile",
+      "published": "Published",
+      "installs": "Installs",
+      "week": "Last 7 days"
+    },
+    "needs": {
+      "title": "Needs you",
+      "notPublished": "Not published",
+      "needsFix": "Needs a fix",
+      "asked": "{{agent}} asked to publish {{version}} in <ref>{{session}}</ref>; it wasn’t published.",
+      "askedNoSession": "{{agent}} asked to publish {{version}}; it wasn’t published.",
+      "kept": "{{version}} from {{folder}} wasn’t published.",
+      "stays": "{{version}} stays listed.",
+      "discard": "Discard",
+      "review": "Review and publish",
+      "withdraw": "Withdraw {{version}}",
+      "checkAgain": "Check again"
+    },
+    "table": {
+      "title": "Published",
+      "label": "What you published",
+      "name": "Name",
+      "visibleTo": "Visible to",
+      "version": "Version",
+      "installs": "Installs",
+      "updated": "Updated",
+      "yourComputers": "Your computers",
+      "week": "+{{count}} in 7 days",
+      "noNew": "No new installs",
+      "needsFix": "{{version}} needs a fix",
+      "more": "More for {{name}}",
+      "noMatch": "Nothing you published matches “{{query}}”."
+    },
+    "visibility": {
+      "public": "Everyone",
+      "private": "Only me",
+      "unlisted": "Unlisted",
+      "takenDown": "Taken down"
+    },
+    "state": {
+      "public": "Listed",
+      "private": "Only me",
+      "unlisted": "Unlisted",
+      "takenDown": "Taken down"
+    },
+    "menu": {
+      "newVersion": "New version…",
+      "newVersionHeading": "New version",
+      "editDetails": "Edit details…",
+      "editDetailsLine": "Name, line, about and who can see it",
+      "viewAsOthers": "View as others",
+      "viewAsOthersLine": "Its page as other people see it",
+      "viewAsOthersPrivate": "Only you can see it",
+      "unlist": "Unlist…",
+      "unlistLine": "People who have it keep it",
+      "listAgain": "List again",
+      "delete": "Delete…"
+    },
+    "foot": "Agents publish with the Marketplace tools of Kettu’s built-in MCP server, and each publish waits for your OK in the session.",
+    "seeTools": "See the tools",
+    "empty": {
+      "title": "Share what you made for agents",
+      "text": "Ask an agent to publish a skill, a plugin or an MCP server. It checks the folder with Kettu’s built-in tools, and nothing goes out until you confirm in the session.",
+      "start": "Start a session",
+      "or": "or <ref>publish a folder yourself</ref>",
+      "who": "Everyone, or only you",
+      "whoLine": "Only you: on every computer signed in to your account, nowhere else.",
+      "checked": "Checked before it’s listed",
+      "checkedLine": "Its manifest, secrets left in the files, and what it runs.",
+      "versions": "Versions",
+      "versionsLine": "Each new version goes to the people who have it, at their next update."
+    },
+    "readFailed": "Couldn’t read what you published: {{error}}",
+    "toast": {
+      "published": "Published {{name}} {{version}}",
+      "unlisted": "Unlisted {{name}}",
+      "listed": "{{name}} is listed again",
+      "deleted": "Deleted {{name}}",
+      "withdrawn": "Withdrew {{version}} of {{name}}",
+      "saved": "Saved {{name}}",
+      "profile": "Your publisher name is @{{handle}}",
+      "discarded": "Discarded the draft of {{name}}"
+    },
+    "dialogs": {
+      "folder": {
+        "checking": "Checking {{folder}}…",
+        "nothing": "Nothing to publish here",
+        "nothingText": "Kettu publishes a folder with a SKILL.md, a .claude-plugin or .codex-plugin folder, or a server.json.",
+        "problems": "Fix these first, then check again:",
+        "checkAgain": "Check again",
+        "failed": "Couldn’t publish: {{error}}"
+      },
+      "profile": {
+        "title": "Edit your publisher profile",
+        "description": "Your publisher name shows on everything you publish. What people installed keeps working.",
+        "name": "Publisher name",
+        "save": "Save"
+      },
+      "details": {
+        "title": "Edit {{name}}",
+        "description": "What people see in the Marketplace. Its files change only with a new version.",
+        "name": "Name",
+        "line": "One line",
+        "about": "About",
+        "aboutHint": "Shown on its page. Leave it empty to show none.",
+        "visibleTo": "Visible to",
+        "hint": {
+          "public": "Listed in the Marketplace for anyone signed in to Kettu.",
+          "private": "Not listed. Installs on the computers signed in to your account, and counts against your cloud storage.",
+          "unlisted": "Out of the Marketplace. People who have it keep it and its updates."
+        },
+        "lineInvalid": "One line of at most {{count}} characters.",
+        "save": "Save"
+      },
+      "unlist": {
+        "title": "Unlist {{name}}?",
+        "body_zero": "It leaves the Marketplace and gets no new installs. Nobody has installed it yet.",
+        "body_one": "It leaves the Marketplace and gets no new installs. The person who has it keeps it and its updates.",
+        "body_other": "It leaves the Marketplace and gets no new installs. The {{count}} people who have it keep it and its updates.",
+        "confirm": "Unlist"
+      },
+      "delete": {
+        "title": "Delete {{name}}?",
+        "body": "It leaves the Marketplace for good and can’t be downloaded again; its files are deleted. Everyone who installed it keeps their copy.",
+        "confirm": "Delete"
+      },
+      "withdraw": {
+        "title": "Withdraw {{version}}?",
+        "body": "Its files are deleted, and people who have it move to {{current}} at their next update.",
+        "confirm": "Withdraw"
+      },
+      "files": {
+        "title": "Files of {{name}} {{version}}",
+        "description": "What this version uploaded, as installs download it.",
+        "none": "This version uploaded no files: it points to its server."
+      }
+    },
+    "listing": {
+      "back": "Published",
+      "you": "You · Community",
+      "facts": {
+        "installs": "Installs",
+        "week": "Last 7 days",
+        "version": "Version",
+        "updated": "Updated",
+        "visibleTo": "Visible to"
+      },
+      "installs": "Installs",
+      "chartWeek": "installs in the last 7 days",
+      "chartRange": "Last 30 days",
+      "today": "Today",
+      "chartLabel": "Installs each day over the last 30 days",
+      "versions": "Versions",
+      "current": "Current",
+      "withdrawn": "Withdrawn",
+      "noNotes": "No notes",
+      "by": "Published by {{agent}} in <ref>{{session}}</ref>",
+      "byAgent": "Published by {{agent}}",
+      "bySession": "Published in <ref>{{session}}</ref>",
+      "byYou": "Published by you",
+      "versionMore": "More for {{version}}",
+      "viewFiles": "View files",
+      "openSession": "Open the session",
+      "withdraw": "Withdraw {{version}}…",
+      "withdrawLine": "Its people move to {{current}}",
+      "checks": "Checks on {{version}}",
+      "side": {
+        "publisher": "Publisher",
+        "kind": "Kind",
+        "folder": "Folder",
+        "folderIn": "in {{project}}",
+        "worksWith": "Works with"
+      },
+      "countsOnly": "Installs are counts only: Kettu doesn’t tell you who installed it.",
+      "takenDown": "Kettu took it down: {{reason}} It’s out of the Marketplace and takes no new versions; you can still change it, withdraw a version or delete it.",
+      "missingTitle": "This isn’t one of yours",
+      "missingText": "It may have been deleted.",
+      "backToPublished": "Back to Published"
+    },
+    "checks": {
+      "paths": {
+        "title": "File paths",
+        "detail": "Relative, with no .git folder"
+      },
+      "skill": {
+        "title": "SKILL.md",
+        "detail": "Name and description present"
+      },
+      "plugin": {
+        "title": "plugin.json",
+        "detail": "A {{harness}} plugin’s manifest"
+      },
+      "secrets": {
+        "title": "No secrets",
+        "detail_one": "No keys or tokens in its file",
+        "detail_other": "No keys or tokens in its {{count}} files"
+      },
+      "package": {
+        "title": "Package"
+      },
+      "remote": {
+        "title": "Remote"
+      },
+      "size": {
+        "title": "Size"
+      },
+      "skipped": "Skipped: {{note}}"
+    }
+  },
+  "builtin": {
+    "line": "Kettu’s own tools for your agents. Always there; it can be turned off for an agent, not uninstalled.",
+    "facts": {
+      "from": "From",
+      "builtInto": "Built into Kettu",
+      "tools": "Tools"
+    },
+    "about": "Agents use it to work with Kettu itself: sessions, artifacts, the browser, your computer and devices, the terminal, memory and plans. Kettu hands it to every session it starts, on top of what you installed.",
+    "tools": "Tools",
+    "groups": {
+      "marketplace": "Marketplace",
+      "sessions": "Sessions",
+      "artifacts": "Artifacts",
+      "browser": "Browser",
+      "computer": "Computer",
+      "devices": "Mobile devices",
+      "terminal": "Terminal",
+      "memory": "Memory",
+      "reports": "Problem reports",
+      "workflows": "Workflows"
+    },
+    "new": "New",
+    "whileSignedIn": "While you’re signed in to Kettu",
+    "waits": "Waits for you",
+    "more": "+ {{count}} more",
+    "marketTools": {
+      "marketplace_check": "Reads a folder, works out what it is and runs the checks publishing would. Uploads nothing.",
+      "marketplace_publish": "Publishes a folder as a new listing or a new version of one of yours.",
+      "marketplace_mine": "Lists what you published: versions, who can see it, installs and problems.",
+      "marketplace_unlist": "Takes one of yours out of the Marketplace; people who have it keep it."
+    },
+    "useIn": "Use in",
+    "useInNote": "Turned off for an agent, its sessions get none of these tools, the Marketplace ones included.",
+    "side": {
+      "kindValue": "MCP server",
+      "runs": "Runs",
+      "runsMac": "Inside Kettu on this Mac",
+      "runsComputer": "Inside Kettu on this computer",
+      "runsOn": "Inside Kettu on {{host}}",
+      "signedIn": "Signed in",
+      "notSignedIn": "Not signed in"
+    }
+  },
+  "bundle": {
+    "kind": "MCP bundle (.mcpb)",
+    "from": "from {{host}}",
+    "note": "Downloaded only when you click Install. Before anything runs, Kettu shows what it runs and what you fill in.",
+    "preparing": "Checking",
+    "runs": "Will run",
+    "nodeRuntime": "Kettu’s Node.js",
+    "blockedTitle": "Can’t install {{name}} here",
+    "addValue": "Add another",
+    "choose": "Choose…",
+    "multipleHint": "Add as many as you need.",
+    "keepHint": "Leave empty to keep the value you set before.",
+    "updateSubmit": "Update"
+  }
+}

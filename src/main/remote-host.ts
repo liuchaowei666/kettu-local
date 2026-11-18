@@ -1,0 +1,1046 @@
+// Main's side of the remote host: it runs while remote access is on, while this computer knows
+// another host or while Add host pairs with one. It gets each device's session a port to the
+// agent host, takes each other host's session on a port of its own, and relays a pairing's
+// progress to whoever opened Add device or Add host.
+
+import { join } from 'node:path'
+import { MessageChannelMain, type MessagePortMain } from 'electron'
+import type {
+  AdminAnswer,
+  HostToMain,
+  MainToRemoteHost,
+  RemoteHostStatus,
+  RemoteHostStopReason,
+  RemoteHostToMain,
+} from '@shared/host-control'
+import type { BrowserForward } from '@shared/browser'
+import type { DeviceActivity } from '@shared/remote/activity'
+import { isDirectStatus } from '@shared/remote/address'
+import {
+  parseDiscoveredHosts,
+  parseDiscoveryEvent,
+  type DiscoveredHosts,
+  type DiscoveryRequestEvent,
+} from '@shared/remote/discovery'
+import {
+  parsePortDevice,
+  type NewDevice,
+  type PairedDevice,
+  type PortDevice,
+} from '@shared/remote/device'
+import {
+  parseHostPairingState,
+  parseHostStatus,
+  type HostPairingState,
+  type HostStatus,
+} from '@shared/remote/hosts'
+import { isPairingState, type PairingState } from '@shared/remote/pairing'
+import type { HostAdminEvent } from '@shared/remote/host-admin'
+import type { DirectAddress } from '@shared/remote/protocol'
+import { parseRelayStatuses } from '@shared/remote/relay-host'
+import type { DirectSettings } from '@shared/settings'
+import remoteHostPath from '../remote-host/index?modulePath'
+import { createLogger } from './log'
+import type { StoredDevices } from './remote-devices'
+import type { RemoteIdentity } from './remote-identity'
+import { UtilityHost } from './utility-host'
+
+const log = createLogger('remote-host')
+
+/** The web client's build, beside main's bundle in out/. */
+const WEB_ROOT = join(__dirname, '../web')
+
+const MAX_DEVICES = 1000
+const MAX_HOSTS = 100
+const MAX_ACTIVITY = 500
+/** How long a request to the remote host may take before it answers with nothing. */
+const REQUEST_TIMEOUT_MS = 10_000
+/** How long listing the account's hosts may take: the relay's regions, then each relay's list. */
+const DISCOVER_TIMEOUT_MS = 20_000
+
+export interface RemoteHostDeps {
+  userDataPath: string
+  appVersion: string
+  /** The identity, made on first use; it rejects when the system cannot decrypt the key. */
+  identity(): Promise<RemoteIdentity>
+  /** Replaces the identity with a new one, after the remote host removed every device. */
+  newIdentity(): Promise<unknown>
+  /** The key the host signs in to the relay with, made on first use; rejects like the identity. */
+  relayKey(): Promise<RemoteIdentity>
+  /** Replaces the relay key, as resetting remote access does. */
+  newRelayKey(): Promise<unknown>
+  /** The main relay's origin. */
+  relayUrl: string
+  /** The push gateway's origin. */
+  pushUrl: string
+  /** Use the Kettu relay, as the setting is now. */
+  relay(): boolean
+  /** Whether devices of the account find this computer on the relay, as the setting is now. */
+  discoverable(): boolean
+  /** A device of the account asks to be added, or that request ended. */
+  discoveryChanged?(event: DiscoveryRequestEvent): void
+  /** A pairing is about to start: resolves once the relay's token was handed on, or none can be. */
+  relayTokenReady?(): Promise<void>
+  /** The key this computer connects to other hosts with, made on first use; rejects like it. */
+  deviceKey(): Promise<RemoteIdentity>
+  /** The system as this computer's hello names it, such as "macOS 26.1". */
+  devicePlatform(): Promise<string>
+  /** Whether the data folder lists any host this computer was added to; read once at launch. */
+  hostsKnown(): Promise<boolean>
+  /** The name devices show for this computer, and the one it suggests to a host. */
+  hostName(): string
+  /** The device files, read for while the remote host does not serve devices. */
+  devices(): Promise<StoredDevices>
+  /** The direct connections' settings now. */
+  direct(): DirectSettings
+  /** Whether devices may use the terminal now. */
+  terminal(): boolean
+  /** A port to the agent host for a device's session, or null while it is not running. */
+  openPort(device: PortDevice): MessagePortMain | null
+  /**
+   * A port to the terminal host for a device's terminals, or null while devices may not use it or
+   * it cannot run.
+   */
+  openTerminalPort(device: PortDevice): MessagePortMain | null
+  /** A port to the device host for a device's mobile devices, or null while it cannot run. */
+  openDevicePort?(device: PortDevice): MessagePortMain | null
+  /** Answers an owner's call beyond its sessions, which a device made through the remote host. */
+  admin?(deviceId: unknown, method: unknown, params: unknown): Promise<AdminAnswer>
+  /** The state or the report changed, for Settings and the tray. */
+  changed?(): void
+  /** The known hosts, their connections or the device key changed, for Settings › Hosts. */
+  hostsChanged?(): void
+  /** A new session with another host opened, on main's end of its port. */
+  hostOpened?(hostId: string, port: MessagePortMain): void
+  /** That session ended, or the process went; the port is closed. */
+  hostClosed?(hostId: string, port: MessagePortMain): void
+}
+
+/** Whoever opened Add device hears its code's progress. */
+export type PairingListener = (pairing: PairingState) => void
+
+/** Whoever pasted a link into Add host hears how pairing with its host goes, under its id. */
+export type HostPairingListener = (pairId: number, pairing: HostPairingState) => void
+
+export type RemoteHostState = 'off' | 'starting' | 'on' | 'failed'
+
+function isStatus(value: unknown): value is RemoteHostStatus {
+  if (typeof value !== 'object' || value === null) return false
+  const { publicKey, plainTextKey, devices, online, refused, direct, relays } = value as Record<
+    string,
+    unknown
+  >
+  return (
+    parseRelayStatuses(relays) !== null &&
+    typeof publicKey === 'string' &&
+    typeof plainTextKey === 'boolean' &&
+    Array.isArray(devices) &&
+    devices.length <= MAX_DEVICES &&
+    devices.every(
+      (device: unknown) =>
+        typeof device === 'object' &&
+        device !== null &&
+        typeof (device as { id?: unknown }).id === 'string' &&
+        typeof (device as { name?: unknown }).name === 'string',
+    ) &&
+    Array.isArray(online) &&
+    online.length <= MAX_DEVICES &&
+    online.every((id) => typeof id === 'string') &&
+    typeof refused === 'number' &&
+    Number.isSafeInteger(refused) &&
+    refused >= 0 &&
+    isDirectStatus(direct)
+  )
+}
+
+export class RemoteHost {
+  private host: UtilityHost<MainToRemoteHost, RemoteHostToMain> | null = null
+  private changes: Promise<void> = Promise.resolve()
+  private latest: RemoteHostStatus | null = null
+  private ownKey: string | null = null
+  private direct: string | null = null
+  /** Whether devices may use the terminal, as the running process was last told. */
+  private terminal: boolean | null = null
+  /** Use the Kettu relay, as the running process was last told. */
+  private relayOn: boolean | null = null
+  /** Whether devices of the account find this computer, as the running process was last told. */
+  private discoverableOn: boolean | null = null
+  /** Listings of the account's hosts under way, which keep the process running. */
+  private discovering = 0
+  /** The discovery request the owner is asked about now. */
+  private discoveryRequest: DiscoveryRequestEvent | null = null
+  /** The account's access token, which the process signs in to the relay and other hosts with. */
+  private token: string | null = null
+  /** The relay token the relays get in its place, once the main relay takes them. */
+  private relayToken: string | null = null
+  private relayIdentity: RemoteIdentity | null = null
+  private quitting = false
+  private failed = false
+  /** The setting: whether this computer serves devices. */
+  private enabled = false
+  /** Whether the running process serves them, with `identity`'s key. */
+  private serving = false
+  private identity: RemoteIdentity | null = null
+  private device: RemoteIdentity | null = null
+  private deviceFailed = false
+  private platform = ''
+  private launchRead: Promise<void> | null = null
+  private known = false
+  private hostList: HostStatus[] | null = null
+  private readonly hostPorts = new Map<string, MessagePortMain>()
+  private readonly askers = new Map<number, PairingListener>()
+  private nextCode = 1
+  private readonly hostPairings = new Map<number, HostPairingListener>()
+  private nextPair = 1
+  private readonly requests = new Map<number, (message: RemoteHostToMain | null) => void>()
+  private nextRequest = 1
+  /** The device files while the remote host does not serve devices, which leaves them alone. */
+  private stored: StoredDevices | null = null
+  /** The paired devices as last read, from the remote host's reports or the files. */
+  private paired: PairedDevice[] = []
+  /** What waits for the user and whether they are at the computer, for each process to start with. */
+  private waiting: Record<string, string[]> = {}
+  private present: boolean | null = null
+
+  constructor(private readonly deps: RemoteHostDeps) {}
+
+  /** What the remote host last reported of the devices, or null while it does not serve them. */
+  get status(): RemoteHostStatus | null {
+    return this.serving ? this.latest : null
+  }
+
+  /** The paired devices, whether or not remote access is on. */
+  get devices(): PairedDevice[] {
+    return this.serving && this.latest ? this.latest.devices : this.paired
+  }
+
+  get state(): RemoteHostState {
+    if (this.failed) return 'failed'
+    if (!this.host || !this.serving) return 'off'
+    return this.latest ? 'on' : 'starting'
+  }
+
+  /** This computer's public key as a host, once it has served devices in this run. */
+  get publicKey(): string | null {
+    return this.ownKey
+  }
+
+  /** Whether this computer is pairing with a host now, or listing the account's hosts. */
+  get pairingHosts(): boolean {
+    return this.hostPairings.size > 0 || this.discovering > 0
+  }
+
+  /** The discovery request the owner is asked about now, if any. */
+  get pendingDiscovery(): DiscoveryRequestEvent | null {
+    return this.discoveryRequest
+  }
+
+  /** The known hosts, or null while the remote host has not reported them yet. */
+  get hosts(): HostStatus[] | null {
+    if (this.hostList) return this.hostList
+    return this.host || this.known ? null : []
+  }
+
+  /** The device key is kept in a file only the user can read, without the system's encryption. */
+  get plainTextDeviceKey(): boolean {
+    return this.device?.plainText ?? false
+  }
+
+  /** The system cannot decrypt the device key. */
+  get deviceKeyFailed(): boolean {
+    return this.deviceFailed
+  }
+
+  /** Serves devices while the setting is on; the changes apply in the order they come. */
+  setEnabled(enabled: boolean): Promise<void> {
+    this.enabled = enabled
+    return this.reconcile()
+  }
+
+  /** Tells every device why and stops for good, as when Kettu quits. */
+  stop(): Promise<void> {
+    this.quitting = true
+    this.changes = this.changes.then(async () => {
+      await this.end('stopping')
+      await this.releaseDevices()
+    })
+    return this.changes
+  }
+
+  /** Pairs a device; false while the host does not serve devices. */
+  addDevice(device: NewDevice): boolean {
+    return this.toServer({ type: 'remote-host:add-device', device })
+  }
+
+  /** Forgets a device and ends its sessions; false when it could not. */
+  removeDevice(id: string): Promise<boolean> {
+    return this.withDevices(
+      () => this.toServer({ type: 'remote-host:remove-device', id }),
+      (stored) => stored.remove(id),
+    )
+  }
+
+  /** Passes the direct connections' settings on when they changed; each start reads them anew. */
+  directChanged(): void {
+    const direct = this.deps.direct()
+    const sent = JSON.stringify(direct)
+    if (!this.serving || sent === this.direct) return
+    if (this.toServer({ type: 'remote-host:direct', direct })) this.direct = sent
+  }
+
+  /** Tells the process when devices may use the terminal or no longer may; each start reads it. */
+  terminalChanged(): void {
+    const allowed = this.deps.terminal()
+    if (allowed === this.terminal) return
+    if (this.host?.post({ type: 'remote-host:terminal', allowed })) this.terminal = allowed
+  }
+
+  /** Tells the process when Use the Kettu relay changed; each start reads it. */
+  relayChanged(): void {
+    const enabled = this.deps.relay()
+    if (enabled === this.relayOn) return
+    if (this.host?.post({ type: 'remote-host:relay', enabled })) this.relayOn = enabled
+  }
+
+  /** Tells the process when Let devices of the account find it changed; each start reads it. */
+  discoverableChanged(): void {
+    const enabled = this.deps.discoverable()
+    if (enabled === this.discoverableOn) return
+    if (this.host?.post({ type: 'remote-host:discoverable', enabled })) {
+      this.discoverableOn = enabled
+    }
+  }
+
+  /** The owner's answer to the discovery request it was asked about. */
+  answerDiscovery(requestId: number, add: boolean, name: string): void {
+    if (this.discoveryRequest?.requestId !== requestId) return
+    this.toServer({ type: 'remote-host:discovery-answer', requestId, add, name })
+  }
+
+  /**
+   * The hosts of the account this computer may pair with, starting the remote host if it is not
+   * running; unavailable when the device key cannot be read or no relay answered.
+   */
+  async discover(): Promise<DiscoveredHosts> {
+    if (!(await this.loadDevice())) return { state: 'unavailable' }
+    this.discovering++
+    try {
+      await this.deps.relayTokenReady?.()
+      await this.reconcile()
+      const answer = await this.request(
+        (requestId) => ({ type: 'remote-host:discover', requestId }),
+        DISCOVER_TIMEOUT_MS,
+      )
+      if (answer?.type !== 'remote-host:discovered') return { state: 'unavailable' }
+      return parseDiscoveredHosts(answer.result) ?? { state: 'unavailable' }
+    } finally {
+      this.discovering--
+      void this.reconcile()
+    }
+  }
+
+  /** Pairs with a host `discover` listed, by its relay id, the way `pairHost` pairs with a link. */
+  async pairDiscovered(
+    relayId: string,
+    model: string,
+    listener: HostPairingListener,
+  ): Promise<number | null> {
+    if (!(await this.loadDevice())) return null
+    const pairId = this.nextPair++
+    this.hostPairings.set(pairId, listener)
+    await this.deps.relayTokenReady?.()
+    await this.reconcile()
+    if (!this.hostPairings.has(pairId)) return pairId
+    if (!this.host?.post({ type: 'remote-host:pair-discovered', pairId, relayId, model })) {
+      this.finishPairing(pairId, { state: 'failed', reason: 'unreachable' })
+    }
+    return pairId
+  }
+
+  /** Whether the code on both screens is the same; false ends the pairing. */
+  matchHostPairing(pairId: number, match: boolean): void {
+    if (!this.hostPairings.has(pairId)) return
+    this.host?.post({ type: 'remote-host:pair-match', pairId, match })
+  }
+
+  /**
+   * A fresh access token of the account this computer is signed in to, or null once it is not;
+   * the process signs in to the relay and reaches other hosts through it with it, or with `relay`,
+   * the relay token, once the main relay takes them.
+   */
+  setToken(token: string | null, relay: string | null = null): void {
+    if (token === this.token && relay === this.relayToken) return
+    this.token = token
+    this.relayToken = relay
+    this.host?.post({ type: 'remote-host:token', token, relay })
+  }
+
+  /** Tries every relay now, after a conflict or an error. */
+  retryRelay(): void {
+    this.toServer({ type: 'remote-host:relay-retry' })
+  }
+
+  /** Passes the same settings on again, so a port that could not be opened is tried again. */
+  retryDirect(): void {
+    const direct = this.deps.direct()
+    if (this.toServer({ type: 'remote-host:direct', direct })) this.direct = JSON.stringify(direct)
+  }
+
+  /** The computer woke from sleep: the host reads its addresses again and tries its hosts. */
+  resume(): void {
+    this.host?.post({ type: 'remote-host:resume' })
+  }
+
+  /** Renames a device, which its sessions hear; false when it could not. */
+  renameDevice(id: string, name: string): Promise<boolean> {
+    return this.withDevices(
+      () => this.toServer({ type: 'remote-host:rename-device', id, name }),
+      (stored) => stored.rename(id, name),
+    )
+  }
+
+  /** Tells the owner's devices something of the host: every one, or only `deviceId`. */
+  adminEvent(event: HostAdminEvent, deviceId: string | null): void {
+    this.toServer({ type: 'remote-host:admin-event', event, deviceId })
+  }
+
+  /** What the agent host says needs the user, which devices may be notified of. */
+  attention(attention: Extract<HostToMain, { type: 'host:attention' }>): void {
+    this.toServer({ type: 'remote-host:attention', attention })
+  }
+
+  /** What waits for the user now, by session. */
+  setWaiting(sessions: Record<string, string[]>): void {
+    this.waiting = sessions
+    this.host?.post({ type: 'remote-host:waiting', sessions })
+  }
+
+  /** A session was seen, which withdraws its turn's notifications. */
+  seen(sessionId: string): void {
+    this.toServer({ type: 'remote-host:seen', sessionId })
+  }
+
+  /** Whether the user is at this computer, which holds back the notifications devices want away. */
+  setPresent(present: boolean): void {
+    if (present === this.present) return
+    this.present = present
+    this.host?.post({ type: 'remote-host:presence', present })
+  }
+
+  /** The name the next welcomes carry, and the one pairing suggests to a host. */
+  setHostName(name: string): void {
+    this.host?.post({ type: 'remote-host:host-name', name })
+  }
+
+  /**
+   * Opens a pairing code, voiding any other; `listener` hears its progress until it is added or
+   * void. The code's id, or null while the host does not serve devices.
+   */
+  pair(listener: PairingListener): number | null {
+    const codeId = this.nextCode++
+    if (!this.toServer({ type: 'remote-host:pair', codeId })) return null
+    this.askers.set(codeId, listener)
+    return codeId
+  }
+
+  /** Add device closed, which voids its code. */
+  closePairing(codeId: number): void {
+    if (!this.askers.delete(codeId)) return
+    this.host?.post({ type: 'remote-host:pair-close', codeId })
+  }
+
+  /** The answer to the device the code's listener was asked about. */
+  answerPairing(codeId: number, add: boolean, name: string): void {
+    if (!this.askers.has(codeId)) return
+    this.host?.post({ type: 'remote-host:pair-answer', codeId, add, name })
+  }
+
+  /**
+   * Pairs with the host of a pairing link, starting the remote host if it is not running;
+   * `listener` hears how it goes until the host is added or it fails. The pairing's id, or null
+   * when the device key cannot be read.
+   */
+  async pairHost(
+    link: string,
+    model: string,
+    listener: HostPairingListener,
+  ): Promise<number | null> {
+    if (!(await this.loadDevice())) return null
+    const pairId = this.nextPair++
+    this.hostPairings.set(pairId, listener)
+    await this.deps.relayTokenReady?.()
+    await this.reconcile()
+    if (!this.hostPairings.has(pairId)) return pairId
+    if (!this.host?.post({ type: 'remote-host:pair-host', pairId, link, model })) {
+      this.finishPairing(pairId, { state: 'failed', reason: 'unreachable' })
+    }
+    return pairId
+  }
+
+  /**
+   * Adds the machine at an SSH address the way `pairHost` pairs with a link, under the same ids;
+   * null when the device key cannot be read.
+   */
+  async addSshHost(
+    target: string,
+    model: string,
+    listener: HostPairingListener,
+  ): Promise<number | null> {
+    if (!(await this.loadDevice())) return null
+    const pairId = this.nextPair++
+    this.hostPairings.set(pairId, listener)
+    await this.reconcile()
+    if (!this.hostPairings.has(pairId)) return pairId
+    if (!this.host?.post({ type: 'remote-host:add-ssh-host', pairId, target, model })) {
+      this.finishPairing(pairId, { state: 'failed', reason: 'ssh_failed' })
+    }
+    return pairId
+  }
+
+  /** Add host closed: its pairing ends unless the host was added. */
+  closeHostPairing(pairId: number): void {
+    if (!this.hostPairings.delete(pairId)) return
+    this.host?.post({ type: 'remote-host:pair-host-close', pairId })
+    void this.reconcile()
+  }
+
+  /** Renames this computer on a host; false when the host is not connected. */
+  renameOnHost(id: string, name: string): boolean {
+    const host = this.hostList?.find((entry) => entry.id === id)
+    if (host?.connection.state !== 'online') return false
+    return this.host?.post({ type: 'remote-host:rename-on-host', id, name }) ?? false
+  }
+
+  /** Sets the addresses a host is tried at; false when it is not known. */
+  setHostAddresses(id: string, addresses: DirectAddress[]): boolean {
+    if (!this.hostList?.some((entry) => entry.id === id)) return false
+    return this.host?.post({ type: 'remote-host:host-addresses', id, addresses }) ?? false
+  }
+
+  /**
+   * A port on this computer's loopback that reaches a dev server on a host, for the page of one
+   * of its sessions; null while the host's session is not open.
+   */
+  async forward(
+    hostId: string,
+    sessionId: string,
+    forward: BrowserForward,
+  ): Promise<number | null> {
+    if (!this.hostList?.some((entry) => entry.id === hostId)) return null
+    const answer = await this.request((requestId) => ({
+      type: 'remote-host:forward',
+      requestId,
+      hostId,
+      sessionId,
+      forward,
+    }))
+    if (answer?.type !== 'remote-host:forwarding') return null
+    const { port } = answer
+    return typeof port === 'number' && Number.isSafeInteger(port) && port > 0 && port < 65_536
+      ? port
+      : null
+  }
+
+  /** The session's page is gone: its forwards on that host close. */
+  closeForwards(hostId: string, sessionId: string): void {
+    this.host?.post({ type: 'remote-host:forward-close', hostId, sessionId })
+  }
+
+  /** Forgets a host here; false when it is not known. */
+  removeHost(id: string): boolean {
+    if (!this.hostList?.some((entry) => entry.id === id)) return false
+    return this.host?.post({ type: 'remote-host:remove-host', id }) ?? false
+  }
+
+  /** A device's activity, newest first; none when it cannot be read. */
+  async activity(id: string): Promise<DeviceActivity[]> {
+    if (!this.serving) return this.stored?.activity(id) ?? []
+    const answer = await this.request((requestId) => ({
+      type: 'remote-host:activity',
+      requestId,
+      id,
+    }))
+    if (answer?.type !== 'remote-host:activity' || !Array.isArray(answer.events)) return []
+    return answer.events.slice(0, MAX_ACTIVITY)
+  }
+
+  /**
+   * Removes every device, telling each, and gives the host a new identity, so every device has to
+   * pair again; the hosts this computer connects to stay connected. Rejects while remote access is
+   * not on.
+   */
+  reset(): Promise<void> {
+    const run = this.changes.then(async () => {
+      if (!this.host || !this.serving || !this.latest) throw new Error('Remote access is not on')
+      const answer = await this.request((requestId) => ({ type: 'remote-host:reset', requestId }))
+      if (!answer) throw new Error('The remote host did not reset')
+      await this.stopServing()
+      await this.deps.newIdentity()
+      await this.deps.newRelayKey()
+      this.relayIdentity = null
+      await this.apply()
+    })
+    this.changes = run.catch(() => {})
+    return run
+  }
+
+  private toServer(message: MainToRemoteHost): boolean {
+    return this.serving && (this.host?.post(message) ?? false)
+  }
+
+  /**
+   * Changes a device through the remote host while it serves devices, and in the files
+   * otherwise; in turn with starting and stopping, which hand the files over.
+   */
+  private withDevices(
+    served: () => boolean,
+    stored: (devices: StoredDevices) => Promise<boolean>,
+  ): Promise<boolean> {
+    const run = this.changes.then(async () => {
+      if (this.serving) return served()
+      if (!this.stored) return false
+      const changed = await stored(this.stored)
+      this.paired = this.stored.list()
+      if (changed) this.deps.changed?.()
+      return changed
+    })
+    this.changes = run.then(
+      () => {},
+      () => {},
+    )
+    return run
+  }
+
+  private request(
+    message: (requestId: number) => MainToRemoteHost,
+    timeoutMs = REQUEST_TIMEOUT_MS,
+  ): Promise<RemoteHostToMain | null> {
+    const requestId = this.nextRequest++
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => answer(null), timeoutMs)
+      const answer = (reply: RemoteHostToMain | null): void => {
+        clearTimeout(timer)
+        this.requests.delete(requestId)
+        resolve(reply)
+      }
+      this.requests.set(requestId, answer)
+      if (!this.host?.post(message(requestId))) answer(null)
+    })
+  }
+
+  private reconcile(): Promise<void> {
+    this.changes = this.changes.then(() => this.apply())
+    return this.changes
+  }
+
+  /** Runs the process while anything needs it, serving devices while the setting is on. */
+  private async apply(): Promise<void> {
+    if (this.quitting) return
+    this.launchRead ??= this.deps
+      .hostsKnown()
+      .then((known) => {
+        this.known ||= known
+      })
+      .catch(() => {})
+    await this.launchRead
+    // A key that would not decrypt is remote access's failure, which ends with the setting.
+    if (!this.enabled) this.failed = false
+    // The remote host reads the device files as it starts serving, after what main wrote.
+    if (this.enabled) await this.releaseDevices()
+    if (!this.enabled && !this.known && !this.pairingHosts) await this.end('remote_off')
+    else if (!this.host) await this.begin()
+    else if (this.enabled && !this.serving) await this.startServing()
+    else if (!this.enabled && this.serving) await this.stopServing()
+    else this.deps.changed?.()
+    if (!this.serving) await this.takeDevices()
+  }
+
+  /** Reads the device files, which the remote host leaves alone while it does not serve. */
+  private async takeDevices(): Promise<void> {
+    if (this.stored || this.quitting) return
+    try {
+      this.stored = await this.deps.devices()
+    } catch (error) {
+      log.error('Could not read the paired devices', error)
+      return
+    }
+    this.paired = this.stored.list()
+    this.deps.changed?.()
+  }
+
+  /** Hands the device files back to the remote host, with what main still had to write. */
+  private async releaseDevices(): Promise<void> {
+    const stored = this.stored
+    this.stored = null
+    await stored?.flush().catch((error: unknown) => {
+      log.error('Could not write the paired devices', error)
+    })
+  }
+
+  /** The device key, loaded once; null when the system cannot decrypt it. */
+  private async loadDevice(): Promise<RemoteIdentity | null> {
+    if (this.device) return this.device
+    try {
+      this.device = await this.deps.deviceKey()
+      this.platform = await this.deps.devicePlatform()
+      this.deviceFailed = false
+    } catch (error) {
+      log.error('Cannot connect to other hosts without the device key', error)
+      this.deviceFailed = true
+    }
+    this.deps.hostsChanged?.()
+    return this.device
+  }
+
+  /** The identity, or null when the system cannot decrypt it, which remote access then says. */
+  private async loadIdentity(): Promise<RemoteIdentity | null> {
+    try {
+      this.identity = await this.deps.identity()
+      this.failed = false
+    } catch (error) {
+      log.error('Remote access cannot start without its key', error)
+      this.identity = null
+      this.failed = true
+    }
+    if (this.identity) await this.loadRelayKey()
+    return this.identity
+  }
+
+  /** The relay key; without it the host serves devices directly alone. */
+  private async loadRelayKey(): Promise<void> {
+    try {
+      this.relayIdentity = await this.deps.relayKey()
+    } catch (error) {
+      log.error('The relay cannot be used without its key', error)
+      this.relayIdentity = null
+    }
+  }
+
+  private async begin(): Promise<void> {
+    if (this.host || this.quitting) return
+    const identity = this.enabled ? await this.loadIdentity() : null
+    const device = await this.loadDevice()
+    const forHosts = device !== null && (this.known || this.pairingHosts)
+    if (!identity && !forHosts) {
+      this.deps.changed?.()
+      return
+    }
+    const host = new UtilityHost<MainToRemoteHost, RemoteHostToMain>({
+      label: 'remote-host',
+      modulePath: remoteHostPath,
+      serviceName: 'Kettu Remote Host',
+      initMessage: () => this.initMessage(),
+      shutdownMessage: { type: 'remote-host:shutdown', reason: 'stopping' },
+      readyType: 'remote-host:ready',
+      stoppedType: 'remote-host:stopped',
+      onMessage: (message) => this.receive(host, message),
+      onExit: () => {
+        if (this.host !== host) return
+        this.latest = null
+        this.lost()
+      },
+    })
+    this.host = host
+    host.start()
+    this.deps.changed?.()
+  }
+
+  /** What the process starts with, each time it starts. */
+  private initMessage(): MainToRemoteHost {
+    const identity = this.enabled ? this.identity : null
+    this.serving = identity !== null
+    return {
+      type: 'remote-host:init',
+      userDataPath: this.deps.userDataPath,
+      appVersion: this.deps.appVersion,
+      platform: process.platform,
+      hostName: this.deps.hostName(),
+      ...(identity ? { privateKey: identity.privateKey } : {}),
+      plainTextKey: identity?.plainText ?? false,
+      direct: this.initDirect(),
+      webRoot: WEB_ROOT,
+      terminal: this.initTerminal(),
+      relay: this.initRelay(identity !== null),
+      push: this.deps.pushUrl,
+      waiting: this.waiting,
+      ...(this.present === null ? {} : { present: this.present }),
+      discoverable: this.initDiscoverable(),
+      ...(this.device
+        ? { device: { privateKey: this.device.privateKey, platform: this.platform } }
+        : {}),
+    }
+  }
+
+  private initDirect(): DirectSettings {
+    const direct = this.deps.direct()
+    this.direct = JSON.stringify(direct)
+    return direct
+  }
+
+  private initTerminal(): boolean {
+    this.terminal = this.deps.terminal()
+    return this.terminal
+  }
+
+  private initDiscoverable(): boolean {
+    this.discoverableOn = this.deps.discoverable()
+    return this.discoverableOn
+  }
+
+  private initRelay(
+    serving: boolean,
+  ): NonNullable<Extract<MainToRemoteHost, { type: 'remote-host:init' }>['relay']> {
+    this.relayOn = this.deps.relay()
+    const key = serving ? this.relayIdentity?.privateKey : undefined
+    return {
+      url: this.deps.relayUrl,
+      enabled: this.relayOn,
+      token: this.token,
+      relayToken: this.relayToken,
+      ...(key ? { key } : {}),
+    }
+  }
+
+  private async startServing(): Promise<void> {
+    const identity = await this.loadIdentity()
+    if (!identity || !this.host || !this.enabled) return this.deps.changed?.()
+    const { privateKey, plainText } = identity
+    const relayKey = this.relayIdentity?.privateKey
+    this.serving = this.host.post({
+      type: 'remote-host:serve',
+      privateKey,
+      plainTextKey: plainText,
+      direct: this.initDirect(),
+      ...(relayKey ? { relayKey } : {}),
+    })
+    this.relayChanged()
+    this.discoverableChanged()
+    this.deps.changed?.()
+  }
+
+  /**
+   * Devices hear that remote access is off; the connections to other hosts go on. Settles once
+   * the remote host wrote the device files for the last time, or after the request timeout.
+   */
+  private async stopServing(): Promise<void> {
+    const stopped = this.request((requestId) => ({ type: 'remote-host:stop-serving', requestId }))
+    this.serving = false
+    this.latest = null
+    this.voidCodes()
+    this.deps.changed?.()
+    await stopped
+  }
+
+  private async end(reason: RemoteHostStopReason): Promise<void> {
+    this.failed = false
+    const host = this.host
+    if (!host) return this.deps.changed?.()
+    this.host = null
+    this.latest = null
+    this.serving = false
+    this.hostList = null
+    this.lost()
+    await host.stop(undefined, { type: 'remote-host:shutdown', reason })
+  }
+
+  private voidCodes(): void {
+    for (const listener of this.askers.values()) listener({ state: 'void', reason: 'stopped' })
+    this.askers.clear()
+    const request = this.discoveryRequest
+    this.discoveryRequest = null
+    if (request) {
+      const { requestId } = request
+      this.deps.discoveryChanged?.({ requestId, request: { state: 'closed', reason: 'stopped' } })
+    }
+  }
+
+  /** The process is gone: its codes, pairings, ports and unanswered requests with it. */
+  private lost(): void {
+    this.voidCodes()
+    for (const pairId of [...this.hostPairings.keys()]) {
+      this.finishPairing(pairId, { state: 'failed', reason: 'unreachable' })
+    }
+    const ports = [...this.hostPorts]
+    this.hostPorts.clear()
+    for (const [hostId, port] of ports) {
+      port.close()
+      this.deps.hostClosed?.(hostId, port)
+    }
+    this.hostList =
+      this.hostList?.map((entry) =>
+        entry.connection.state === 'online'
+          ? { ...entry, connection: { state: 'offline' } }
+          : entry,
+      ) ?? null
+    for (const answer of [...this.requests.values()]) answer(null)
+    this.deps.changed?.()
+    this.deps.hostsChanged?.()
+  }
+
+  private finishPairing(pairId: number, pairing: HostPairingState): void {
+    const listener = this.hostPairings.get(pairId)
+    if (!listener) return
+    // A host just added is known before its pairing ends, so the process keeps running.
+    if (pairing.state === 'added') this.known = true
+    if (pairing.state === 'added' || pairing.state === 'failed') {
+      this.hostPairings.delete(pairId)
+      void this.reconcile()
+    }
+    listener(pairId, pairing)
+  }
+
+  /** Answers an owner's call, under its id, to the process that asked. */
+  private async answerAdmin(
+    host: UtilityHost<MainToRemoteHost, RemoteHostToMain>,
+    message: Extract<RemoteHostToMain, { type: 'remote-host:admin-call' }>,
+  ): Promise<void> {
+    const { requestId, deviceId, method, params } = message
+    if (!Number.isSafeInteger(requestId)) return
+    const answer: AdminAnswer = this.deps.admin
+      ? await this.deps.admin(deviceId, method, params)
+      : { error: { code: 'unavailable', message: 'This host takes no such calls' } }
+    if (this.host === host) host.post({ type: 'remote-host:admin-result', requestId, ...answer })
+  }
+
+  /** Main's end of a host's session port: kept open for the sessions on other hosts. */
+  private openHostPort(
+    host: UtilityHost<MainToRemoteHost, RemoteHostToMain>,
+    requestId: number,
+    hostId: string,
+  ): void {
+    const { port1, port2 } = new MessageChannelMain()
+    if (!host.post({ type: 'remote-host:host-port', requestId }, [port1])) {
+      port1.close()
+      port2.close()
+      return
+    }
+    const previous = this.hostPorts.get(hostId)
+    this.hostPorts.set(hostId, port2)
+    if (previous) {
+      previous.close()
+      this.deps.hostClosed?.(hostId, previous)
+    }
+    port2.on('close', () => {
+      if (this.hostPorts.get(hostId) !== port2) return
+      this.hostPorts.delete(hostId)
+      this.deps.hostClosed?.(hostId, port2)
+    })
+    if (this.deps.hostOpened) this.deps.hostOpened(hostId, port2)
+    else {
+      // Nothing reads the host protocol; started, so nothing piles up unread.
+      port2.on('message', () => {})
+      port2.start()
+    }
+  }
+
+  private receive(
+    host: UtilityHost<MainToRemoteHost, RemoteHostToMain>,
+    message: RemoteHostToMain,
+  ): void {
+    switch (message.type) {
+      case 'remote-host:open-port': {
+        const device = parsePortDevice(message.device)
+        if (!Number.isSafeInteger(message.requestId) || !device) {
+          log.warn('Ignored a port request that names no device')
+          return
+        }
+        const port = this.deps.openPort(device)
+        const answer: MainToRemoteHost = { type: 'remote-host:port', requestId: message.requestId }
+        if (!host.post(answer, port ? [port] : [])) port?.close()
+        break
+      }
+      case 'remote-host:open-terminal-port': {
+        const device = parsePortDevice(message.device)
+        if (!Number.isSafeInteger(message.requestId) || !device) {
+          log.warn('Ignored a terminal port request that names no device')
+          return
+        }
+        // Main checks the setting too, so a remote host that misbehaves gets no port.
+        const port = this.deps.terminal() ? this.deps.openTerminalPort(device) : null
+        const answer: MainToRemoteHost = { type: 'remote-host:port', requestId: message.requestId }
+        if (!host.post(answer, port ? [port] : [])) port?.close()
+        break
+      }
+      case 'remote-host:open-device-port': {
+        const device = parsePortDevice(message.device)
+        if (!Number.isSafeInteger(message.requestId) || !device) {
+          log.warn('Ignored a device port request that names no device')
+          return
+        }
+        const port = this.deps.openDevicePort?.(device) ?? null
+        const answer: MainToRemoteHost = { type: 'remote-host:port', requestId: message.requestId }
+        if (!host.post(answer, port ? [port] : [])) port?.close()
+        break
+      }
+      case 'remote-host:open-host-port':
+        if (
+          this.host === host &&
+          Number.isSafeInteger(message.requestId) &&
+          typeof message.hostId === 'string'
+        ) {
+          this.openHostPort(host, message.requestId, message.hostId)
+        }
+        break
+      case 'remote-host:status':
+        if (this.host === host && this.serving && isStatus(message.status)) {
+          this.latest = message.status
+          this.paired = message.status.devices
+          this.ownKey = message.status.publicKey
+          this.deps.changed?.()
+        }
+        break
+      case 'remote-host:hosts': {
+        if (this.host !== host || !Array.isArray(message.hosts)) break
+        const hosts = message.hosts.slice(0, MAX_HOSTS).map(parseHostStatus)
+        if (hosts.some((entry) => entry === null)) {
+          log.warn('Ignored a hosts report with a host that is not one')
+          break
+        }
+        this.hostList = hosts as HostStatus[]
+        const known = this.hostList.length > 0
+        const forgotten = this.known && !known
+        this.known = known
+        this.deps.hostsChanged?.()
+        if (forgotten) void this.reconcile()
+        break
+      }
+      case 'remote-host:host-pairing': {
+        if (this.host !== host) break
+        const pairing = parseHostPairingState(message.pairing)
+        if (pairing) this.finishPairing(message.pairId, pairing)
+        break
+      }
+      case 'remote-host:pairing': {
+        const listener = this.host === host ? this.askers.get(message.codeId) : undefined
+        if (!listener || !isPairingState(message.pairing)) break
+        const { pairing } = message
+        // A code ends once added or void; a new one has an id of its own.
+        if (pairing.state === 'added' || pairing.state === 'void') {
+          this.askers.delete(message.codeId)
+        }
+        listener(pairing)
+        break
+      }
+      case 'remote-host:discovery': {
+        const event = parseDiscoveryEvent(message.event)
+        if (this.host !== host || !this.serving || !event) break
+        if (event.request.state === 'confirm') this.discoveryRequest = event
+        else if (this.discoveryRequest?.requestId === event.requestId) this.discoveryRequest = null
+        this.deps.discoveryChanged?.(event)
+        break
+      }
+      case 'remote-host:activity':
+      case 'remote-host:reset':
+      case 'remote-host:stop-serving':
+      case 'remote-host:forwarding':
+      case 'remote-host:discovered':
+        if (this.host === host) this.requests.get(message.requestId)?.(message)
+        break
+      case 'remote-host:admin-call':
+        if (this.host === host) void this.answerAdmin(host, message)
+        break
+      default:
+        log.warn(`Ignored unknown message "${(message as { type: string }).type}"`)
+    }
+  }
+}

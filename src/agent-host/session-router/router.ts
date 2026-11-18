@@ -1,0 +1,752 @@
+// A small ACP router for an adapter that keeps one live session per process, as pi-acp 0.0.34
+// does: it speaks ACP on its stdio and runs one adapter process for the control requests and one
+// per session, so an adapter only ever holds the session its own process has.
+//
+// Run as `<node> <router> <node> <adapter entry>`: the words after the router are the command line
+// of every child. With `--folder-per-session` first, each session's child starts in the folder the
+// session names, for a program that works in the folder it started in whatever the session says.
+// With `--session-flag=<flag>`, a session the host asks for starts with `<flag>` added, once the
+// program's `--help` lists it, as agy's own full access does. It imports Node's built-ins only, so
+// its bundle is one file.
+
+import { spawn, type ChildProcess } from 'node:child_process'
+import { statSync } from 'node:fs'
+import path from 'node:path'
+import { createInterface } from 'node:readline'
+
+type JsonRpcId = string | number
+interface RpcError {
+  code: number
+  message: string
+  data?: unknown
+}
+interface RpcMessage {
+  jsonrpc?: string
+  id?: JsonRpcId
+  method?: string
+  params?: unknown
+  result?: unknown
+  error?: RpcError
+}
+
+interface Deferred {
+  resolve(message: RpcMessage): void
+  reject(error: Error): void
+}
+
+/** A child adapter process, its stdio lines and the requests waiting for its answers. */
+class Child {
+  /** Set before the router ends it, so its exit is not a crash. */
+  ending = false
+  exited = false
+  /** Whether the router took its exit into account, so a later event is ignored. */
+  gone = false
+  readonly outgoing = new Map<JsonRpcId, Deferred>()
+  readonly proc: ChildProcess
+
+  constructor(proc: ChildProcess) {
+    this.proc = proc
+  }
+}
+
+/** The JSON-RPC code for a request that names a session the router has no child for. */
+const INVALID_PARAMS = -32602
+const INTERNAL_ERROR = -32603
+
+/** How long a released session's child may take to exit before the router kills it. */
+const CLOSE_KILL_MS = 5_000
+/** How long an import's or a delete's child may take to exit before the router kills it. */
+const REPLACE_KILL_MS = 2_000
+/** How long the router waits for its children once its own input ends. */
+const STOP_MS = 1_500
+/** How long the program's `--help` may take, and how much of it is read. */
+const HELP_MS = 5_000
+const HELP_CHARS = 256 * 1024
+
+// cmd.exe quoting for a `.cmd` or `.bat` child, which Node.js refuses to spawn without a shell.
+const CMD_UNSAFE = /[\s&|<>()^"%!,;=]/
+
+function quoteCmd(arg: string): string {
+  return arg !== '' && !CMD_UNSAFE.test(arg) ? arg : `"${arg.replace(/"/g, '""')}"`
+}
+
+// Where `session/new` and `session/load` name a session's Kettu MCP service, as
+// `KETTU_SERVICE_META` in the host's connection contract.
+const SERVICE_META = 'sh.kettu/mcp'
+// The variables Kettu's extension in the agent reads it from (`SERVICE_URL_VARIABLE` and
+// `SERVICE_TOKEN_VARIABLE`); this file imports nothing of Kettu's.
+const SERVICE_URL = 'KETTU_MCP_URL'
+const SERVICE_TOKEN = 'KETTU_MCP_TOKEN'
+const ENV_VALUE = /^[^\0\r\n]{1,2048}$/
+
+/**
+ * Takes the session's Kettu MCP service out of a `session/new` or `session/load`: the request to
+ * pass on without it, and the variables that session's child alone starts with.
+ */
+function takeService(params: unknown): { params: unknown; env: Record<string, string> } {
+  if (typeof params !== 'object' || params === null) return { params, env: {} }
+  const meta = (params as { _meta?: unknown })._meta
+  if (typeof meta !== 'object' || meta === null || !(SERVICE_META in meta)) {
+    return { params, env: {} }
+  }
+  const { [SERVICE_META]: service, ...rest } = meta as Record<string, unknown>
+  const forward: Record<string, unknown> = { ...(params as Record<string, unknown>) }
+  if (Object.keys(rest).length > 0) forward._meta = rest
+  else delete forward._meta
+  const { url, token } = (typeof service === 'object' && service !== null ? service : {}) as {
+    url?: unknown
+    token?: unknown
+  }
+  if (typeof url !== 'string' || typeof token !== 'string') return { params: forward, env: {} }
+  if (!ENV_VALUE.test(url) || !ENV_VALUE.test(token)) return { params: forward, env: {} }
+  return { params: forward, env: { [SERVICE_URL]: url, [SERVICE_TOKEN]: token } }
+}
+
+// Where `session/new` and `session/load` name the file a session's model scope is written to, as
+// `MODEL_SCOPE_META` in the host's connection contract, and the variable Kettu's extension in the
+// agent reads it from (`MODEL_SCOPE_VARIABLE`).
+const MODEL_SCOPE_META = 'sh.kettu/model-scope'
+const MODEL_SCOPE_FILE = 'KETTU_MODEL_SCOPE_FILE'
+
+/**
+ * Takes the session's model scope file out of a request: the request to pass on without it, and
+ * the variable that session's child alone starts with.
+ */
+function takeScope(params: unknown): { params: unknown; env: Record<string, string> } {
+  if (typeof params !== 'object' || params === null) return { params, env: {} }
+  const meta = (params as { _meta?: unknown })._meta
+  if (typeof meta !== 'object' || meta === null || !(MODEL_SCOPE_META in meta)) {
+    return { params, env: {} }
+  }
+  const { [MODEL_SCOPE_META]: file, ...rest } = meta as Record<string, unknown>
+  const forward: Record<string, unknown> = { ...(params as Record<string, unknown>) }
+  if (Object.keys(rest).length > 0) forward._meta = rest
+  else delete forward._meta
+  if (typeof file !== 'string' || !ENV_VALUE.test(file) || !path.isAbsolute(file)) {
+    return { params: forward, env: {} }
+  }
+  return { params: forward, env: { [MODEL_SCOPE_FILE]: file } }
+}
+
+/** What a request that starts a session's child passes on, and the variables the child gets. */
+function takeSessionMeta(params: unknown): { params: unknown; env: Record<string, string> } {
+  const service = takeService(params)
+  const scope = takeScope(service.params)
+  return { params: scope.params, env: { ...service.env, ...scope.env } }
+}
+
+/** The flag that starts each session's child in the session's folder. */
+const FOLDER_PER_SESSION = '--folder-per-session'
+/** The router's flag naming the flag a session's child may start with. */
+const SESSION_FLAG = '--session-flag='
+// Where `initialize`'s answer names the session flag the program lists, and where `session/new`,
+// `session/load` and `session/resume` ask for it, as `SESSION_FLAG_META` in the host's connection.
+const SESSION_FLAG_META = 'sh.kettu/session-flag'
+
+/** Takes the ask for the session flag out of a request: the request to pass on, and the ask. */
+function takeFlag(params: unknown): { params: unknown; flagged: boolean } {
+  if (typeof params !== 'object' || params === null) return { params, flagged: false }
+  const meta = (params as { _meta?: unknown })._meta
+  if (typeof meta !== 'object' || meta === null || !(SESSION_FLAG_META in meta)) {
+    return { params, flagged: false }
+  }
+  const { [SESSION_FLAG_META]: asked, ...rest } = meta as Record<string, unknown>
+  const forward: Record<string, unknown> = { ...(params as Record<string, unknown>) }
+  if (Object.keys(rest).length > 0) forward._meta = rest
+  else delete forward._meta
+  return { params: forward, flagged: asked === true }
+}
+
+/** Whether a program's help lists `flag` as a word of its own. */
+function listsFlag(help: string, flag: string): boolean {
+  return help.split(/[\s,=]+/).includes(flag)
+}
+
+/** The absolute folder a `session/new`, `session/load` or `session/resume` names, or null. */
+function folderOf(params: unknown): string | null {
+  if (typeof params !== 'object' || params === null) return null
+  const cwd = (params as { cwd?: unknown }).cwd
+  return typeof cwd === 'string' && path.isAbsolute(cwd) ? cwd : null
+}
+
+function isFolder(file: string): boolean {
+  try {
+    return statSync(file).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+/** The `sessionId` a message names, or null. */
+function sessionIdOf(params: unknown): string | null {
+  if (typeof params !== 'object' || params === null) return null
+  const id = (params as { sessionId?: unknown }).sessionId
+  return typeof id === 'string' ? id : null
+}
+
+/** Adds `sessionCapabilities.close`, which the router provides over pi-acp's single sessions. */
+function withClose(result: unknown): unknown {
+  if (typeof result !== 'object' || result === null) return result
+  const response = result as Record<string, unknown>
+  const capabilities =
+    typeof response.agentCapabilities === 'object' && response.agentCapabilities !== null
+      ? (response.agentCapabilities as Record<string, unknown>)
+      : {}
+  const sessions =
+    typeof capabilities.sessionCapabilities === 'object' &&
+    capabilities.sessionCapabilities !== null
+      ? (capabilities.sessionCapabilities as Record<string, unknown>)
+      : {}
+  capabilities.sessionCapabilities = { ...sessions, close: sessions.close ?? {} }
+  response.agentCapabilities = capabilities
+  return response
+}
+
+/** Names the session flag in `initialize`'s answer, for a host that may ask for it. */
+function withFlag(result: unknown, flag: string | null): unknown {
+  if (flag === null || typeof result !== 'object' || result === null) return result
+  const response = result as Record<string, unknown>
+  const meta =
+    typeof response._meta === 'object' && response._meta !== null
+      ? (response._meta as Record<string, unknown>)
+      : {}
+  response._meta = { ...meta, [SESSION_FLAG_META]: flag }
+  return response
+}
+
+function waitFor(check: () => boolean, ms: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (check()) {
+      resolve(true)
+      return
+    }
+    const started = Date.now()
+    const timer = setInterval(() => {
+      if (check()) {
+        clearInterval(timer)
+        resolve(true)
+      } else if (Date.now() - started >= ms) {
+        clearInterval(timer)
+        resolve(false)
+      }
+    }, 10)
+    timer.unref?.()
+  })
+}
+
+export class SessionRouter {
+  private readonly childCommand: string
+  private readonly childArgs: string[]
+  private readonly folderPerSession: boolean
+  /** The flag a session's child may start with, once the program's help lists it. */
+  private readonly sessionFlag: string | null
+  private listed: Promise<boolean> | null = null
+  private readonly children = new Set<Child>()
+  /** Each live session's child, by the session id it opened. */
+  private readonly sessions = new Map<string, Child>()
+  /** The requests the router made to the host for its children, by the id it gave them. */
+  private readonly hostRequests = new Map<JsonRpcId, Deferred>()
+  private control: Child | null = null
+  private initializeParams: unknown = null
+  private nextId = 1
+  private stopping = false
+  private stopped = false
+
+  constructor(
+    command: string,
+    args: string[],
+    options: { folderPerSession?: boolean; sessionFlag?: string | null } = {},
+  ) {
+    this.childCommand = command
+    this.childArgs = args
+    this.folderPerSession = options.folderPerSession ?? false
+    this.sessionFlag = options.sessionFlag ?? null
+  }
+
+  start(): void {
+    this.control = this.spawnChild()
+    const input = createInterface({ input: process.stdin })
+    input.on('line', (line) => this.receiveHost(line))
+    input.on('close', () => this.stop())
+  }
+
+  // The host's messages.
+
+  private receiveHost(line: string): void {
+    const message = parse(line)
+    if (!message) return
+    if (message.method !== undefined) {
+      if (message.id !== undefined)
+        void this.hostRequest(message.id, message.method, message.params)
+      else this.hostNotification(message.method, message.params)
+    } else if (message.id !== undefined) {
+      this.hostResponse(message)
+    }
+  }
+
+  private async hostRequest(id: JsonRpcId, method: string, params: unknown): Promise<void> {
+    try {
+      if (method === 'initialize') {
+        this.initializeParams = params
+        this.control ??= this.spawnChild()
+        const [answer, listed] = await Promise.all([
+          this.request(this.control, method, params),
+          this.flagListed(),
+        ])
+        if (answer.error) return this.sendError(id, answer.error)
+        return this.sendResult(
+          id,
+          withFlag(withClose(answer.result), listed ? this.sessionFlag : null),
+        )
+      }
+      if (method === 'session/new') return await this.newSession(id, params)
+      if (method === 'session/load' || method === 'session/resume') {
+        return await this.loadSession(id, method, params)
+      }
+      if (method === 'session/close') return this.closeSession(id, params)
+      if (method === 'session/delete') return await this.deleteSession(id, params)
+      const sessionId = sessionIdOf(params)
+      if (sessionId !== null) {
+        const child = this.sessions.get(sessionId)
+        if (!child) {
+          return this.sendError(id, {
+            code: INVALID_PARAMS,
+            message: `Unknown session ${sessionId}`,
+          })
+        }
+        const answer = await this.request(child, method, params)
+        return answer.error ? this.sendError(id, answer.error) : this.sendResult(id, answer.result)
+      }
+      if (!this.control) {
+        return this.sendError(id, { code: INTERNAL_ERROR, message: 'The router did not start' })
+      }
+      const answer = await this.request(this.control, method, params)
+      return answer.error ? this.sendError(id, answer.error) : this.sendResult(id, answer.result)
+    } catch (error) {
+      this.sendError(id, { code: INTERNAL_ERROR, message: (error as Error).message })
+    }
+  }
+
+  private hostNotification(method: string, params: unknown): void {
+    const sessionId = sessionIdOf(params)
+    if (sessionId !== null) {
+      const child = this.sessions.get(sessionId)
+      // A notification for a session without a child is dropped.
+      if (child) this.send(child, { jsonrpc: '2.0', method, params })
+      return
+    }
+    if (this.control) this.send(this.control, { jsonrpc: '2.0', method, params })
+  }
+
+  private hostResponse(message: RpcMessage): void {
+    const deferred = this.hostRequests.get(message.id!)
+    if (!deferred) return
+    this.hostRequests.delete(message.id!)
+    deferred.resolve(message)
+  }
+
+  // Sessions.
+
+  private async newSession(id: JsonRpcId, params: unknown): Promise<void> {
+    let child: Child | null = null
+    try {
+      const flag = takeFlag(params)
+      const taken = takeSessionMeta(flag.params)
+      child = await this.startSessionChild(taken.env, params, await this.flagFor(flag.flagged))
+      const answer = await this.request(child, 'session/new', taken.params)
+      if (answer.error) {
+        this.endChild(child)
+        return this.sendError(id, answer.error)
+      }
+      const sessionId = (answer.result as { sessionId?: unknown } | null)?.sessionId
+      if (typeof sessionId !== 'string') {
+        this.endChild(child)
+        return this.sendError(id, {
+          code: INTERNAL_ERROR,
+          message: 'session/new answered with no session id',
+        })
+      }
+      this.sessions.set(sessionId, child)
+      this.sendResult(id, answer.result)
+    } catch (error) {
+      if (child) this.endChild(child)
+      this.sendError(id, { code: INTERNAL_ERROR, message: (error as Error).message })
+    }
+  }
+
+  private async loadSession(
+    id: JsonRpcId,
+    method: 'session/load' | 'session/resume',
+    params: unknown,
+  ): Promise<void> {
+    const sessionId = sessionIdOf(params)
+    if (sessionId === null) {
+      return this.sendError(id, {
+        code: INVALID_PARAMS,
+        message: `${method} names no session`,
+      })
+    }
+    let child: Child | null = null
+    try {
+      const flag = takeFlag(params)
+      // Refused before the session's process ends, so a refusal leaves the session as it was.
+      const extra = await this.flagFor(flag.flagged)
+      const existing = this.sessions.get(sessionId)
+      if (existing) {
+        this.sessions.delete(sessionId)
+        await this.endChildAndWait(existing, REPLACE_KILL_MS)
+      }
+      const taken = takeSessionMeta(flag.params)
+      child = await this.startSessionChild(taken.env, params, extra)
+      const answer = await this.request(child, method, taken.params)
+      if (answer.error) {
+        this.endChild(child)
+        return this.sendError(id, answer.error)
+      }
+      this.sessions.set(sessionId, child)
+      this.sendResult(id, answer.result)
+    } catch (error) {
+      if (child) this.endChild(child)
+      this.sendError(id, { code: INTERNAL_ERROR, message: (error as Error).message })
+    }
+  }
+
+  private closeSession(id: JsonRpcId, params: unknown): void {
+    const sessionId = sessionIdOf(params)
+    const child = sessionId === null ? undefined : this.sessions.get(sessionId)
+    if (sessionId !== null && child) {
+      this.sessions.delete(sessionId)
+      // Its stdin closes, so pi-acp exits; a child that does not is killed after the limit.
+      this.endChild(child)
+      const timer = setTimeout(() => this.killChild(child), CLOSE_KILL_MS)
+      timer.unref?.()
+    }
+    this.sendResult(id, {})
+  }
+
+  private async deleteSession(id: JsonRpcId, params: unknown): Promise<void> {
+    const sessionId = sessionIdOf(params)
+    const child = sessionId === null ? undefined : this.sessions.get(sessionId)
+    try {
+      if (sessionId !== null && child) {
+        this.sessions.delete(sessionId)
+        // Wait for it to exit, so nothing writes the session again before the delete.
+        await this.endChildAndWait(child, REPLACE_KILL_MS)
+      }
+      if (!this.control) throw new Error('The router did not start')
+      const answer = await this.request(this.control, 'session/delete', params)
+      return answer.error ? this.sendError(id, answer.error) : this.sendResult(id, answer.result)
+    } catch (error) {
+      this.sendError(id, { code: INTERNAL_ERROR, message: (error as Error).message })
+    }
+  }
+
+  /** The session flag, as the words a child that asked for it adds; it throws when not listed. */
+  private async flagFor(flagged: boolean): Promise<string[]> {
+    if (!flagged) return []
+    if (this.sessionFlag === null || !(await this.flagListed())) {
+      throw new Error('The agent has no session flag to start with')
+    }
+    return [this.sessionFlag]
+  }
+
+  /** Whether the program's `--help` lists the session flag, read once. */
+  private flagListed(): Promise<boolean> {
+    const flag = this.sessionFlag
+    if (flag === null) return Promise.resolve(false)
+    this.listed ??= new Promise((resolve) => {
+      const { command, args } = this.spawnWords(this.childCommand, [...this.childArgs, '--help'])
+      let help = ''
+      let proc: ChildProcess
+      try {
+        proc = spawn(command, args, {
+          env: this.childEnv(),
+          stdio: ['ignore', 'pipe', 'pipe'],
+          shell: this.childShell,
+          windowsHide: true,
+        })
+      } catch {
+        resolve(false)
+        return
+      }
+      const read = (data: Buffer) => {
+        if (help.length < HELP_CHARS) help += data.toString()
+      }
+      proc.stdout?.on('data', read)
+      proc.stderr?.on('data', read)
+      const timer = setTimeout(() => proc.kill(), HELP_MS)
+      proc.on('error', () => {
+        clearTimeout(timer)
+        resolve(false)
+      })
+      proc.on('close', () => {
+        clearTimeout(timer)
+        resolve(listsFlag(help, flag))
+      })
+    })
+    return this.listed
+  }
+
+  /**
+   * A child for a session, initialized with the parameters the host gave the control child, with
+   * `env` added to its environment and `extra` to its arguments, and started in the session's
+   * folder when the router was asked.
+   */
+  private async startSessionChild(
+    env: Record<string, string>,
+    params: unknown,
+    extra: string[] = [],
+  ): Promise<Child> {
+    if (this.initializeParams === null) throw new Error('The router is not initialized')
+    let cwd: string | undefined
+    if (this.folderPerSession) {
+      const folder = folderOf(params)
+      // A missing folder fails the request; spawning in it would end every session as a crash.
+      if (folder === null || !isFolder(folder)) {
+        throw new Error(`The session's folder ${folder ?? '(none)'} does not exist`)
+      }
+      cwd = folder
+    }
+    const child = this.spawnChild(env, cwd, extra)
+    const answer = await this.request(child, 'initialize', this.initializeParams)
+    if (answer.error) {
+      this.endChild(child)
+      throw new Error(answer.error.message)
+    }
+    return child
+  }
+
+  // Child processes.
+
+  /** A child's environment: the router's, without what must reach no child, with `env` added. */
+  private childEnv(env: Record<string, string> = {}): NodeJS.ProcessEnv {
+    // A session's service and scope file reach its own child only, never ones the router inherited.
+    const base = { ...process.env }
+    delete base[SERVICE_URL]
+    delete base[SERVICE_TOKEN]
+    delete base[MODEL_SCOPE_FILE]
+    // The runtime the router runs on may be Electron as Node.js; a program of another kind must
+    // not pass that on to the commands it runs.
+    if (path.resolve(this.childCommand) !== path.resolve(process.execPath)) {
+      delete base.ELECTRON_RUN_AS_NODE
+    }
+    return { ...base, ...env }
+  }
+
+  private spawnChild(
+    env: Record<string, string> = {},
+    cwd = process.cwd(),
+    extra: string[] = [],
+  ): Child {
+    const { command, args } = this.spawnWords(this.childCommand, [...this.childArgs, ...extra])
+    const proc = spawn(command, args, {
+      cwd,
+      env: this.childEnv(env),
+      stdio: ['pipe', 'pipe', 'pipe'],
+      shell: this.childShell,
+      windowsHide: true,
+    })
+    const child = new Child(proc)
+    this.children.add(child)
+    if (proc.stdout) {
+      const lines = createInterface({ input: proc.stdout })
+      lines.on('line', (line) => this.receiveChild(child, line))
+    }
+    if (proc.stderr) {
+      const errors = createInterface({ input: proc.stderr })
+      errors.on('line', (line) => process.stderr.write(`${line}\n`))
+    }
+    proc.stdin?.on('error', () => {})
+    proc.on('exit', () => this.childGone(child))
+    proc.on('error', (error) => {
+      process.stderr.write(`session-router: ${error.message}\n`)
+      this.childGone(child)
+    })
+    return child
+  }
+
+  private get childShell(): boolean {
+    return process.platform === 'win32' && /\.(?:cmd|bat)$/i.test(this.childCommand)
+  }
+
+  /** The command and arguments to spawn: a `.cmd` or `.bat` goes through cmd.exe as one line. */
+  private spawnWords(command: string, args: string[]): { command: string; args: string[] } {
+    if (!this.childShell) return { command, args }
+    return { command: [command, ...args].map(quoteCmd).join(' '), args: [] }
+  }
+
+  private receiveChild(child: Child, line: string): void {
+    const message = parse(line)
+    if (!message) return
+    if (message.method !== undefined) {
+      if (message.id !== undefined)
+        this.forwardChildRequest(child, message.id, message.method, message.params)
+      // Notifications pass as they are.
+      else this.sendHost({ jsonrpc: '2.0', method: message.method, params: message.params })
+      return
+    }
+    if (message.id === undefined) return
+    const deferred = child.outgoing.get(message.id)
+    if (!deferred) return
+    child.outgoing.delete(message.id)
+    deferred.resolve(message)
+  }
+
+  /** A request a child makes, such as a permission request, with an id the router owns. */
+  private forwardChildRequest(
+    child: Child,
+    childId: JsonRpcId,
+    method: string,
+    params: unknown,
+  ): void {
+    const id = this.nextId++
+    this.hostRequests.set(id, {
+      resolve: (answer) =>
+        this.send(child, {
+          jsonrpc: '2.0',
+          id: childId,
+          ...(answer.error ? { error: answer.error } : { result: answer.result }),
+        }),
+      reject: () => {},
+    })
+    this.sendHost({ jsonrpc: '2.0', id, method, params })
+  }
+
+  private request(child: Child, method: string, params: unknown): Promise<RpcMessage> {
+    const id = this.nextId++
+    return new Promise<RpcMessage>((resolve, reject) => {
+      child.outgoing.set(id, { resolve, reject })
+      this.send(child, { jsonrpc: '2.0', id, method, params })
+    })
+  }
+
+  private send(child: Child, message: RpcMessage): void {
+    const input = child.proc.stdin
+    if (!input || input.destroyed) return
+    try {
+      input.write(`${JSON.stringify(message)}\n`)
+    } catch {
+      // A write to an exited child fails with EPIPE; its exit is what reports it.
+    }
+  }
+
+  private sendHost(message: RpcMessage): void {
+    if (this.stopped) return
+    try {
+      process.stdout.write(`${JSON.stringify(message)}\n`)
+    } catch {
+      // The host ended its input; the stop below takes over.
+    }
+  }
+
+  private sendResult(id: JsonRpcId, result: unknown): void {
+    this.sendHost({ jsonrpc: '2.0', id, result: result ?? {} })
+  }
+
+  private sendError(id: JsonRpcId, error: RpcError): void {
+    this.sendHost({ jsonrpc: '2.0', id, error })
+  }
+
+  /** Ends a child without waiting: its stdin closes, and it may be killed after a limit. */
+  private endChild(child: Child): void {
+    child.ending = true
+    child.proc.stdin?.end()
+  }
+
+  private async endChildAndWait(child: Child, ms: number): Promise<void> {
+    this.endChild(child)
+    if (await waitFor(() => child.exited, ms)) return
+    this.killChild(child)
+    await waitFor(() => child.exited, REPLACE_KILL_MS)
+  }
+
+  private killChild(child: Child): void {
+    if (child.exited || !child.proc.pid) return
+    if (process.platform === 'win32') {
+      const killer = spawn('taskkill', ['/PID', String(child.proc.pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      })
+      killer.on('error', () => {})
+      return
+    }
+    child.proc.kill('SIGKILL')
+  }
+
+  /**
+   * A child exited. An ending one is the router's own doing; any other means the adapter crashed,
+   * so the router ends the rest and exits with code 1, which the host takes as a crash.
+   */
+  private childGone(child: Child): void {
+    if (child.gone) return
+    child.gone = true
+    child.exited = true
+    this.children.delete(child)
+    for (const deferred of child.outgoing.values()) {
+      deferred.reject(new Error('The agent process exited'))
+    }
+    child.outgoing.clear()
+    if (child.ending) {
+      if (this.stopping && this.children.size === 0) this.finish(0)
+      return
+    }
+    if (child === this.control) this.control = null
+    for (const other of this.children) {
+      other.ending = true
+      this.killChild(other)
+    }
+    this.finish(1)
+  }
+
+  /** Its own input ended: every child goes, and the router exits once they have or after the limit. */
+  private stop(): void {
+    if (this.stopping) return
+    this.stopping = true
+    if (this.children.size === 0) {
+      this.finish(0)
+      return
+    }
+    for (const child of this.children) this.endChild(child)
+    const timer = setTimeout(() => {
+      for (const child of this.children) this.killChild(child)
+      this.finish(0)
+    }, STOP_MS)
+    timer.unref?.()
+  }
+
+  private finish(code: number): void {
+    if (this.stopped) return
+    this.stopped = true
+    process.exit(code)
+  }
+}
+
+function parse(line: string): RpcMessage | null {
+  try {
+    const parsed: unknown = JSON.parse(line)
+    return typeof parsed === 'object' && parsed !== null ? (parsed as RpcMessage) : null
+  } catch {
+    return null
+  }
+}
+
+// The host starts this file as
+// `<node> <router> [--folder-per-session] [--session-flag=<flag>] <command> <args>`; it is never
+// imported.
+const words = process.argv.slice(2)
+let folderPerSession = false
+let sessionFlag: string | null = null
+for (;;) {
+  if (words[0] === FOLDER_PER_SESSION) folderPerSession = true
+  else if (words[0]?.startsWith(SESSION_FLAG)) sessionFlag = words[0].slice(SESSION_FLAG.length)
+  else break
+  words.shift()
+}
+const command = words[0]
+if (!command || sessionFlag === '') {
+  process.stderr.write(
+    `session-router: ${command ? 'an empty session flag' : 'no agent command line'}\n`,
+  )
+  process.exit(1)
+}
+new SessionRouter(command, words.slice(1), { folderPerSession, sessionFlag }).start()

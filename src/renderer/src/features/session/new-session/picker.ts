@@ -1,0 +1,109 @@
+// What New session's agent picker and its list of recent sessions show.
+
+import type { AgentStatus, SessionSummary } from '@shared/agent-host'
+import { tightestLimit } from '@renderer/features/sidebar/plan-usage'
+import { limitPhrase } from '@renderer/lib/format'
+import { i18n } from '@renderer/lib/i18n'
+import { limitPercent, type LimitView } from '@renderer/lib/plan-limit'
+import { hostOfSession } from '@renderer/stores/sessions'
+import { agentNeed } from './start-options'
+
+export type LineTone = 'muted' | 'attention' | 'danger'
+
+/**
+ * The line under an agent in the picker: what it needs before it can start, else its harness when
+ * it is another agent on it, its account and its fullest plan limit.
+ */
+export function agentLine(
+  status: AgentStatus,
+  now = Date.now(),
+  /** The account's newest reading, which may be another host's. */
+  limits = status.limits,
+  view: LimitView = 'used',
+): { text: string; tone: LineTone } | null {
+  const need = agentNeed(status)
+  // A version Kettu's checks say does not work comes before anything else it needs.
+  const warning = need === 'update' ? null : status.versionWarning
+  if (warning) {
+    return {
+      text: i18n.t(
+        warning.broken || !warning.supported
+          ? 'session:newSession.picker.versionBroken'
+          : 'session:newSession.picker.versionUnsupported',
+        { version: warning.version },
+      ),
+      tone: 'attention',
+    }
+  }
+  if (need === 'sign-in')
+    return { text: i18n.t('session:newSession.picker.signedOut'), tone: 'attention' }
+  if (need === 'update') {
+    const task = status.task?.kind === 'update' ? status.task : null
+    if (task?.state === 'running')
+      return { text: i18n.t('session:newSession.agentMenu.updating'), tone: 'muted' }
+    if (task?.state === 'failed' && task.error) return { text: task.error, tone: 'danger' }
+    return { text: i18n.t('session:newSession.picker.needsUpdate'), tone: 'attention' }
+  }
+  if (need === 'setup')
+    return { text: i18n.t('session:newSession.agentMenu.setsUp'), tone: 'muted' }
+  if (need === 'installing') {
+    return { text: i18n.t('session:newSession.agentMenu.installing'), tone: 'muted' }
+  }
+  if (need === 'failed') return { text: i18n.t('session:newSession.picker.failed'), tone: 'danger' }
+  const parts: string[] = []
+  if (status.name !== status.harnessName) parts.push(status.harnessName)
+  if (status.account?.label) parts.push(status.account.label)
+  const limit = tightestLimit(limits, now)
+  if (limit) {
+    parts.push(
+      limit.usedPercent === null
+        ? i18n.t('session:newSession.picker.limitReached', { limit: limitPhrase(limit) })
+        : i18n.t(
+            view === 'left'
+              ? 'session:newSession.picker.limitLeft'
+              : 'session:newSession.picker.limitUsed',
+            { percent: limitPercent(limit, view), limit: limitPhrase(limit) },
+          ),
+    )
+  }
+  return parts.length > 0 ? { text: parts.join(' · '), tone: 'muted' } : null
+}
+
+/** How many sessions Pick up where you left off lists. */
+export const PICKUP = 3
+
+/**
+ * The sessions to pick up: the user's own, outside the archive, the latest first; only those on
+ * the hosts the sidebar lists (this computer is null), or on any host with null.
+ */
+export function pickupSessions(
+  byId: Readonly<Record<string, SessionSummary | undefined>>,
+  hosts: readonly (string | null)[] | null,
+  count = PICKUP,
+): SessionSummary[] {
+  return Object.values(byId)
+    .filter(
+      (s): s is SessionSummary =>
+        !!s &&
+        s.origin === 'user' &&
+        s.parentId === null &&
+        s.archivedAt === null &&
+        !s.prepared &&
+        (!hosts || hosts.includes(hostOfSession(s))),
+    )
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, count)
+}
+
+export type PickupState = 'waiting' | 'working' | 'failed' | 'signIn' | 'finished'
+
+/** What a session to pick up is doing, as its row says it. */
+export function pickupState(
+  session: Pick<SessionSummary, 'status' | 'attention' | 'permissionCount'>,
+): PickupState {
+  if (session.status === 'awaiting_permission' || session.permissionCount > 0) return 'waiting'
+  if (session.status === 'running' || session.status === 'starting') return 'working'
+  if (session.status === 'failed' || session.attention === 'error') return 'failed'
+  if (session.status === 'auth_required') return 'signIn'
+  return 'finished'
+}

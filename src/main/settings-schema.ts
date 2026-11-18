@@ -1,0 +1,1590 @@
+// Pure validation and merging of settings.json and of the renderer's patches.
+
+import { isStartMode, takesStartMode } from '@shared/agents'
+import {
+  AGENT_NAME_CHARS,
+  CONFIG_VARIABLES,
+  DEFAULT_SETTINGS,
+  AGENT_COLORS,
+  isAgentColor,
+  nextAgentColor,
+  isFontFamilyName,
+  isLinkSite,
+  MAX_LINK_SITES,
+  NEW_SESSION_LISTS,
+  ONBOARDING_STEPS,
+  type AddedAgent,
+  type HostSettings,
+  type ProxySettings,
+  type DirectSettings,
+  type SettingsFile,
+  type SettingsPatch,
+  type TerminalSettings,
+  ZOOM_LEVELS,
+} from '@shared/settings'
+import { isComputerApp, isStopShortcut } from '@shared/computer-use'
+import {
+  IDLE_LIMITS,
+  IDLE_RELEASE_MODES,
+  IN_VIEW_MINUTES,
+  OUT_OF_VIEW_MINUTES,
+} from '@shared/idle-release'
+import { LANGUAGE_SETTINGS, resolveLocale, type Locale } from '@shared/locale'
+import {
+  catalogSkillId,
+  MARKET_NAME,
+  type MarketServer,
+  type MarketSkill,
+  type McpSpec,
+  type McpValue,
+} from '@shared/marketplace'
+import { addressKey, isPort, MAX_OWN_ADDRESSES, parseDirectAddress } from '@shared/remote/address'
+import type { DirectAddress } from '@shared/remote/protocol'
+import { DEVICE_NAME_CHARS, isDeviceName } from '@shared/remote/device'
+import { THEME_ID } from '@shared/themes'
+import { isAbsolutePath } from '../agent-host/paths'
+import {
+  AUTO_AGENT_HARNESSES,
+  HARNESS_IDS,
+  isAgentId,
+  isDefaultAgent,
+  isHarnessId,
+  harnessOf,
+  MULTI_AGENT_HARNESSES,
+  USER_PROGRAM_HARNESSES,
+  type AgentId,
+  type HarnessId,
+} from '@shared/thread'
+
+export const SETTINGS_VERSION = 1
+
+export class SettingsError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SettingsError'
+  }
+}
+
+type Check = (value: unknown, path: string) => string | null
+
+const oneOf =
+  (...values: readonly unknown[]): Check =>
+  (value, path) =>
+    values.includes(value)
+      ? null
+      : `"${path}" must be one of ${values.map((v) => JSON.stringify(v)).join(', ')}`
+
+const isBoolean: Check = (value, path) =>
+  typeof value === 'boolean' ? null : `"${path}" must be a boolean`
+
+/** Detailed records may be turned on for a day at most; a time in the past means off. */
+export const VERBOSE_FOR_MS = 24 * 60 * 60 * 1000
+// Room for the renderer's clock to run ahead of main's.
+const VERBOSE_SLACK_MS = 60 * 1000
+
+const isVerboseUntil: Check = (value, path) =>
+  value === null ||
+  (typeof value === 'number' &&
+    Number.isFinite(value) &&
+    value <= Date.now() + VERBOSE_FOR_MS + VERBOSE_SLACK_MS)
+    ? null
+    : `"${path}" must be null or a time within a day`
+
+const isAgentChoice: Check = (value, path) =>
+  value === null || isAgentId(value) ? null : `"${path}" must be an agent id or null`
+
+const isHostName: Check = (value, path) =>
+  value === null || isDeviceName(value)
+    ? null
+    : `"${path}" must be null or a trimmed name of 1 to ${DEVICE_NAME_CHARS} characters`
+
+const isThemeId: Check = (value, path) =>
+  typeof value === 'string' && THEME_ID.test(value) ? null : `"${path}" must be a theme id`
+
+const isStopShortcutValue: Check = (value, path) =>
+  isStopShortcut(value)
+    ? null
+    : `"${path}" must be empty or two or more modifiers and a key, such as Control+Alt+Command+.`
+
+/** The sites the "Always open" choice remembers, each a host mapped to where it opens. */
+/** Apps the user always allows, each once, with an identity the host would make. */
+const MAX_ALLOWED_APPS = 500
+const isComputerApps: Check = (value, path) => {
+  if (!Array.isArray(value) || value.length > MAX_ALLOWED_APPS) {
+    return `"${path}" must list at most ${MAX_ALLOWED_APPS} apps`
+  }
+  const ids = new Set<string>()
+  for (const app of value) {
+    if (!isComputerApp(app) || Object.keys(app).length !== 2 || ids.has(app.id)) {
+      return `"${path}" must list apps as { id, name }, each id once`
+    }
+    ids.add(app.id)
+  }
+  return null
+}
+
+const isLinkSites: Check = (value, path) => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return `"${path}" must be an object`
+  }
+  const entries = Object.entries(value)
+  if (entries.length > MAX_LINK_SITES) return `"${path}" may hold at most ${MAX_LINK_SITES} sites`
+  for (const [site, destination] of entries) {
+    if (!isLinkSite(site)) {
+      return `"${path}" names a site that is not a host`
+    }
+    if (destination !== 'browser' && destination !== 'session') {
+      return `"${path}.${site}" must be one of "browser", "session"`
+    }
+  }
+  return null
+}
+
+/** Null, or an absolute path on this computer that has no NUL. */
+function isWorktreeRoot(value: unknown, path: string): string | null {
+  if (value === null) return null
+  return (
+    checkStoredPath(value, path) ??
+    (isAbsolutePath(value as string, process.platform)
+      ? null
+      : `"${path}" must be an absolute path`)
+  )
+}
+
+const SECTION_FIELDS = {
+  general: {
+    language: oneOf(...LANGUAGE_SETTINGS),
+    defaultAgent: isAgentChoice,
+    sendKey: oneOf('enter', 'mod-enter'),
+    restoreLastSession: isBoolean,
+    newSessionList: oneOf(...NEW_SESSION_LISTS),
+    confirmQuitWhileRunning: isBoolean,
+    openAtLogin: isBoolean,
+    background: isBoolean,
+    sessionTitles: isBoolean,
+  },
+  thread: {
+    outlineSummaries: isBoolean,
+    confirmLinks: isBoolean,
+    openLinksIn: oneOf('browser', 'session', 'ask'),
+    alwaysOpenIn: isLinkSites,
+  },
+  appearance: {
+    theme: oneOf('system', 'light', 'dark'),
+    colorTheme: isThemeId,
+    textSize: oneOf('small', 'default', 'large'),
+    reduceMotion: oneOf('system', 'always'),
+    zoom: oneOf(...ZOOM_LEVELS),
+    sidebarHover: isBoolean,
+  },
+  notifications: {
+    permission: isBoolean,
+    turnEnded: isBoolean,
+    error: isBoolean,
+    routines: isBoolean,
+    sound: isBoolean,
+    badge: isBoolean,
+  },
+  git: { backgroundFetch: isBoolean, worktreeRoot: isWorktreeRoot },
+  updates: {
+    automatic: oneOf('download', 'restart', 'notify', 'off'),
+    source: oneOf('auto', 'github'),
+  },
+  privacy: { hideAccount: isBoolean },
+  diagnostics: { verboseUntil: isVerboseUntil },
+  usage: {
+    fromComputer: isBoolean,
+    sidebar: oneOf('today', 'cost', 'limit', 'off'),
+    limits: oneOf('used', 'left'),
+  },
+  idleSessions: {
+    release: oneOf(...IDLE_RELEASE_MODES),
+    outOfView: oneOf(...OUT_OF_VIEW_MINUTES),
+    inView: oneOf(...IN_VIEW_MINUTES),
+    limit: oneOf(...IDLE_LIMITS),
+  },
+  computerUse: {
+    enabled: isBoolean,
+    allowedApps: isComputerApps,
+    pauseOnUse: isBoolean,
+    stopShortcut: isStopShortcutValue,
+  },
+  cloud: { enabled: isBoolean },
+  onboarding: { done: isBoolean, step: oneOf(...ONBOARDING_STEPS) },
+} as const satisfies Record<string, Record<string, Check>>
+
+type FieldSection = keyof typeof SECTION_FIELDS
+
+const FIELD_SECTIONS = Object.keys(SECTION_FIELDS) as FieldSection[]
+const FONT_SIZES = [12, 13, 14] as const
+const PROXY_PROTOCOLS = ['http:', 'https:', 'socks:', 'socks4:', 'socks5:']
+const MAX_PATH_LENGTH = 4096
+const MAX_URL_LENGTH = 2048
+const MAX_NO_PROXY_LENGTH = 4096
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function checkProxy(value: unknown, path: string): string | null {
+  if (!isRecord(value)) return `"${path}" must be an object`
+  if (value.mode === 'environment') {
+    const extra = Object.keys(value).find((key) => key !== 'mode')
+    return extra ? `Unknown setting "${path}.${extra}"` : null
+  }
+  if (value.mode !== 'custom') return `"${path}.mode" must be one of "environment", "custom"`
+  const extra = Object.keys(value).find((key) => !['mode', 'url', 'noProxy'].includes(key))
+  if (extra) return `Unknown setting "${path}.${extra}"`
+  if (typeof value.url !== 'string' || value.url.length > MAX_URL_LENGTH) {
+    return `"${path}.url" must be a string of at most ${MAX_URL_LENGTH} characters`
+  }
+  const url = URL.parse(value.url.trim())
+  if (!url || !PROXY_PROTOCOLS.includes(url.protocol) || !url.hostname || /\s/.test(value.url)) {
+    return `"${path}.url" must be a proxy URL such as http://proxy.example.com:8080`
+  }
+  if (typeof value.noProxy !== 'string' || value.noProxy.length > MAX_NO_PROXY_LENGTH) {
+    return `"${path}.noProxy" must be a string of at most ${MAX_NO_PROXY_LENGTH} characters`
+  }
+  return null
+}
+
+const AGENT_KEYS: readonly string[] = [
+  'binaryPath',
+  'configDir',
+  'hidden',
+  'enabled',
+  'uninstalled',
+  'autoUpdate',
+]
+
+/** A list of agents, as the MCP switches and the turned-off agents are: each an id, once. */
+function checkAgentIds(value: unknown, path: string): string | null {
+  if (!Array.isArray(value)) return `"${path}" must be an array`
+  const seen = new Set<unknown>()
+  for (const id of value) {
+    if (!isAgentId(id)) return `"${path}" names an unknown agent`
+    if (seen.has(id)) return `"${path}" names an agent twice`
+    seen.add(id)
+  }
+  return null
+}
+
+function checkFontFamily(value: unknown, path: string): string | null {
+  return typeof value === 'string' && isFontFamilyName(value)
+    ? null
+    : `"${path}" must be one font name without quotes, separators or brackets`
+}
+
+function checkStoredPath(value: unknown, path: string): string | null {
+  if (typeof value !== 'string' || value.length === 0 || value.length > MAX_PATH_LENGTH) {
+    return `"${path}" must be a non-empty path`
+  }
+  return value.includes('\0') ? `"${path}" must not contain NUL characters` : null
+}
+
+function checkMcp(value: unknown, path: string): string | null {
+  if (!isRecord(value)) return `"${path}" must be an object`
+  const extra = Object.keys(value).find((key) => key !== 'kettu')
+  if (extra) return `Unknown setting "${path}.${extra}"`
+  const kettu = value.kettu
+  if (!isRecord(kettu)) return `"${path}.kettu" must be an object`
+  const unknown = Object.keys(kettu).find((key) => key !== 'off')
+  if (unknown) return `Unknown setting "${path}.kettu.${unknown}"`
+  return checkAgentIds(kettu.off, `${path}.kettu.off`)
+}
+
+export const MAX_MARKET_SERVERS = 200
+const MAX_MARKET_ID = 200
+const MAX_MARKET_TITLE = 200
+const MAX_MARKET_VERSION = 100
+const MAX_SPEC_TEXT = 4096
+const MAX_SPEC_ARGS = 200
+const MAX_SPEC_VALUES = 64
+const MAX_VALUE_NAME = 128
+const MAX_INPUT_DESCRIPTION = 1000
+// The registry's own pattern for a server's name.
+const REGISTRY_NAME = /^[A-Za-z0-9.-]+\/[A-Za-z0-9._-]+$/
+const MANUAL_ID = /^manual:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+// A listing of the Kettu Marketplace, as a kept server's or skill's id.
+const KETTU_ID = /^kettu:[a-z2-7]{10}$/
+// Where a skill from it came from: `@<publisher>/<slug>`.
+const KETTU_ORIGIN = /^@[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?\/[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/
+// A token as RFC 9110 defines a field name.
+const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+/** Whether `text` holds a control character; with `lines`, tabs and line breaks are allowed. */
+function hasControl(text: string, lines = false): boolean {
+  return [...text].some((char) => {
+    const code = char.charCodeAt(0)
+    if (lines && (char === '\t' || char === '\n' || char === '\r')) return false
+    return code < 0x20 || code === 0x7f
+  })
+}
+
+function isText(value: unknown, max: number): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= max && !hasControl(value)
+}
+
+/** The first key of `value` outside `allowed`, as a problem; a file's unknown keys are ignored. */
+function extraKey(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+  path: string,
+  strict: boolean,
+): string | null {
+  const extra = strict ? Object.keys(value).find((key) => !allowed.includes(key)) : undefined
+  return extra === undefined ? null : `Unknown setting "${path}.${extra}"`
+}
+
+// What an input from an MCP bundle's manifest adds: its label, kind, default and bounds.
+const BUNDLE_INPUT_KEYS = ['title', 'kind', 'default', 'min', 'max'] as const
+const INPUT_KINDS = ['string', 'number', 'boolean', 'directory', 'file'] as const
+
+function parseBundleInput(
+  raw: Record<string, unknown>,
+  path: string,
+): Partial<Extract<McpValue, { input: true }>> | string {
+  const out: Partial<Extract<McpValue, { input: true }>> = {}
+  const { title, kind, min, max } = raw
+  if (title !== undefined) {
+    if (!isText(title, 200)) return `"${path}.title" must be a string of at most 200 characters`
+    out.title = title
+  }
+  if (kind !== undefined) {
+    const problem = oneOf(...INPUT_KINDS)(kind, `${path}.kind`)
+    if (problem) return problem
+    out.kind = kind as (typeof INPUT_KINDS)[number]
+  }
+  if (raw.default !== undefined) {
+    const value = raw.default
+    if (typeof value !== 'string' || value.length > MAX_SPEC_TEXT || value.includes('\0')) {
+      return `"${path}.default" must be a string of at most ${MAX_SPEC_TEXT} characters`
+    }
+    out.default = value
+  }
+  for (const [key, value] of [
+    ['min', min],
+    ['max', max],
+  ] as const) {
+    if (value === undefined) continue
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return `"${path}.${key}" must be a number`
+    }
+    out[key] = value
+  }
+  return out
+}
+
+/** A header or environment variable of a server's spec, or why it is not one. */
+function parseMcpValue(
+  raw: unknown,
+  path: string,
+  kind: 'header' | 'env',
+  strict: boolean,
+): McpValue | string {
+  if (!isRecord(raw)) return `"${path}" must be an object`
+  const { name } = raw
+  const pattern = kind === 'header' ? HEADER_NAME : ENV_NAME
+  if (typeof name !== 'string' || name.length > MAX_VALUE_NAME || !pattern.test(name)) {
+    return `"${path}.name" must be ${kind === 'header' ? 'a header' : 'an environment variable'} name`
+  }
+  if ('input' in raw) {
+    const extra = extraKey(
+      raw,
+      ['name', 'input', 'secret', 'required', 'description', 'prefix', ...BUNDLE_INPUT_KEYS],
+      path,
+      strict,
+    )
+    if (extra) return extra
+    const { input, secret, required, description, prefix } = raw
+    if (input !== true) return `"${path}.input" must be true`
+    const problem = isBoolean(secret, `${path}.secret`) ?? isBoolean(required, `${path}.required`)
+    if (problem) return problem
+    const value: Extract<McpValue, { input: true }> = {
+      name,
+      input,
+      secret: secret as boolean,
+      required: required as boolean,
+    }
+    if (description !== undefined) {
+      if (
+        typeof description !== 'string' ||
+        description.length > MAX_INPUT_DESCRIPTION ||
+        description.includes('\0')
+      ) {
+        return `"${path}.description" must be a string of at most ${MAX_INPUT_DESCRIPTION} characters`
+      }
+      value.description = description
+    }
+    if (prefix !== undefined) {
+      // Sent before the stored value, so it may not break a header line either.
+      if (typeof prefix !== 'string' || prefix.length > 64 || /[\0\r\n]/.test(prefix)) {
+        return `"${path}.prefix" must be a string of at most 64 characters on one line`
+      }
+      value.prefix = prefix
+    }
+    const bundled = parseBundleInput(raw, path)
+    if (typeof bundled === 'string') return bundled
+    return { ...value, ...bundled }
+  }
+  const extra = extraKey(raw, ['name', 'value'], path, strict)
+  if (extra) return extra
+  const { value } = raw
+  // A header's value cannot hold a line break, which would start another header.
+  const broken = typeof value === 'string' && kind === 'header' && /[\r\n]/.test(value)
+  if (typeof value !== 'string' || value.length > MAX_SPEC_TEXT || value.includes('\0') || broken) {
+    return `"${path}.value" must be a string of at most ${MAX_SPEC_TEXT} characters on one line`
+  }
+  return { name, value }
+}
+
+function parseMcpValues(
+  raw: unknown,
+  path: string,
+  kind: 'header' | 'env',
+  strict: boolean,
+): McpValue[] | string {
+  if (!Array.isArray(raw) || raw.length > MAX_SPEC_VALUES) {
+    return `"${path}" must list at most ${MAX_SPEC_VALUES} values`
+  }
+  const values: McpValue[] = []
+  const names = new Set<string>()
+  for (const [index, entry] of raw.entries()) {
+    const value = parseMcpValue(entry, `${path}[${index}]`, kind, strict)
+    if (typeof value === 'string') return value
+    // Header names are compared without case, as HTTP does.
+    const key = kind === 'header' ? value.name.toLowerCase() : value.name
+    if (names.has(key)) return `"${path}" names "${value.name}" twice`
+    names.add(key)
+    values.push(value)
+  }
+  return values
+}
+
+function parseMcpSpec(raw: unknown, path: string, strict: boolean): McpSpec | string {
+  if (!isRecord(raw)) return `"${path}" must be an object`
+  if (raw.type === 'http') {
+    const extra = extraKey(raw, ['type', 'transport', 'url', 'headers', 'oauth'], path, strict)
+    if (extra) return extra
+    const { transport, url } = raw
+    const problem = oneOf('streamable-http', 'sse')(transport, `${path}.transport`)
+    if (problem) return problem
+    const parsed = typeof url === 'string' && url.length <= MAX_URL_LENGTH ? URL.parse(url) : null
+    if (
+      !parsed ||
+      (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
+      !parsed.hostname ||
+      /\s/.test(url as string)
+    ) {
+      return `"${path}.url" must be an http or https URL of at most ${MAX_URL_LENGTH} characters`
+    }
+    const headers = parseMcpValues(raw.headers, `${path}.headers`, 'header', strict)
+    if (typeof headers === 'string') return headers
+    const spec: Extract<McpSpec, { type: 'http' }> = {
+      type: 'http',
+      transport: transport as 'streamable-http' | 'sse',
+      url: url as string,
+      headers,
+    }
+    if (raw.oauth === undefined) return spec
+    const { oauth } = raw
+    if (!isRecord(oauth)) return `"${path}.oauth" must be an object`
+    const oauthExtra = extraKey(oauth, ['flow'], `${path}.oauth`, strict)
+    if (oauthExtra) return oauthExtra
+    const flowProblem = oneOf('browser', 'device')(oauth.flow, `${path}.oauth.flow`)
+    if (flowProblem) return flowProblem
+    return { ...spec, oauth: { flow: oauth.flow as 'browser' | 'device' } }
+  }
+  if (raw.type === 'stdio') {
+    const extra = extraKey(raw, ['type', 'command', 'args', 'env', 'runtime'], path, strict)
+    if (extra) return extra
+    const { command, args } = raw
+    if (
+      typeof command !== 'string' ||
+      command.trim().length === 0 ||
+      command.length > MAX_SPEC_TEXT ||
+      /[\0\r\n]/.test(command)
+    ) {
+      return `"${path}.command" must be a command of 1 to ${MAX_SPEC_TEXT} characters on one line`
+    }
+    if (
+      !Array.isArray(args) ||
+      args.length > MAX_SPEC_ARGS ||
+      !args.every(
+        (arg) => typeof arg === 'string' && arg.length <= MAX_SPEC_TEXT && !arg.includes('\0'),
+      )
+    ) {
+      return `"${path}.args" must list at most ${MAX_SPEC_ARGS} strings of at most ${MAX_SPEC_TEXT} characters`
+    }
+    const env = parseMcpValues(raw.env, `${path}.env`, 'env', strict)
+    if (typeof env === 'string') return env
+    if (raw.runtime !== undefined && raw.runtime !== 'node') {
+      return `"${path}.runtime" must be "node"`
+    }
+    return {
+      type: 'stdio',
+      command,
+      args: [...(args as string[])],
+      env,
+      ...(raw.runtime === 'node' ? { runtime: 'node' as const } : {}),
+    }
+  }
+  return `"${path}.type" must be one of "http", "stdio"`
+}
+
+/** A server of the Marketplace as a patch or the file gives it, or why it is not one. */
+function parseMarketServer(raw: unknown, path: string, strict: boolean): MarketServer | string {
+  if (!isRecord(raw)) return `"${path}" must be an object`
+  const allowed = ['id', 'name', 'title', 'source', 'version', 'spec', 'agents', 'on']
+  const extra = extraKey(raw, allowed, path, strict)
+  if (extra) return extra
+  const { id, name, title, source, version, agents, on } = raw
+  const sourceProblem = oneOf('registry', 'manual', 'kettu')(source, `${path}.source`)
+  if (sourceProblem) return sourceProblem
+  const idPattern = source === 'manual' ? MANUAL_ID : source === 'kettu' ? KETTU_ID : REGISTRY_NAME
+  if (typeof id !== 'string' || id.length > MAX_MARKET_ID || !idPattern.test(id)) {
+    return source === 'manual'
+      ? `"${path}.id" must be manual: and a UUID`
+      : source === 'kettu'
+        ? `"${path}.id" must be kettu: and a listing id`
+        : `"${path}.id" must be a registry name of at most ${MAX_MARKET_ID} characters`
+  }
+  if (typeof name !== 'string' || !MARKET_NAME.test(name) || name === 'kettu') {
+    return `"${path}.name" must be lowercase letters, digits, - and _, and not "kettu"`
+  }
+  if (!isText(title, MAX_MARKET_TITLE)) {
+    return `"${path}.title" must be 1 to ${MAX_MARKET_TITLE} characters`
+  }
+  if (version !== null && !isText(version, MAX_MARKET_VERSION)) {
+    return `"${path}.version" must be null or 1 to ${MAX_MARKET_VERSION} characters`
+  }
+  const spec = parseMcpSpec(raw.spec, `${path}.spec`, strict)
+  if (typeof spec === 'string') return spec
+  const served = parseServedAgents(agents, `${path}.agents`, strict)
+  if (typeof served === 'string') return served
+  const onProblem = isBoolean(on, `${path}.on`)
+  if (onProblem) return onProblem
+  return {
+    id,
+    name,
+    title,
+    source: source as MarketServer['source'],
+    version: version as string | null,
+    spec,
+    agents: served.agents,
+    on: on as boolean,
+  }
+}
+
+/** The agents a server or skill goes to: all, or a list, whose unknown ids a file loses. */
+function parseServedAgents(
+  agents: unknown,
+  path: string,
+  strict: boolean,
+): { agents: MarketServer['agents'] } | string {
+  if (agents === 'all') return { agents }
+  if (strict) {
+    const problem = checkAgentIds(agents, path)
+    return problem ? `${problem}, or be "all"` : { agents: [...(agents as AgentId[])] }
+  }
+  if (!Array.isArray(agents)) return `"${path}" must be "all" or a list of agents`
+  return { agents: readAgentIds(agents) }
+}
+
+export const MAX_MARKET_SKILLS = 500
+const MAX_SKILL_ID = 512
+const MAX_SKILL_DESCRIPTION = 1024
+// A skill's name as the Agent Skills specification has it.
+const SKILL_NAME = /^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$/
+const GITHUB_SKILL_PREFIX = 'github:'
+const LOCAL_SKILL_ID = /^local:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+const GITHUB_OWNER = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/
+const GITHUB_REPO = /^[A-Za-z0-9._-]{1,100}$/
+const SKILL_IDS = {
+  catalog: "owner/repo: and a skill's name",
+  github: `${GITHUB_SKILL_PREFIX} and owner/repo, with a folder in it or not`,
+  local: 'local: and a UUID',
+  kettu: 'kettu: and a listing id',
+} as const
+
+/** A folder's name in a skill's id: no `.` or `..`, which would leave the repository. */
+function isIdSegment(part: string): boolean {
+  return part.length > 0 && part !== '.' && part !== '..' && !part.includes('\\')
+}
+
+function isSkillId(id: string, source: MarketSkill['source']): boolean {
+  if (id.length > MAX_SKILL_ID || hasControl(id)) return false
+  if (source === 'local') return LOCAL_SKILL_ID.test(id)
+  if (source === 'kettu') return KETTU_ID.test(id)
+  if (source === 'catalog') return catalogSkillId(id) !== null
+  if (!id.startsWith(GITHUB_SKILL_PREFIX)) return false
+  const [owner = '', repo = '', ...folder] = id.slice(GITHUB_SKILL_PREFIX.length).split('/')
+  return (
+    GITHUB_OWNER.test(owner) &&
+    GITHUB_REPO.test(repo) &&
+    isIdSegment(repo) &&
+    folder.every(isIdSegment)
+  )
+}
+
+function isHttpsUrl(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > MAX_URL_LENGTH || /\s/.test(value)) return false
+  const url = URL.parse(value)
+  return url !== null && url.protocol === 'https:' && url.hostname.length > 0
+}
+
+/** A skill of the Marketplace as a patch or the file gives it, or why it is not one. */
+function parseMarketSkill(raw: unknown, path: string, strict: boolean): MarketSkill | string {
+  if (!isRecord(raw)) return `"${path}" must be an object`
+  const allowed = ['id', 'name', 'description', 'source', 'origin', 'version', 'agents', 'on']
+  const extra = extraKey(raw, allowed, path, strict)
+  if (extra) return extra
+  const { id, name, description, source, origin, version, on } = raw
+  const sourceProblem = oneOf('catalog', 'github', 'local', 'kettu')(source, `${path}.source`)
+  if (sourceProblem) return sourceProblem
+  const from = source as MarketSkill['source']
+  if (typeof id !== 'string' || !isSkillId(id, from))
+    return `"${path}.id" must be ${SKILL_IDS[from]}`
+  if (typeof name !== 'string' || !SKILL_NAME.test(name)) {
+    return `"${path}.name" must be 1 to 64 lowercase letters, digits and -, not starting or ending with -`
+  }
+  if (
+    typeof description !== 'string' ||
+    description.length === 0 ||
+    description.length > MAX_SKILL_DESCRIPTION ||
+    hasControl(description, true)
+  ) {
+    return `"${path}.description" must be 1 to ${MAX_SKILL_DESCRIPTION} characters`
+  }
+  if (from === 'local') {
+    const problem = checkStoredPath(origin, `${path}.origin`)
+    if (problem) return problem
+    if (!isAbsolutePath(origin as string, process.platform)) {
+      return `"${path}.origin" must be an absolute path`
+    }
+  } else if (from === 'kettu') {
+    if (typeof origin !== 'string' || !KETTU_ORIGIN.test(origin)) {
+      return `"${path}.origin" must be @<publisher>/<slug>`
+    }
+  } else if (!isHttpsUrl(origin)) {
+    return `"${path}.origin" must be an https URL of at most ${MAX_URL_LENGTH} characters`
+  }
+  if (version !== null && !isText(version, MAX_MARKET_VERSION)) {
+    return `"${path}.version" must be null or 1 to ${MAX_MARKET_VERSION} characters`
+  }
+  const served = parseServedAgents(raw.agents, `${path}.agents`, strict)
+  if (typeof served === 'string') return served
+  const onProblem = isBoolean(on, `${path}.on`)
+  if (onProblem) return onProblem
+  return {
+    id,
+    name,
+    description,
+    source: from,
+    origin: origin as string,
+    version: version as string | null,
+    agents: served.agents,
+    on: on as boolean,
+  }
+}
+
+type MarketParse<T> = (raw: unknown, path: string, strict: boolean) => T | string
+
+/** A list of a patch, checked whole: each item valid, its id and name once. */
+function checkMarketList<T extends { id: string; name: string }>(
+  raw: unknown,
+  path: string,
+  max: number,
+  parse: MarketParse<T>,
+  kind: string,
+): T[] | string {
+  if (!Array.isArray(raw) || raw.length > max) return `"${path}" must list at most ${max} ${kind}s`
+  const items: T[] = []
+  for (const [index, entry] of raw.entries()) {
+    const item = parse(entry, `${path}[${index}]`, true)
+    if (typeof item === 'string') return item
+    if (items.some((other) => other.id === item.id || other.name === item.name)) {
+      return `"${path}[${index}]" repeats another ${kind}'s id or name`
+    }
+    items.push(item)
+  }
+  return items
+}
+
+/** A list of the file, dropping each item that is invalid or repeats an id or a name. */
+function readMarketList<T extends { id: string; name: string }>(
+  raw: unknown,
+  path: string,
+  max: number,
+  parse: MarketParse<T>,
+  kind: string,
+  problems: string[],
+): T[] {
+  if (raw === undefined) return []
+  if (!Array.isArray(raw)) {
+    problems.push(`"${path}" must be an array`)
+    return []
+  }
+  const items: T[] = []
+  for (const [index, entry] of raw.entries()) {
+    const itemPath = `${path}[${index}]`
+    const item = parse(entry, itemPath, false)
+    if (typeof item === 'string') problems.push(item)
+    else if (items.some((other) => other.id === item.id || other.name === item.name)) {
+      problems.push(`"${itemPath}" repeats another ${kind}'s id or name`)
+    } else if (items.length === max) {
+      problems.push(`"${itemPath}" is beyond the ${max} ${kind}s kept`)
+    } else items.push(item)
+  }
+  return items
+}
+
+/** `marketplace` in a patch: each list it holds replaces the stored one whole. */
+function checkMarketplace(
+  value: unknown,
+  path: string,
+): NonNullable<SettingsPatch['marketplace']> | string {
+  if (!isRecord(value)) return `"${path}" must be an object`
+  const extra = extraKey(value, ['mcp', 'skills'], path, true)
+  if (extra) return extra
+  const checked: NonNullable<SettingsPatch['marketplace']> = {}
+  if (value.mcp !== undefined) {
+    const mcp = checkMarketList(
+      value.mcp,
+      `${path}.mcp`,
+      MAX_MARKET_SERVERS,
+      parseMarketServer,
+      'server',
+    )
+    if (typeof mcp === 'string') return mcp
+    checked.mcp = mcp
+  }
+  if (value.skills !== undefined) {
+    const skills = checkMarketList(
+      value.skills,
+      `${path}.skills`,
+      MAX_MARKET_SKILLS,
+      parseMarketSkill,
+      'skill',
+    )
+    if (typeof skills === 'string') return skills
+    checked.skills = skills
+  }
+  return checked
+}
+
+/** The start modes a patch sets: each for an agent that takes one, or null to clear it. */
+function checkStartModes(value: unknown, path: string): string | null {
+  if (!isRecord(value)) return `"${path}" must be an object`
+  for (const [id, mode] of Object.entries(value)) {
+    if (!isAgentId(id)) return `"${path}.${id}" is not an agent id`
+    if (!takesStartMode(id)) return `"${path}.${id}" is an agent that takes no start mode`
+    if (mode !== null && !isStartMode(id, mode)) {
+      return `"${path}.${id}" must be a mode that does not give full access, or null`
+    }
+  }
+  return null
+}
+
+const ADDRESS_PROBLEM = 'must be a host name or IP address and a port from 1 to 65535'
+
+/** The owner's own direct addresses as a patch sets them: each valid, once, and few enough. */
+function checkOwnAddresses(value: unknown, path: string): string | null {
+  if (!Array.isArray(value)) return `"${path}" must be an array`
+  if (value.length > MAX_OWN_ADDRESSES) {
+    return `"${path}" may hold at most ${MAX_OWN_ADDRESSES} addresses`
+  }
+  const seen = new Set<string>()
+  for (const [index, entry] of value.entries()) {
+    const address = parseDirectAddress(entry)
+    if (!address) return `"${path}[${index}]" ${ADDRESS_PROBLEM}`
+    const extra = Object.keys(entry as object).find((key) => key !== 'host' && key !== 'port')
+    if (extra) return `Unknown setting "${path}[${index}].${extra}"`
+    const key = addressKey(address)
+    if (seen.has(key)) return `"${path}" names an address twice`
+    seen.add(key)
+  }
+  return null
+}
+
+/** A port the owner picks; whether it is free shows only when the remote host listens on it. */
+const isOwnPort: Check = (value, path) =>
+  isPort(value) && value >= 1024 ? null : `"${path}" must be a port from 1024 to 65535`
+
+/** `remote` in a patch. */
+function checkRemote(value: unknown, problems: string[]): void {
+  if (!isRecord(value)) {
+    problems.push('"remote" must be an object')
+    return
+  }
+  for (const [key, fieldValue] of Object.entries(value)) {
+    if (
+      key === 'enabled' ||
+      key === 'name' ||
+      key === 'terminal' ||
+      key === 'relay' ||
+      key === 'discoverable'
+    ) {
+      const problem = (key === 'name' ? isHostName : isBoolean)(fieldValue, `remote.${key}`)
+      if (problem) problems.push(problem)
+    } else if (key === 'direct') {
+      if (!isRecord(fieldValue)) {
+        problems.push('"remote.direct" must be an object')
+        continue
+      }
+      for (const [directKey, directValue] of Object.entries(fieldValue)) {
+        const path = `remote.direct.${directKey}`
+        const problem =
+          directKey === 'enabled'
+            ? isBoolean(directValue, path)
+            : directKey === 'port'
+              ? isOwnPort(directValue, path)
+              : directKey === 'addresses'
+                ? checkOwnAddresses(directValue, path)
+                : `Unknown setting "${path}"`
+        if (problem) problems.push(problem)
+      }
+    } else {
+      problems.push(`Unknown setting "remote.${key}"`)
+    }
+  }
+}
+
+function normalizeProxy(proxy: ProxySettings): ProxySettings {
+  if (proxy.mode === 'environment') return { mode: 'environment' }
+  return { mode: 'custom', url: proxy.url.trim(), noProxy: proxy.noProxy.trim() }
+}
+
+/**
+ * Validates a change from the renderer. Anything unknown or out of range rejects the whole
+ * patch, so a call either applies completely or changes nothing.
+ */
+export function validateSettingsPatch(raw: unknown): SettingsPatch {
+  if (!isRecord(raw)) throw new SettingsError('Settings patch must be an object')
+  const problems: string[] = []
+  // Sections kept as checked, without what a value may carry beyond its type.
+  const checked: Partial<SettingsPatch> = {}
+  for (const [section, value] of Object.entries(raw)) {
+    if (FIELD_SECTIONS.includes(section as FieldSection)) {
+      const fields: Record<string, Check> = SECTION_FIELDS[section as FieldSection]
+      if (!isRecord(value)) {
+        problems.push(`"${section}" must be an object`)
+        continue
+      }
+      for (const [key, fieldValue] of Object.entries(value)) {
+        const check = fields[key]
+        const problem = check
+          ? check(fieldValue, `${section}.${key}`)
+          : `Unknown setting "${section}.${key}"`
+        if (problem) problems.push(problem)
+      }
+    } else if (section === 'agents') {
+      if (!isRecord(value)) {
+        problems.push('"agents" must be an object')
+        continue
+      }
+      for (const [harnessId, entry] of Object.entries(value)) {
+        if (!isHarnessId(harnessId)) {
+          problems.push(`Unknown harness "agents.${harnessId}"`)
+        } else if (
+          !isRecord(entry) ||
+          Object.keys(entry).some((key) => !AGENT_KEYS.includes(key))
+        ) {
+          problems.push(
+            `"agents.${harnessId}" accepts only "binaryPath", "configDir", "hidden", "enabled", "uninstalled" and "autoUpdate"`,
+          )
+        } else {
+          if ('binaryPath' in entry && entry.binaryPath !== null) {
+            problems.push(
+              `"agents.${harnessId}.binaryPath" can only be cleared with null; choose a program in the dialog`,
+            )
+          }
+          if ('configDir' in entry && entry.configDir !== null) {
+            problems.push(`"agents.${harnessId}.configDir" can only be cleared with null`)
+          }
+          for (const key of ['hidden', 'enabled', 'uninstalled', 'autoUpdate']) {
+            const problem =
+              key in entry ? isBoolean(entry[key], `agents.${harnessId}.${key}`) : null
+            if (problem) problems.push(problem)
+          }
+        }
+      }
+    } else if (section === 'proxy') {
+      const problem = checkProxy(value, 'proxy')
+      if (problem) problems.push(problem)
+    } else if (section === 'mcp') {
+      const problem = checkMcp(value, 'mcp')
+      if (problem) problems.push(problem)
+    } else if (section === 'marketplace') {
+      const marketplace = checkMarketplace(value, 'marketplace')
+      if (typeof marketplace === 'string') problems.push(marketplace)
+      else checked.marketplace = marketplace
+    } else if (section === 'disabledAgents') {
+      const problem = checkAgentIds(value, 'disabledAgents')
+      if (problem) problems.push(problem)
+    } else if (section === 'startModes') {
+      const problem = checkStartModes(value, 'startModes')
+      if (problem) problems.push(problem)
+    } else if (section === 'remote') {
+      checkRemote(value, problems)
+    } else if (section === 'terminal') {
+      if (!isRecord(value)) {
+        problems.push('"terminal" must be an object')
+        continue
+      }
+      for (const [key, fieldValue] of Object.entries(value)) {
+        if (key === 'fontSize') {
+          const problem = oneOf(...FONT_SIZES)(fieldValue, 'terminal.fontSize')
+          if (problem) problems.push(problem)
+        } else if (key === 'fontFamily') {
+          const problem =
+            fieldValue === null ? null : checkFontFamily(fieldValue, 'terminal.fontFamily')
+          if (problem) problems.push(problem)
+        } else if (key === 'shellPath') {
+          if (fieldValue !== null) {
+            problems.push(
+              '"terminal.shellPath" can only be cleared with null; choose a program in the dialog',
+            )
+          }
+        } else {
+          problems.push(`Unknown setting "terminal.${key}"`)
+        }
+      }
+    } else {
+      problems.push(`Unknown setting "${section}"`)
+    }
+  }
+  if (problems.length > 0) throw new SettingsError(problems.join('; '))
+  return { ...(raw as SettingsPatch), ...checked }
+}
+
+/**
+ * Devices reach the computer only while Kettu runs, so remote access keeps it in the background.
+ * Without the relay they reach it only directly, so direct connections stay on then; with it they
+ * keep the owner's choice, and the hosts hold them on while this computer is not signed in.
+ */
+function holdForRemote(settings: SettingsFile): void {
+  if (!settings.remote.enabled) return
+  settings.general.background = true
+  if (!settings.remote.relay) settings.remote.direct.enabled = true
+}
+
+/** The direct connections as the remote host applies them: on as well while the relay is not in use. */
+export function effectiveDirect(settings: SettingsFile, signedIn: boolean): DirectSettings {
+  const { enabled, relay, direct } = settings.remote
+  const held = enabled && !(relay && signedIn)
+  return held && !direct.enabled ? { ...direct, enabled: true } : direct
+}
+
+/**
+ * Applies a validated patch. Sections merge key by key; `proxy` is replaced whole. Run in the
+ * background and direct connections stay on while remote access is.
+ */
+export function mergeSettings(current: SettingsFile, patch: SettingsPatch): SettingsFile {
+  const next = structuredClone(current)
+  for (const section of FIELD_SECTIONS) {
+    const changes = patch[section]
+    if (changes) Object.assign(next[section], changes)
+  }
+  if (patch.proxy) next.proxy = normalizeProxy(patch.proxy)
+  if (patch.mcp) next.mcp = { kettu: { off: [...patch.mcp.kettu.off] } }
+  if (patch.marketplace?.mcp) next.marketplace.mcp = structuredClone(patch.marketplace.mcp)
+  if (patch.marketplace?.skills) {
+    next.marketplace.skills = structuredClone(patch.marketplace.skills)
+  }
+  if (patch.disabledAgents) next.disabledAgents = [...patch.disabledAgents]
+  if (patch.startModes) {
+    for (const [id, mode] of Object.entries(patch.startModes) as [AgentId, string | null][]) {
+      if (mode === null) delete next.startModes[id]
+      else next.startModes[id] = mode
+    }
+  }
+  if (patch.agents) {
+    for (const harnessId of Object.keys(patch.agents) as HarnessId[]) {
+      const change = patch.agents[harnessId]
+      const entry = { ...next.agents[harnessId] }
+      if (change?.enabled !== undefined) entry.enabled = change.enabled
+      if (change?.uninstalled === true) entry.uninstalled = true
+      if (change?.uninstalled === false) delete entry.uninstalled
+      if (change?.binaryPath === null) delete entry.binaryPath
+      if (change?.configDir === null) delete entry.configDir
+      if (change?.hidden === true) entry.hidden = true
+      if (change?.hidden === false) delete entry.hidden
+      if (change?.autoUpdate === false) entry.autoUpdate = false
+      if (change?.autoUpdate === true) delete entry.autoUpdate
+      if (Object.keys(entry).length > 0) next.agents[harnessId] = entry
+      else delete next.agents[harnessId]
+    }
+  }
+  if (patch.terminal) {
+    if (patch.terminal.fontSize !== undefined) next.terminal.fontSize = patch.terminal.fontSize
+    if (patch.terminal.fontFamily === null) delete next.terminal.fontFamily
+    else if (patch.terminal.fontFamily !== undefined) {
+      next.terminal.fontFamily = patch.terminal.fontFamily
+    }
+    if (patch.terminal.shellPath === null) delete next.terminal.shellPath
+  }
+  if (patch.remote) {
+    const { enabled, name, direct, terminal, relay, discoverable } = patch.remote
+    if (enabled !== undefined) next.remote.enabled = enabled
+    if (name !== undefined) next.remote.name = name
+    if (terminal !== undefined) next.remote.terminal = terminal
+    if (relay !== undefined) next.remote.relay = relay
+    if (discoverable !== undefined) next.remote.discoverable = discoverable
+    if (direct?.enabled !== undefined) next.remote.direct.enabled = direct.enabled
+    if (direct?.port !== undefined) next.remote.direct.port = direct.port
+    if (direct?.addresses) {
+      next.remote.direct.addresses = direct.addresses.map(({ host, port }) => ({ host, port }))
+    }
+  }
+  holdForRemote(next)
+  return next
+}
+
+/**
+ * Gives direct connections their port the first time they or remote access are on, since a host
+ * not signed in holds them on, from `pick`, and keeps it after; unchanged settings come back as
+ * they are.
+ */
+export function withDirectPort(current: SettingsFile, pick: () => number): SettingsFile {
+  const { direct, enabled } = current.remote
+  if (!(direct.enabled || enabled) || direct.port !== null) return current
+  const next = structuredClone(current)
+  next.remote.direct.port = pick()
+  return next
+}
+
+export function withAgentBinary(
+  current: SettingsFile,
+  harnessId: HarnessId,
+  binaryPath: string,
+): SettingsFile {
+  const next = structuredClone(current)
+  next.agents[harnessId] = { ...next.agents[harnessId], binaryPath }
+  return next
+}
+
+/** An agent's name as stored: trimmed, and within `AGENT_NAME_CHARS`. */
+export function agentName(value: unknown): string {
+  const name = typeof value === 'string' ? value.trim() : ''
+  const control = [...name].some((char) => char.charCodeAt(0) < 0x20)
+  if (name.length === 0 || [...name].length > AGENT_NAME_CHARS || control) {
+    throw new SettingsError(`An agent's name must be 1 to ${AGENT_NAME_CHARS} characters`)
+  }
+  return name
+}
+
+/** Adds an agent. The caller checked that no other agent has the folder. */
+export function withAddedAgent(current: SettingsFile, agent: AddedAgent): SettingsFile {
+  if (isDefaultAgent(agent.id) || !MULTI_AGENT_HARNESSES.includes(harnessOf(agent.id))) {
+    throw new SettingsError(`"${agent.id}" is not an agent that can be added`)
+  }
+  if (current.addedAgents.some((other) => other.id === agent.id)) {
+    throw new SettingsError(`The agent "${agent.id}" exists already`)
+  }
+  const next = structuredClone(current)
+  next.addedAgents.push({
+    ...agent,
+    name: agentName(agent.name),
+    color: agent.color ?? nextAgentColor(current.addedAgents),
+  })
+  return next
+}
+
+/**
+ * Adds the default agents of the harnesses a host's first start found, in the order the list
+ * of such harnesses has, and records the first start as done; it does nothing once it is. A
+ * harness that was added or removed before is left as it is. The first one added becomes the
+ * default agent when none is chosen, so New session can start at once.
+ */
+export function withFirstStart(current: SettingsFile, found: unknown): SettingsFile {
+  if (current.initialSetup.done) return current
+  const wanted = new Set<unknown>(Array.isArray(found) ? found : [])
+  const next = structuredClone(current)
+  const added = USER_PROGRAM_HARNESSES.filter(
+    (id) => wanted.has(id) && next.agents[id]?.enabled === undefined,
+  )
+  for (const id of added) next.agents[id] = { ...next.agents[id], enabled: true }
+  if (added.length > 0 && next.general.defaultAgent === null) next.general.defaultAgent = added[0]!
+  next.initialSetup = { done: true }
+  return next
+}
+
+export function withRenamedAgent(
+  current: SettingsFile,
+  agentId: AgentId,
+  name: string,
+): SettingsFile {
+  const index = current.addedAgents.findIndex((agent) => agent.id === agentId)
+  if (index < 0) throw new SettingsError(`No added agent "${agentId}"`)
+  const next = structuredClone(current)
+  next.addedAgents[index] = { ...next.addedAgents[index]!, name: agentName(name) }
+  return next
+}
+
+/** Sets an added agent's dot from untrusted arguments. */
+export function withAgentColor(
+  current: SettingsFile,
+  agentId: unknown,
+  color: unknown,
+): SettingsFile {
+  const index = current.addedAgents.findIndex((agent) => agent.id === agentId)
+  if (index < 0) throw new SettingsError(`No added agent "${String(agentId)}"`)
+  if (!isAgentColor(color)) throw new SettingsError(`Unknown agent color "${String(color)}"`)
+  const next = structuredClone(current)
+  next.addedAgents[index] = { ...next.addedAgents[index]!, color }
+  return next
+}
+
+/** Points a created agent at the folder it was moved to. */
+export function withMovedAgent(
+  current: SettingsFile,
+  agentId: AgentId,
+  configDir: string,
+): SettingsFile {
+  const index = current.addedAgents.findIndex((agent) => agent.id === agentId)
+  if (index < 0) throw new SettingsError(`No added agent "${agentId}"`)
+  const next = structuredClone(current)
+  next.addedAgents[index] = { ...next.addedAgents[index]!, configDir }
+  return next
+}
+
+/** Unregisters an agent without changing its harness installation or external configuration. */ export function withoutAgent(
+  current: SettingsFile,
+  agentId: AgentId,
+): SettingsFile {
+  const defaultAgent = isHarnessId(agentId)
+  const registered =
+    defaultAgent &&
+    (current.agents[agentId]?.enabled === true ||
+      (AUTO_AGENT_HARNESSES.includes(agentId) && current.agents[agentId]?.enabled !== false))
+  if (defaultAgent ? !registered : !current.addedAgents.some((agent) => agent.id === agentId)) {
+    throw new SettingsError(`No ${defaultAgent ? 'registered' : 'added'} agent "${agentId}"`)
+  }
+  const next = structuredClone(current)
+  if (defaultAgent) next.agents[agentId] = { ...next.agents[agentId], enabled: false }
+  else next.addedAgents = next.addedAgents.filter((agent) => agent.id !== agentId)
+  next.mcp.kettu.off = next.mcp.kettu.off.filter((id) => id !== agentId)
+  for (const item of [...next.marketplace.mcp, ...next.marketplace.skills]) {
+    if (item.agents !== 'all') item.agents = item.agents.filter((id) => id !== agentId)
+  }
+  next.disabledAgents = next.disabledAgents.filter((id) => id !== agentId)
+  delete next.startModes[agentId]
+  if (next.general.defaultAgent === agentId) next.general.defaultAgent = null
+  return next
+}
+
+export function withShellPath(current: SettingsFile, shellPath: string): SettingsFile {
+  const next = structuredClone(current)
+  next.terminal.shellPath = shellPath
+  return next
+}
+
+export interface LoadedSettings {
+  settings: SettingsFile
+  /** What was wrong with the file; any problem means it is quarantined before it is rewritten. */
+  problems: string[]
+  /** A file written by a newer version: used for this run but never overwritten. */
+  readOnly: boolean
+}
+
+/**
+ * Reads a parsed settings.json leniently: missing keys take their defaults, invalid values are
+ * reported and replaced by defaults, unknown keys are ignored.
+ */
+export function parseSettingsFile(raw: unknown): LoadedSettings {
+  const settings = structuredClone(DEFAULT_SETTINGS)
+  if (!isRecord(raw))
+    return { settings, problems: ['The file is not a JSON object'], readOnly: false }
+  const version = raw.version
+  if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) {
+    return { settings, problems: ['"version" is missing or invalid'], readOnly: false }
+  }
+  const problems: string[] = []
+  if (raw.agentRegistrationVersion !== undefined && raw.agentRegistrationVersion !== 1) {
+    problems.push('"agentRegistrationVersion" must be 1')
+  }
+  if (raw.remoteDirectVersion !== undefined && raw.remoteDirectVersion !== 1) {
+    problems.push('"remoteDirectVersion" must be 1')
+  }
+  for (const section of FIELD_SECTIONS) {
+    const value = raw[section]
+    if (value === undefined) continue
+    if (!isRecord(value)) {
+      problems.push(`"${section}" must be an object`)
+      continue
+    }
+    const fields: Record<string, Check> = SECTION_FIELDS[section]
+    const target = settings[section] as Record<string, unknown>
+    for (const [key, check] of Object.entries(fields)) {
+      if (!(key in value)) continue
+      const problem = check(value[key], `${section}.${key}`)
+      if (problem) problems.push(problem)
+      else target[key] = value[key]
+    }
+  }
+  if (raw.agents !== undefined) {
+    if (!isRecord(raw.agents)) problems.push('"agents" must be an object')
+    else {
+      for (const harnessId of HARNESS_IDS) {
+        const entry = raw.agents[harnessId]
+        if (entry === undefined) continue
+        if (!isRecord(entry)) {
+          problems.push(`"agents.${harnessId}" must be an object`)
+          continue
+        }
+        // `cli`, the choice of a bundled CLI that no longer exists, is ignored like any unknown key.
+        const stored: NonNullable<SettingsFile['agents'][HarnessId]> = {}
+        if (entry.binaryPath !== undefined) {
+          const problem = checkStoredPath(entry.binaryPath, `agents.${harnessId}.binaryPath`)
+          if (problem) problems.push(problem)
+          else stored.binaryPath = entry.binaryPath as string
+        }
+        if (entry.configDir !== undefined) {
+          const problem = !CONFIG_VARIABLES[harnessId]
+            ? `"agents.${harnessId}" has no configuration folder of its own`
+            : checkStoredPath(entry.configDir, `agents.${harnessId}.configDir`)
+          if (problem) problems.push(problem)
+          else stored.configDir = entry.configDir as string
+        }
+        if (entry.enabled !== undefined) {
+          const problem = isBoolean(entry.enabled, `agents.${harnessId}.enabled`)
+          if (problem) problems.push(problem)
+          else stored.enabled = entry.enabled as boolean
+        }
+        if (entry.hidden !== undefined) {
+          const problem = isBoolean(entry.hidden, `agents.${harnessId}.hidden`)
+          if (problem) problems.push(problem)
+          else if (entry.hidden) stored.hidden = true
+        }
+        if (entry.uninstalled !== undefined) {
+          const problem = isBoolean(entry.uninstalled, `agents.${harnessId}.uninstalled`)
+          if (problem) problems.push(problem)
+          else if (entry.uninstalled) stored.uninstalled = true
+        }
+        if (entry.autoUpdate !== undefined) {
+          const problem = isBoolean(entry.autoUpdate, `agents.${harnessId}.autoUpdate`)
+          if (problem) problems.push(problem)
+          else if (entry.autoUpdate === false) stored.autoUpdate = false
+        }
+        if (Object.keys(stored).length > 0) settings.agents[harnessId] = stored
+      }
+    }
+  }
+  if (raw.initialSetup !== undefined) {
+    settings.initialSetup = readInitialSetup(raw.initialSetup, problems)
+  }
+  if (raw.addedAgents !== undefined) {
+    if (!Array.isArray(raw.addedAgents)) problems.push('"addedAgents" must be an array')
+    else settings.addedAgents = readAddedAgents(raw.addedAgents, problems)
+  }
+  if (raw.proxy !== undefined) {
+    const problem = checkProxy(raw.proxy, 'proxy')
+    if (problem) problems.push(problem)
+    else settings.proxy = normalizeProxy(raw.proxy as ProxySettings)
+  }
+  if (raw.mcp !== undefined) {
+    if (!isRecord(raw.mcp)) problems.push('"mcp" must be an object')
+    else settings.mcp = readMcp(raw.mcp)
+  }
+  if (raw.marketplace !== undefined) {
+    settings.marketplace = readMarketplace(raw.marketplace, problems)
+  }
+  if (raw.disabledAgents !== undefined) {
+    if (!Array.isArray(raw.disabledAgents)) problems.push('"disabledAgents" must be an array')
+    else settings.disabledAgents = readAgentIds(raw.disabledAgents)
+  }
+  if (raw.startModes !== undefined) settings.startModes = readStartModes(raw.startModes, problems)
+  if (raw.remote !== undefined) {
+    if (!isRecord(raw.remote)) problems.push('"remote" must be an object')
+    else settings.remote = readRemote(raw.remote, problems)
+  }
+  if (raw.terminal !== undefined) {
+    if (!isRecord(raw.terminal)) problems.push('"terminal" must be an object')
+    else {
+      const { fontSize, fontFamily, shellPath } = raw.terminal
+      if (fontSize !== undefined) {
+        const problem = oneOf(...FONT_SIZES)(fontSize, 'terminal.fontSize')
+        if (problem) problems.push(problem)
+        else settings.terminal.fontSize = fontSize as SettingsFile['terminal']['fontSize']
+      }
+      if (fontFamily !== undefined) {
+        const problem = checkFontFamily(fontFamily, 'terminal.fontFamily')
+        if (problem) problems.push(problem)
+        else settings.terminal.fontFamily = fontFamily as string
+      }
+      if (shellPath !== undefined) {
+        const problem = checkStoredPath(shellPath, 'terminal.shellPath')
+        if (problem) problems.push(problem)
+        else settings.terminal.shellPath = shellPath as string
+      }
+    }
+  }
+  holdForRemote(settings)
+  return { settings, problems, readOnly: version > SETTINGS_VERSION }
+}
+
+/** Reads the added agents, dropping each that is invalid or repeats an id or a folder. */
+function readInitialSetup(raw: unknown, problems: string[]): SettingsFile['initialSetup'] {
+  const setup: SettingsFile['initialSetup'] = { done: false }
+  if (!isRecord(raw)) {
+    problems.push('"initialSetup" must be an object')
+    return setup
+  }
+  if (raw.done !== undefined) {
+    const problem = isBoolean(raw.done, 'initialSetup.done')
+    if (problem) problems.push(problem)
+    else setup.done = raw.done as boolean
+  }
+  return setup
+}
+
+function readAddedAgents(list: unknown[], problems: string[]): AddedAgent[] {
+  const agents: AddedAgent[] = []
+  for (const [index, entry] of list.entries()) {
+    const path = `addedAgents[${index}]`
+    if (!isRecord(entry)) {
+      problems.push(`"${path}" must be an object`)
+      continue
+    }
+    const { id, name, configDir, created } = entry
+    if (!isAgentId(id) || isDefaultAgent(id)) {
+      problems.push(`"${path}.id" must be an added agent's id`)
+      continue
+    }
+    let stored: string
+    try {
+      stored = agentName(name)
+    } catch (error) {
+      problems.push(`"${path}.name": ${(error as Error).message}`)
+      continue
+    }
+    const problem =
+      checkStoredPath(configDir, `${path}.configDir`) ?? isBoolean(created, `${path}.created`)
+    if (problem) {
+      problems.push(problem)
+      continue
+    }
+    if (agents.some((other) => other.id === id || other.configDir === configDir)) {
+      problems.push(`"${path}" repeats another agent's id or folder`)
+      continue
+    }
+    // A file from before colors, or a color this version does not know, gets the color the
+    // agent's place showed, kept from then on so removing an agent above it changes nothing.
+    const color = isAgentColor(entry.color)
+      ? entry.color
+      : AGENT_COLORS[agents.length % AGENT_COLORS.length]!
+    agents.push({
+      id,
+      name: stored,
+      configDir: configDir as string,
+      created: created as boolean,
+      color,
+    })
+  }
+  return agents
+}
+
+/** Reads the remote section, keeping each valid value and each valid address of the owner's. */
+function readRemote(raw: Record<string, unknown>, problems: string[]): SettingsFile['remote'] {
+  const remote = structuredClone(DEFAULT_SETTINGS.remote)
+  const read = (value: unknown, path: string, check: Check, keep: () => void): void => {
+    if (value === undefined) return
+    const problem = check(value, path)
+    if (problem) problems.push(problem)
+    else keep()
+  }
+  read(raw.enabled, 'remote.enabled', isBoolean, () => (remote.enabled = raw.enabled as boolean))
+  read(raw.name, 'remote.name', isHostName, () => (remote.name = raw.name as string | null))
+  read(raw.terminal, 'remote.terminal', isBoolean, () => {
+    remote.terminal = raw.terminal as boolean
+  })
+  read(raw.relay, 'remote.relay', isBoolean, () => (remote.relay = raw.relay as boolean))
+  read(
+    raw.discoverable,
+    'remote.discoverable',
+    isBoolean,
+    () => (remote.discoverable = raw.discoverable as boolean),
+  )
+  const direct = raw.direct
+  if (direct === undefined) return remote
+  if (!isRecord(direct)) {
+    problems.push('"remote.direct" must be an object')
+    return remote
+  }
+  read(direct.enabled, 'remote.direct.enabled', isBoolean, () => {
+    remote.direct.enabled = direct.enabled as boolean
+  })
+  const isStoredPort: Check = (value, path) =>
+    value === null || isPort(value) ? null : `"${path}" must be a port from 1 to 65535 or null`
+  read(direct.port, 'remote.direct.port', isStoredPort, () => {
+    remote.direct.port = direct.port as number | null
+  })
+  if (direct.addresses === undefined) return remote
+  if (!Array.isArray(direct.addresses)) {
+    problems.push('"remote.direct.addresses" must be an array')
+    return remote
+  }
+  const addresses: DirectAddress[] = []
+  const seen = new Set<string>()
+  for (const [index, entry] of direct.addresses.entries()) {
+    const path = `remote.direct.addresses[${index}]`
+    const address = parseDirectAddress(entry)
+    if (!address) problems.push(`"${path}" ${ADDRESS_PROBLEM}`)
+    else if (seen.has(addressKey(address))) problems.push(`"${path}" repeats another address`)
+    else if (addresses.length === MAX_OWN_ADDRESSES) {
+      problems.push(`"${path}" is beyond the ${MAX_OWN_ADDRESSES} addresses kept`)
+    } else {
+      seen.add(addressKey(address))
+      addresses.push(address)
+    }
+  }
+  remote.direct.addresses = addresses
+  return remote
+}
+
+/** Reads a list of agents leniently: an unknown or repeated id is dropped and the rest kept. */
+function readAgentIds(list: readonly unknown[]): AgentId[] {
+  const ids: AgentId[] = []
+  for (const id of list) {
+    if (isAgentId(id) && !ids.includes(id)) ids.push(id)
+  }
+  return ids
+}
+
+function readMcp(raw: Record<string, unknown>): SettingsFile['mcp'] {
+  const kettu = isRecord(raw.kettu) ? raw.kettu : {}
+  return { kettu: { off: readAgentIds(Array.isArray(kettu.off) ? kettu.off : []) } }
+}
+
+/** Reads the Marketplace's servers and skills, dropping each that is invalid or repeated. */
+function readMarketplace(raw: unknown, problems: string[]): SettingsFile['marketplace'] {
+  if (!isRecord(raw)) {
+    problems.push('"marketplace" must be an object')
+    return { mcp: [], skills: [] }
+  }
+  return {
+    mcp: readMarketList(
+      raw.mcp,
+      'marketplace.mcp',
+      MAX_MARKET_SERVERS,
+      parseMarketServer,
+      'server',
+      problems,
+    ),
+    skills: readMarketList(
+      raw.skills,
+      'marketplace.skills',
+      MAX_MARKET_SKILLS,
+      parseMarketSkill,
+      'skill',
+      problems,
+    ),
+  }
+}
+
+/** Reads the start modes leniently: an entry that is no start mode of an agent is dropped. */
+function readStartModes(raw: unknown, problems: string[]): SettingsFile['startModes'] {
+  if (!isRecord(raw)) {
+    problems.push('"startModes" must be an object')
+    return {}
+  }
+  const modes: SettingsFile['startModes'] = {}
+  for (const [id, mode] of Object.entries(raw)) {
+    if (isAgentId(id) && isStartMode(id, mode)) modes[id] = mode
+    else problems.push(`"startModes.${id}" is not a start mode of an agent that takes one`)
+  }
+  return modes
+}
+
+export function hostSettings(settings: SettingsFile, systemLocale: Locale): HostSettings {
+  return {
+    locale: resolveLocale(settings.general.language, systemLocale),
+    initialSetupDone: settings.initialSetup.done,
+    agents: structuredClone(settings.agents),
+    addedAgents: structuredClone(settings.addedAgents),
+    disabledAgents: [...settings.disabledAgents],
+    proxy: structuredClone(settings.proxy),
+    git: { ...settings.git },
+    mcp: structuredClone(settings.mcp),
+    marketplace: structuredClone(settings.marketplace),
+    startModes: { ...settings.startModes },
+    idleSessions: { ...settings.idleSessions },
+    usage: { fromComputer: settings.usage.fromComputer },
+    sessionTitles: settings.general.sessionTitles,
+    defaultAgent: settings.general.defaultAgent,
+    computerUse: structuredClone(settings.computerUse),
+    downloadService: settings.cloud.enabled && settings.updates.source === 'auto',
+  }
+}
+
+/** Always allows an app that a session's card allowed, once, keeping the list's order. */
+export function withAllowedComputerApp(current: SettingsFile, app: unknown): SettingsFile {
+  if (!isComputerApp(app)) throw new SettingsError('An allowed app needs an id and a name')
+  const allowed = current.computerUse.allowedApps
+  if (allowed.some((known) => known.id === app.id) || allowed.length >= MAX_ALLOWED_APPS) {
+    return current
+  }
+  const next = structuredClone(current)
+  next.computerUse.allowedApps.push({ id: app.id, name: app.name })
+  return next
+}
+
+// The sections `hostSettings` reads, besides the language.
+const HOST_SECTIONS: ReadonlySet<SettingsSection> = new Set([
+  'initialSetup',
+  'agents',
+  'addedAgents',
+  'disabledAgents',
+  'proxy',
+  'git',
+  'mcp',
+  'marketplace',
+  'startModes',
+  'idleSessions',
+  'usage',
+  'computerUse',
+  'cloud',
+  'updates',
+])
+
+/** Whether a change touches what the agent host is sent; a language change is checked apart. */
+export function reachesHost(changed: ReadonlySet<SettingsSection>): boolean {
+  return [...changed].some((section) => HOST_SECTIONS.has(section))
+}
+
+export function terminalSettings(settings: SettingsFile): TerminalSettings {
+  return {
+    shellPath: settings.terminal.shellPath ?? null,
+    fontSize: settings.terminal.fontSize,
+    allowDevices: settings.remote.terminal,
+  }
+}
+
+/** The keys of the file that only mark it, which no section holds. */
+const SETTINGS_MARKERS: ReadonlySet<string> = new Set([
+  'version',
+  'agentRegistrationVersion',
+  'remoteDirectVersion',
+])
+
+function isSection(key: keyof SettingsFile): key is SettingsSection {
+  return !SETTINGS_MARKERS.has(key)
+}
+
+export type SettingsSection = Exclude<
+  keyof SettingsFile,
+  'version' | 'agentRegistrationVersion' | 'remoteDirectVersion'
+>
+
+/** The sections whose values differ, so each consumer is told only about what it uses. */
+/** The sections whose values differ, so each consumer is told only about what it uses. */
+export function changedSections(before: SettingsFile, after: SettingsFile): Set<SettingsSection> {
+  const changed = new Set<SettingsSection>()
+  for (const key of Object.keys(after) as (keyof SettingsFile)[]) {
+    if (!isSection(key)) continue
+    if (JSON.stringify(before[key]) !== JSON.stringify(after[key])) changed.add(key)
+  }
+  return changed
+}

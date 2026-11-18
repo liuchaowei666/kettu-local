@@ -1,0 +1,121 @@
+// What Kettu's session options mean on each ACP adapter: the `_meta` a session opens with, and
+// how a session Kettu opened for itself is removed so that none of the agent's history keeps it.
+
+import type { HarnessId } from '@shared/agents'
+import type { AgentId } from '@shared/thread'
+import type { AgentInit, SessionOptions } from '../connection'
+import { compareVersions } from '../versions'
+import { JUNIE_USAGE_VERSION } from '../vendor-usage/junie'
+
+/**
+ * How a hidden session is removed so that none of the agent's history keeps it: `session/delete`,
+ * once more after a while as claude-agent-acp needs (DELETE_AGAIN_MS), or `session/close`.
+ * `close-unprompted` is a close that leaves no trace only for a session never prompted, so such a
+ * session may only be opened and read, as the agent menu's options are.
+ */
+export type Removal = 'delete' | 'delete-again' | 'close' | 'close-unprompted'
+
+// Each agent's removal, as checked against its own history. An agent not listed opens no hidden
+// session, so Kettu leaves nothing in a history nobody checked.
+const REMOVALS: Partial<Record<AgentId, Removal>> = {
+  opencode: 'delete',
+  // The session router turns the delete into ending the session's adapter process, then deleting.
+  pi: 'delete',
+  // Closes the session, then drops it from its session index and deletes its folder.
+  junie: 'delete',
+  // agy lists a prompted session after its close, and one only opened not at all (1.5.9).
+  antigravity: 'close-unprompted',
+  // The fake agent removes a session as claude-agent-acp 0.94 did, which its tests keep.
+  'fake-agent': 'delete-again',
+}
+
+/**
+ * Whether agents of this harness may open hidden sessions to ask something, as far as Kettu knows
+ * before one starts; a version that was not checked still opens none once it reports itself. One
+ * whose hidden sessions are only opened and read takes the way of an agent without them.
+ */
+export function removesHiddenSessions(harness: HarnessId): boolean {
+  return promptsHidden(REMOVALS[harness] ?? null)
+}
+
+// The removals checked on one version alone, as the agent names it in `initialize`.
+const REMOVAL_VERSIONS: Partial<Record<AgentId, string>> = {
+  junie: JUNIE_USAGE_VERSION,
+}
+
+// The removals checked on a version that later ones keep.
+const REMOVALS_SINCE: Partial<Record<AgentId, string>> = {
+  antigravity: '1.5.9',
+}
+
+/**
+ * How the agent's hidden sessions are removed, or null when it may open none: it was not checked,
+ * at least not on this version, or it does not offer the request its removal needs. There is no
+ * fallback to the other request, which can leave a trace (OpenCode's close keeps the session
+ * listed).
+ */
+export function hiddenRemoval(
+  agentId: AgentId | undefined,
+  capabilities: Pick<AgentInit['capabilities'], 'closeSession' | 'deleteSession'>,
+  version: string | null = null,
+): Removal | null {
+  const removal = agentId ? REMOVALS[agentId] : undefined
+  if (!agentId || !removal) return null
+  const checked = REMOVAL_VERSIONS[agentId]
+  if (checked !== undefined && version !== checked) return null
+  const since = REMOVALS_SINCE[agentId]
+  if (since !== undefined && (version === null || compareVersions(version, since) < 0)) return null
+  const { closeSession, deleteSession } = capabilities
+  const closes = removal === 'close' || removal === 'close-unprompted'
+  return (closes ? closeSession : deleteSession) ? removal : null
+}
+
+/** Whether a hidden session removed so may be prompted, rather than only opened and read. */
+export function promptsHidden(removal: Removal | null): boolean {
+  return removal !== null && removal !== 'close-unprompted'
+}
+
+// claude-agent-acp 0.94 deletes the transcript without waiting for Claude Code to exit, and
+// Claude Code writes the session's title and costs back as it exits, which lists the session
+// again. Deleting once more after that removes it; deleting what is gone does nothing there.
+export const DELETE_AGAIN_MS = [1_000, 5_000]
+
+// The agents that read the `_meta` of claude-agent-acp 0.94: the fake agent, as that adapter did.
+const CLAUDE_AGENTS: Partial<Record<AgentId, true>> = {
+  'fake-agent': true,
+}
+
+/**
+ * `_meta` for opening a hidden session, added to `meta`. Claude Code's adapter passes
+ * `claudeCode.options` to its SDK: `disableAllHooks` keeps the user's, the project's and plugins'
+ * hooks and the status line from running for a session nobody sees (managed hooks still run), and
+ * `persistSession: false` writes no transcript. Other agents get `meta` as it is.
+ */
+export function hiddenSessionMeta(
+  agentId: AgentId,
+  meta?: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (!CLAUDE_AGENTS[agentId]) return meta
+  const claudeCode = (meta?.claudeCode ?? {}) as { options?: { settings?: object } }
+  const options = claudeCode.options ?? {}
+  return {
+    ...meta,
+    claudeCode: {
+      ...claudeCode,
+      options: {
+        ...options,
+        persistSession: false,
+        settings: { ...options.settings, disableAllHooks: true },
+      },
+    },
+  }
+}
+
+/** The `_meta` a session opens with, which only the fake agent reads. */
+export function sessionMeta(
+  agentId: AgentId | undefined,
+  options: SessionOptions,
+): Record<string, unknown> | undefined {
+  if (!agentId || !CLAUDE_AGENTS[agentId]) return undefined
+  return options.hidden ? hiddenSessionMeta(agentId) : undefined
+}

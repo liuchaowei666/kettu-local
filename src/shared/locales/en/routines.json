@@ -1,0 +1,323 @@
+{
+  "page": {
+    "title": "Routines",
+    "description": "Agent tasks that run on a schedule, inside the permissions you give them.",
+    "descriptionOn": "Agent tasks on {{host}} that run on a schedule, inside the permissions you give them.",
+    "descriptionThisMac": "Agent tasks on this Mac that run on a schedule, inside the permissions you give them.",
+    "descriptionThisComputer": "Agent tasks on this computer that run on a schedule, inside the permissions you give them.",
+    "descriptionAll": "Agent tasks on every host that run on a schedule, inside the permissions you give them.",
+    "new": "New routine",
+    "emptyTitle": "No routines yet",
+    "emptyDescription": "A routine sends a prompt to an agent on a schedule, each run in a session of its own, while Kettu is open.",
+    "unreadableTitle": "Your routines could not be read",
+    "unreadable": "routines.json was set aside as {{backup}}, so nothing is lost. New routines work as usual.",
+    "unreadableGone": "Kettu starts with an empty list.",
+    "loadFailed": "The routines could not be loaded.",
+    "retry": "Try again",
+    "open": "Open {{name}}",
+    "switchOn": "Turn on {{name}}",
+    "switchOff": "Turn off {{name}}",
+    "columns": {
+      "routine": "Routine",
+      "schedule": "Schedule",
+      "agent": "Agent",
+      "status": "Status",
+      "name": "Name"
+    },
+    "footnote": "Routines only run while Kettu is open. A routine pauses when its agent is within 10% of a plan limit."
+  },
+  "examples": {
+    "heading": "Start from an example",
+    "hint": "Opens New routine with these filled in. Nothing runs until you create it.",
+    "use": "Use",
+    "open": "Start from {{name}}",
+    "triage": {
+      "name": "Morning triage",
+      "prompt": "Summarize the issues and pull requests opened or updated since the last run, and flag anything urgent."
+    },
+    "tests": {
+      "name": "Nightly test sweep",
+      "prompt": "Run the full test suite and explain each failure with its likely cause."
+    },
+    "dependencies": {
+      "name": "Dependency audit",
+      "prompt": "Check the dependencies for updates and known vulnerabilities, and say which ones matter."
+    },
+    "changelog": {
+      "name": "Changelog draft",
+      "prompt": "Draft release notes from the pull requests merged this week, grouped by area."
+    },
+    "links": {
+      "name": "Docs link check",
+      "prompt": "Find broken links in the docs and list the pages they are on."
+    },
+    "review": {
+      "name": "Weekly review",
+      "prompt": "Summarize what changed in the project this week and what is still open."
+    },
+    "web": "{{level}} · web"
+  },
+  "menu": {
+    "open": "Open",
+    "turnOff": "Turn off",
+    "turnOn": "Turn on"
+  },
+  "row": {
+    "waitingSince": "Waiting since {{time}}",
+    "running": "Running · {{duration}}",
+    "pausedNear": "Paused · near plan limit",
+    "pausedReached": "Paused · plan limit reached",
+    "failed": "Failed {{ago}}",
+    "cancelled": "Cancelled",
+    "cancelledAt": "Cancelled · {{when}}",
+    "interrupted": "Interrupted",
+    "interruptedAt": "Interrupted · {{when}}",
+    "skipped": "Skipped",
+    "skippedAt": "Skipped · {{when}}",
+    "nextAt": "{{when}} · {{away}}",
+    "never": "Never run",
+    "nextAtRich": "{{when}} · <away>{{away}}</away>",
+    "onHost": "{{host}} · {{line}}"
+  },
+  "signal": {
+    "name": "Routines, {{signal}}",
+    "waiting_one": "{{count}} run waiting for approval",
+    "waiting_other": "{{count}} runs waiting for approval",
+    "failed": "a run failed",
+    "running": "a run is working",
+    "unread": "a run ended"
+  },
+  "state": {
+    "on": "On",
+    "off": "Off",
+    "done": "Done",
+    "paused": "Paused",
+    "waiting": "Waiting for approval",
+    "waitingSince": "Waiting for your approval since {{time}}",
+    "running": "Running",
+    "runningSince": "Running since {{time}}",
+    "starting": "Starting",
+    "queued": "Queued",
+    "next": "Next run {{when}} · {{away}}",
+    "nextToday": "Next run today, {{time}} · {{away}}",
+    "nextTomorrow": "Next run tomorrow, {{time}} · {{away}}",
+    "pausedUntil": "Paused until {{time}}: {{reason}}",
+    "pausedUntilDay": "Paused until {{day}} at {{time}}: {{reason}}",
+    "pausedFor": "Paused: {{reason}}"
+  },
+  "pause": {
+    "title": "{{agent}}'s routines are paused",
+    "used": "{{agent}}'s {{limit}} limit is {{percent}}% used",
+    "reached": "{{agent}}'s {{limit}} limit is reached",
+    "limitUsed": "The {{limit}} limit is {{percent}}% used.",
+    "limitReached": "The {{limit}} limit is reached.",
+    "resumes": "They resume at {{time}}.",
+    "resumesDay": "They resume {{day}} at {{time}}.",
+    "notice": "{{use}} {{resume}}"
+  },
+  "when": {
+    "today": "Today, {{time}}",
+    "tomorrow": "Tomorrow, {{time}}",
+    "yesterday": "Yesterday, {{time}}",
+    "weekday": "{{weekday}}, {{time}}",
+    "date": "{{date}}, {{time}}"
+  },
+  "away": {
+    "minutes": "in {{count}} min",
+    "hours": "in {{hours}} h",
+    "hoursMinutes": "in {{hours}} h {{minutes}} min",
+    "days_one": "in {{count}} day",
+    "days_other": "in {{count}} days"
+  },
+  "schedule": {
+    "daily": "Every day at {{time}}",
+    "weekdays": "Weekdays at {{time}}",
+    "weekly": "{{days}} at {{time}}",
+    "weeklySunday": "Sundays at {{time}}",
+    "weeklyMonday": "Mondays at {{time}}",
+    "weeklyTuesday": "Tuesdays at {{time}}",
+    "weeklyWednesday": "Wednesdays at {{time}}",
+    "weeklyThursday": "Thursdays at {{time}}",
+    "weeklyFriday": "Fridays at {{time}}",
+    "weeklySaturday": "Saturdays at {{time}}",
+    "once": "{{date}} at {{time}}, once",
+    "everyMinutes": "Every {{count}} minutes, counted from {{time}}",
+    "everyHours_one": "Every hour, counted from {{time}}",
+    "everyHours_other": "Every {{count}} hours, counted from {{time}}",
+    "cron": "Cron {{expression}}",
+    "kind": {
+      "once": "Once",
+      "every": "Every",
+      "daily": "Daily",
+      "weekly": "Weekly",
+      "cron": "Cron"
+    },
+    "clockGap": "The clocks skip this time; it runs at {{time}}.",
+    "clockOverlap": "The clocks repeat this time; it runs once, at the first.",
+    "ranOnce": "It ran on {{date}} at {{time}}, and will not run again.",
+    "nextRuns": "Next three runs",
+    "onceOff": "Turns itself off after it runs",
+    "previewToday": "Today · {{time}}",
+    "previewAt": "{{date}} · {{time}}",
+    "everyValue": "Every",
+    "countedFrom": "Counted from",
+    "date": "Date",
+    "time": "Time",
+    "days": "Days",
+    "on": "On",
+    "expression": "Cron expression",
+    "expressionHint": "0 9 * * 1-5",
+    "cronSyntax": "* any · a-b range · a,b list · */n every n · names like MON or JAN",
+    "field": {
+      "date": "Date",
+      "time": "Time",
+      "every": "Every",
+      "days": "Days",
+      "expression": "Cron expression",
+      "minute": "Minute",
+      "hour": "Hour",
+      "dayOfMonth": "Day of month",
+      "month": "Month",
+      "dayOfWeek": "Day of week"
+    },
+    "problem": {
+      "format": "{{field}}: {{detail}}",
+      "range": "{{field}}: {{detail}} is outside {{min}} to {{max}}.",
+      "past": "{{field}}: choose a time in the future.",
+      "never": "{{field}}: nothing matches in the next five years.",
+      "frequent": "{{field}}: runs must be at least 5 minutes apart.",
+      "empty": "{{field}}: choose at least one day."
+    },
+    "unvalid": "Not saved. The routine still runs on its last valid schedule: {{schedule}}",
+    "runs": "Runs",
+    "runsOnce": "Runs once",
+    "dstNote": "Clocks moving for daylight saving shift a run by the hour, never skip it.",
+    "cronNote": "Five fields, in your local time."
+  },
+  "routine": {
+    "back": "Routines",
+    "untitled": "Untitled routine",
+    "notSaved": "Not saved yet",
+    "newNotSaved": "New routine · not saved yet",
+    "name": "Routine name",
+    "rename": "Rename",
+    "create": "Create routine",
+    "cancel": "Cancel",
+    "runNow": "Run now",
+    "more": "More",
+    "delete": "Delete…",
+    "task": "Task",
+    "prompt": "Prompt",
+    "promptDescription": "Sent as written each time the routine runs.",
+    "promptPlaceholder": "What should the agent do each time?",
+    "project": "Project",
+    "projectDescription": "Where its runs work.",
+    "noProject": "No project",
+    "agent": "Agent and model",
+    "agentDescription": "The agent its runs start, with the model and options they use.",
+    "permissions": "Permissions",
+    "permissionsHint": "What its runs may do without asking",
+    "timeLimit": "Time limit",
+    "timeLimitDescription": "A run stops when it reaches this time, not counting the time it waits for you.",
+    "limits": "Limits",
+    "keptRuns": "Run sessions kept",
+    "keptRunsDescription": "Older run sessions are removed; their results stay in Runs.",
+    "keptRunsOption": "Last {{count}} runs",
+    "keptConfirmTitle": "Keep only the last {{count}} run sessions?",
+    "keptConfirm_one": "{{count}} older run session is removed. Its result stays in Runs.",
+    "keptConfirm_other": "{{count}} older run sessions are removed. Their results stay in Runs.",
+    "keptConfirmAction": "Remove sessions",
+    "schedule": "Schedule",
+    "scheduleHint": "In your local time",
+    "scheduleNotSaved": "This schedule is not saved yet; fix it to save it.",
+    "createMissingSchedule": "Fix the schedule first.",
+    "waitingTitle": "A run is waiting for your approval",
+    "waitingDescription": "It asked to do something outside its permissions. Runs due meanwhile are skipped.",
+    "openRun": "Open the run",
+    "openRunFailed": "The run's session could not be opened. Try again in a moment.",
+    "runs": "Runs",
+    "next": "Next",
+    "runsShown": "{{shown}} of {{total}}",
+    "noRunsTitle": "No runs yet",
+    "showMore": "Show more",
+    "runsFailed": "The runs could not be loaded.",
+    "createMissingPrompt": "Write the prompt first.",
+    "createMissingProject": "Choose a project first.",
+    "createMissingAgent": "Choose an agent first.",
+    "createHostAway": "The host is offline. Create the routine once it is back.",
+    "saveFailed": "The change could not be saved: {{error}}",
+    "runFailed": "The run could not start: {{error}}",
+    "deleted": "This routine was deleted.",
+    "backToRoutines": "Back to Routines",
+    "deleteTitle": "Delete {{name}}?",
+    "deleteWithSessions_one": "Its {{count}} run session is deleted with it.",
+    "deleteWithSessions_other": "Its {{count}} run sessions are deleted with it.",
+    "deleteNoSessions": "It has no run sessions.",
+    "deleteConfirm": "Delete",
+    "deleteFailed": "The routine could not be deleted: {{error}}"
+  },
+  "runsHint": {
+    "now": "Run now tries it.",
+    "today": "Run now tries it, or wait for today, {{time}}.",
+    "tomorrow": "Run now tries it, or wait for tomorrow, {{time}}.",
+    "later": "Run now tries it, or wait for {{when}}.",
+    "new": "Once it is created, Run now tries it.",
+    "newAt": "Once it is created, Run now tries it, or wait for its first run: {{when}}."
+  },
+  "permission": {
+    "levels": "Permissions",
+    "level": {
+      "read": {
+        "name": "Read only",
+        "description": "Read and search the project."
+      },
+      "edit": {
+        "name": "Edit the project",
+        "description": "Also create, change, move and delete files inside the project folder."
+      },
+      "commands": {
+        "name": "Edit and run commands",
+        "description": "Also run commands, which can do anything you can."
+      }
+    },
+    "web": {
+      "name": "Use the web",
+      "description": "Fetch pages and search the web, at any level."
+    },
+    "caption": {
+      "claude-code": "Claude Code asks before edits and most commands, so Kettu answers each.",
+      "codex": "Codex keeps its own sandbox: Edit the project also runs commands inside the project without asking; leaving the project or reaching the network asks.",
+      "opencode": "OpenCode asks only for what its own permission settings mark “ask”; by default it asks nothing, so Kettu cannot hold it to this scope.",
+      "pi": "Pi does not ask before it acts, so Kettu cannot hold it to this scope."
+    }
+  },
+  "limit": {
+    "minutes": "{{count}} minutes",
+    "hours_one": "{{count}} hour",
+    "hours_other": "{{count}} hours"
+  },
+  "trigger": {
+    "manual": "Run now",
+    "catchUp": "Catch-up",
+    "schedule": "Scheduled"
+  },
+  "run": {
+    "starting": "Starting",
+    "running": "Running",
+    "waiting": "Waiting for approval",
+    "queued": "Queued",
+    "succeeded": "Finished",
+    "noOutput": "Finished with no answer.",
+    "failed": "Failed",
+    "timedOut": "Timed out",
+    "cancelled": "Cancelled",
+    "interrupted": "Interrupted",
+    "skippedOverlap": "Skipped: the last run was still working.",
+    "skippedLimit": "Skipped: near the plan limit.",
+    "skippedTimes": "Skipped ×{{count}}",
+    "duration": "Worked for {{duration}}",
+    "working": "Working for {{duration}}",
+    "waitingFor": "Waiting {{duration}}",
+    "announce": "{{name}}: {{status}}"
+  }
+}

@@ -1,0 +1,13 @@
+node_modules
+out
+dist
+.eslintcache
+*.log*
+.DS_Store
+.env
+.env.*
+.worktrees
+*.tsbuildinfo
+
+# Cua Driver for computer use, fetched by tools/install/cua-driver.mjs
+resources/cua-driver/

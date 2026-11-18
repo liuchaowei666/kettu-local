@@ -1,0 +1,347 @@
+{
+  "nav": {
+    "usage": "Usage",
+    "today": "Today: {{tokens}} tokens",
+    "todayCost": "Today: {{cost}}, estimated at API prices",
+    "costEstimate": "Estimated at API prices",
+    "limit": "{{agent}}, {{limit}}: {{percent}} used",
+    "limitShort": "{{limit}} {{percent}} used",
+    "limitLeft": "{{agent}}, {{limit}}: {{percent}} left",
+    "limitShortLeft": "{{limit}} {{percent}} left"
+  },
+  "page": {
+    "title": "Usage",
+    "synced": "Synced {{ago}}",
+    "syncing": "Reading the logs…",
+    "record": "Kettu’s record",
+    "sync": "Sync now",
+    "syncAction": "Sync",
+    "syncFailed": "Could not sync",
+    "agents": "Agents",
+    "allShort": "All",
+    "metric": "Metric",
+    "range": "Time range",
+    "ranges": {
+      "1": "Today",
+      "7": "7 days",
+      "30": "30 days",
+      "90": "90 days",
+      "365": "A year",
+      "all": "All time"
+    },
+    "rangesShort": {
+      "1": "Today",
+      "7": "7 d",
+      "30": "30 d",
+      "90": "90 d",
+      "365": "1 y",
+      "all": "All time"
+    },
+    "allHosts": "All hosts",
+    "scope": "Source",
+    "scopes": {
+      "computer": "This computer",
+      "computer_mac": "This Mac",
+      "computer_web": "{{host}}",
+      "kettu": "Kettu only"
+    },
+    "importing": "Reading the agents’ logs: {{done}} of {{total}}",
+    "importingFrom": "{{agents}}, since {{date}}. The page fills in when the logs are read.",
+    "importingAgents": "{{agents}}. The page fills in when the logs are read.",
+    "importingNote": "The page fills in when the logs are read.",
+    "loading": "Loading usage",
+    "allAgents": "All agents",
+    "scopeNotes": {
+      "computer": "Kettu, and the agents’ own logs",
+      "kettu": "Only the turns Kettu ran"
+    }
+  },
+  "metrics": {
+    "tokens": "Tokens",
+    "requests": "Requests",
+    "turns": "Turns",
+    "cost": "Cost"
+  },
+  "units": {
+    "tokens": "{{value}} tokens",
+    "request": "{{value}} request",
+    "requests": "{{value}} requests",
+    "turn": "{{value}} turn",
+    "turns": "{{value}} turns"
+  },
+  "figures": {
+    "label": "Figures",
+    "total": "Total tokens",
+    "cost": "Total cost",
+    "totalRequests": "Total requests",
+    "totalTurns": "Total turns",
+    "requestsPerDay": "{{value}} a day on the days you worked",
+    "turnsPerDay": "{{value}} a day on the days you worked",
+    "requestsPerHour": "{{value}} an hour in the hours you worked",
+    "turnsPerHour": "{{value}} an hour in the hours you worked",
+    "perRequest": "{{value}} tokens per request",
+    "perTurn": "{{value}} tokens per turn",
+    "estimated": "Estimated at API prices · prices as of {{date}}",
+    "unpriced": "{{tokens}} tokens of models without a price are not counted",
+    "days_one": "{{range}} · {{count}} day",
+    "days_other": "{{range}} · {{count}} days",
+    "average": "Daily average",
+    "active_one": "Used on {{active}} of {{count}} day",
+    "active_other": "Used on {{active}} of {{count}} days",
+    "peak": "Busiest day",
+    "hourlyAverage": "Hourly average",
+    "activeHours_one": "Used in {{active}} of {{count}} hour",
+    "activeHours_other": "Used in {{active}} of {{count}} hours",
+    "peakHour": "Busiest hour",
+    "none": "No usage"
+  },
+  "cache": {
+    "title": "Where the tokens come from",
+    "none": "None of these tokens came from the prompt cache.",
+    "saved": "At API prices, that saved about {{cost}}.",
+    "share": "{{share}} of them were read from the prompt cache.",
+    "withSaved": "{{line}} {{saved}}",
+    "fromCache": "{{share}} came from the prompt cache",
+    "savedLine": "{{line}} · <b>about {{cost}} saved</b> at API prices",
+    "totalAll": "{{range}} · all agents",
+    "totalOne": "{{range}} · {{agent}}",
+    "noSplit": {
+      "requests": "Requests don’t split by token type. Switch the metric to Tokens or Cost.",
+      "turns": "Turns don’t split by token type. Switch the metric to Tokens or Cost."
+    },
+    "prices": "Estimated at API prices as of {{date}}",
+    "unpriced": "{{tokens}} tokens have no price"
+  },
+  "trend": {
+    "title": "Over time",
+    "daily": "Tokens per day",
+    "weekly": "Tokens per week",
+    "monthly": "Tokens per month",
+    "hourly": "Tokens per hour",
+    "requestsDaily": "Requests per day",
+    "requestsWeekly": "Requests per week",
+    "requestsMonthly": "Requests per month",
+    "requestsHourly": "Requests per hour",
+    "turnsDaily": "Turns per day",
+    "turnsWeekly": "Turns per week",
+    "turnsMonthly": "Turns per month",
+    "turnsHourly": "Turns per hour",
+    "costDaily": "Cost per day",
+    "costWeekly": "Cost per week",
+    "costMonthly": "Cost per month",
+    "costHourly": "Cost per hour",
+    "hour": "{{from}} – {{to}}",
+    "label": "{{date}}: {{tokens}} tokens",
+    "labelCount": "{{date}}: {{value}}",
+    "labelCost": "{{date}}: {{cost}}",
+    "agent": "{{agent}} {{tokens}}",
+    "agentCount": "{{agent}} {{value}}",
+    "agentCost": "{{agent}} {{cost}}",
+    "legend": "Agents shown in the chart",
+    "keepOne": "At least one agent stays in the chart",
+    "plot": "{{title}}; use the arrow keys to read each value",
+    "footer": "One line per agent · {{range}}",
+    "footerOne": "{{agent}} · {{range}}"
+  },
+  "limits": {
+    "title": "Plan limits",
+    "none": "No agent has reported plan limits yet. Accounts signed in with a Claude or ChatGPT subscription show here.",
+    "read": "Read {{ago}}",
+    "notReported_one": "{{name}} doesn’t report plan usage.",
+    "notReported_other": "{{name}} don’t report plan usage.",
+    "notYet": "No plan usage reported yet.",
+    "accounts_one": "{{count}} account",
+    "accounts_other": "{{count}} accounts",
+    "reading": "Reading the plan usage",
+    "failed": "Couldn’t read",
+    "neverRead": "Couldn’t read the plan usage.",
+    "lastRead": "Last read {{ago}}",
+    "backIn": "Back in {{time}}",
+    "weeklyOf": "7d · {{model}}",
+    "fiveHourOf": "5h · {{model}}",
+    "short": {
+      "minutes": "{{count}}m",
+      "hours": "{{count}}h",
+      "days": "{{count}}d"
+    },
+    "windowUsed": "{{window}}: {{percent}}% used.",
+    "windowLeft": "{{window}}: {{percent}}% left.",
+    "prepaidBalance": "Prepaid balance",
+    "extraUsage": "Extra usage",
+    "units": {
+      "credits": "credits",
+      "premiumRequests": "premium requests"
+    },
+    "showMore_one": "Show {{count}} more",
+    "showMore_other": "Show {{count}} more",
+    "showFewer": "Show fewer",
+    "near_one": "· {{count}} near a limit",
+    "near_other": "· {{count}} near a limit"
+  },
+  "activity": {
+    "title": "Activity",
+    "less": "Less",
+    "more": "More",
+    "outside": "Days outside the range are gray",
+    "label": "Tokens per day over the last 53 weeks; use the arrow keys to move between days",
+    "cell": "{{date}} · {{value}}",
+    "stats": {
+      "active": "Active days",
+      "activeOf": "of {{count}}",
+      "current": "Current streak",
+      "longest": "Longest streak",
+      "weekday": "Busiest weekday",
+      "days_one": "{{count}} day",
+      "days_other": "{{count}} days",
+      "none": "None",
+      "shareOf": {
+        "tokens": "{{share}} of tokens",
+        "requests": "{{share}} of requests",
+        "turns": "{{share}} of turns",
+        "cost": "{{share}} of the cost"
+      }
+    }
+  },
+  "parts": {
+    "input": "Input",
+    "output": "Output",
+    "reasoning": "Reasoning",
+    "cacheRead": "Cache read",
+    "cacheWrite": "Cache write"
+  },
+  "breakdown": {
+    "title": "Breakdown",
+    "groupBy": "Group by",
+    "groups": {
+      "model": "Model",
+      "project": "Project",
+      "agent": "Agent"
+    },
+    "others": {
+      "model_one": "{{count}} other model",
+      "model_other": "{{count}} other models",
+      "project_one": "{{count}} other project",
+      "project_other": "{{count}} other projects",
+      "agent_one": "{{count}} other agent",
+      "agent_other": "{{count}} other agents"
+    },
+    "unknownModel": "Unknown model",
+    "noProject": "No project",
+    "units": {
+      "tokens": "tokens",
+      "requests": "requests",
+      "turns": "turns",
+      "cost": "at API prices"
+    },
+    "total": "{{metric}} · {{range}}"
+  },
+  "noUsage": "No usage in this range.",
+  "noCost": "No cost in this range.",
+  "noPrice": "No price",
+  "empty": {
+    "title": "No usage yet",
+    "description": "Kettu counts the tokens of every turn it runs from now on. To include what the agents used before, and in a terminal, count from their logs on this computer.",
+    "description_web": "Kettu counts the tokens of every turn it runs from now on. To include what the agents used before, and in a terminal, count from their logs on {{host}}.",
+    "fromComputer": "Count usage on this computer",
+    "fromComputer_web": "Count usage on {{host}}",
+    "waiting": "Kettu counts the tokens of every turn it runs from now on."
+  },
+  "error": {
+    "title": "The usage could not be read",
+    "retry": "Retry",
+    "kept": "The figures below are the last ones read.",
+    "unavailable": "The usage database cannot be read. Restart Kettu; if it still cannot, report the problem.",
+    "report": "Report a problem"
+  },
+  "picker": {
+    "label": "Choose a time range",
+    "presets": {
+      "yesterday": "Yesterday",
+      "thisWeek": "This week",
+      "lastWeek": "Last week",
+      "thisMonth": "This month",
+      "lastMonth": "Last month",
+      "thisYear": "This year"
+    },
+    "start": "Start",
+    "end": "End",
+    "days_one": "{{count}} day",
+    "days_other": "{{count}} days",
+    "pickStart": "Pick a start",
+    "errors": {
+      "format": "Enter a date as YYYY-MM-DD",
+      "early": "Choose a day from {{day}}",
+      "future": "Choose a day up to today",
+      "order": "The start is after the end"
+    },
+    "cancel": "Cancel",
+    "apply": "Apply",
+    "presetsLabel": "Presets",
+    "custom": "Custom",
+    "previousMonth": "Previous month",
+    "nextMonth": "Next month",
+    "pickEnd": "{{start}} – pick an end"
+  },
+  "settings": {
+    "title": "Usage",
+    "description": "What the Usage page counts, and what the sidebar shows of it.",
+    "groups": {
+      "sources": "Count from",
+      "logs": "Logs",
+      "display": "Sidebar",
+      "danger": "Danger zone"
+    },
+    "fromComputer": {
+      "name": "Usage on this computer",
+      "name_web": "Usage on {{host}}",
+      "description": "Also count Claude Code, Codex and opencode logs from outside Kettu. Token counts, models and times only, never content.",
+      "description_web": "Also count Claude Code, Codex and opencode logs on {{host}} from outside Kettu. Token counts, models and times only, never content.",
+      "keywords": "logs history import tokens statistics"
+    },
+    "notFound": "No logs found",
+    "notRead": "Not read yet",
+    "covers_one": "since {{date}} · {{requests}} request",
+    "covers_other": "since {{date}} · {{requests}} requests",
+    "coversNone": "No requests yet",
+    "synced": "synced {{ago}}",
+    "reimport": {
+      "button": "Re-import…",
+      "title": "Re-import {{agent}}’s logs?",
+      "description": "Kettu forgets what it imported from {{agent}} and reads its logs again. History the agent has since deleted from its logs cannot come back.",
+      "confirm": "Re-import"
+    },
+    "sidebar": {
+      "name": "Show in the sidebar",
+      "description": "What the Usage row ends with.",
+      "today": "Today’s tokens",
+      "cost": "Today’s estimated cost",
+      "limit": "Tightest plan limit",
+      "off": "Nothing"
+    },
+    "clear": {
+      "name": "Clear Kettu’s record",
+      "description": "Deletes what Kettu counted. Agents’ own logs stay.",
+      "button": "Clear…",
+      "title": "Clear Kettu’s usage record?",
+      "confirm": "Clear record"
+    }
+  },
+  "timeOfDay": {
+    "title": "Time of day",
+    "by": {
+      "tokens": "Tokens by hour",
+      "requests": "Requests by hour",
+      "turns": "Turns by hour",
+      "cost": "Cost by hour"
+    },
+    "byHourOver": "{{metric}} · {{range}}",
+    "busiest": "Busiest",
+    "label": "The range by hour of the day; the busiest is {{hour}}",
+    "span": {
+      "tokens": "{{share}} of the tokens were used between {{from}} and {{to}}.",
+      "requests": "{{share}} of the requests were made between {{from}} and {{to}}.",
+      "turns": "{{share}} of the turns ran between {{from}} and {{to}}.",
+      "cost": "{{share}} of the cost fell between {{from}} and {{to}}."
+    }
+  }
+}

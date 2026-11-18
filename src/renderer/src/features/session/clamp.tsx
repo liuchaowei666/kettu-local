@@ -1,0 +1,129 @@
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { flushSync } from 'react-dom'
+import { useTranslation } from 'react-i18next'
+import { Button } from '@renderer/components/ui/button'
+import { cn } from '@renderer/lib/utils'
+
+interface Measured {
+  el: HTMLElement
+  setHeight: (height: number) => void
+}
+
+const measuredBy = new Map<Element, Measured>()
+let sharedObserver: ResizeObserver | null = null
+// Heights measured out of view, committed on the next frame.
+const later = new Map<Measured, number>()
+let laterFrame = 0
+
+function commitLater(): void {
+  laterFrame = 0
+  const heights = [...later]
+  later.clear()
+  for (const [m, height] of heights) m.setHeight(height)
+}
+
+/**
+ * One observer for every Clamp. Its callback runs after layout and before paint: it reads every
+ * changed height while the layout is clean, so a mount forces no layout of its own. A Clamp in
+ * view commits at once in one synchronous render, so its first paint is already clamped. One out
+ * of view, as a page of history is, commits on the next frame: a change of layout from here
+ * would leave the thread's own observers' notices undelivered until then, which the browser
+ * reports as a ResizeObserver loop. Measuring in each Clamp's layout effect instead laid out the
+ * whole thread once per commit of a long history.
+ */
+function observer(): ResizeObserver {
+  sharedObserver ??= new ResizeObserver((entries) => {
+    const changed = new Set<Measured>()
+    for (const entry of entries) {
+      const measured = measuredBy.get(entry.target)
+      if (measured) changed.add(measured)
+    }
+    const now: [Measured, number][] = []
+    for (const m of changed) {
+      const box = m.el.getBoundingClientRect()
+      if (box.bottom > 0 && box.top < window.innerHeight) now.push([m, m.el.scrollHeight])
+      else later.set(m, m.el.scrollHeight)
+    }
+    if (later.size > 0 && laterFrame === 0) laterFrame = requestAnimationFrame(commitLater)
+    if (now.length === 0) return
+    flushSync(() => {
+      for (const [m, height] of now) m.setHeight(height)
+    })
+  })
+  return sharedObserver
+}
+
+/**
+ * Content cut at a height behind a fade, with a button that shows the rest. The height animates
+ * like a disclosure. A little slack keeps content just over the limit from hiding two lines.
+ */
+export function Clamp({
+  maxHeight,
+  more,
+  less,
+  children,
+  className,
+  buttonClassName,
+}: {
+  maxHeight: number
+  /** The button's label while clamped; defaults to "Show more". */
+  more?: string
+  /** The button's label while open; defaults to "Show less". */
+  less?: string
+  children: ReactNode
+  className?: string
+  buttonClassName?: string
+}) {
+  const { t } = useTranslation('session')
+  const ref = useRef<HTMLDivElement>(null)
+  const [height, setHeight] = useState(0)
+  const [open, setOpen] = useState(false)
+
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const measured = { el, setHeight }
+    // The children too: the clamped box itself stops growing at its max-height.
+    const targets = [el, ...el.children]
+    for (const target of targets) {
+      measuredBy.set(target, measured)
+      observer().observe(target)
+    }
+    return () => {
+      later.delete(measured)
+      for (const target of targets) {
+        observer().unobserve(target)
+        measuredBy.delete(target)
+      }
+    }
+  }, [])
+
+  const tall = height > maxHeight + 24
+  const clamped = tall && !open
+  return (
+    <>
+      <div
+        ref={ref}
+        className={cn(
+          'overflow-hidden transition-[max-height] duration-(--duration-base) ease-out-expo motion-reduce:transition-none',
+          clamped && 'mask-b-from-[calc(100%-56px)] mask-b-to-100%',
+          className,
+        )}
+        style={{ maxHeight: clamped ? maxHeight : tall ? height : undefined }}
+      >
+        {children}
+      </div>
+      {tall && (
+        <Button
+          variant="quiet"
+          size="xs"
+          aria-expanded={open}
+          className={cn('self-start', buttonClassName)}
+          onClick={() => setOpen((o) => !o)}
+        >
+          {open ? (less ?? t('clamp.less')) : (more ?? t('clamp.more'))}
+        </Button>
+      )}
+    </>
+  )
+}

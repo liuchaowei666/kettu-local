@@ -1,0 +1,806 @@
+{
+  "session": {
+    "status": {
+      "starting": "starting",
+      "ready": "ready",
+      "running": "running",
+      "awaiting_permission": "awaiting permission",
+      "auth_required": "auth required",
+      "failed": "failed",
+      "closed": "closed"
+    },
+    "busy": "The session is {{status}}",
+    "startedModeFailed": "{{agent}} would not take a mode within the permissions of the session that started it",
+    "openFirst": "Open the session first",
+    "removedWhileStarting": "The session was removed before it started",
+    "noTurn": "No turn is running",
+    "noBackgroundTasks": "{{agent}} does not report background tasks",
+    "noBackgroundTask": "This background task is not in the session",
+    "backgroundTaskEnded": "This background task has ended",
+    "side": {
+      "subagent": "Subagents have no side chat",
+      "archived": "Restore the session to ask beside it",
+      "busy": "The last side question is still being answered",
+      "pickAgent": "{{agent}} cannot answer side questions; pick an agent to answer them",
+      "cannotAnswer": "{{agent}} cannot answer side questions for another session",
+      "noAnswer": "{{agent}} gave no answer to this question"
+    },
+    "cannotLoad": "{{agent}} can neither load nor resume sessions",
+    "cannotSteer": "{{agent}} cannot take messages during a turn",
+    "cannotFork": "{{agent}} cannot fork sessions",
+    "cannotForkAt": "{{agent}} can fork only from its latest reply",
+    "noForkPoint": "This reply cannot be forked from",
+    "forkTitle": "{{title}} (fork)",
+    "forkTitleNumbered": "{{title}} (fork {{n}})",
+    "alreadyInSession": "This session is already part of a Kettu session",
+    "heldOutside": "This session is still open in a terminal. Exit it there with /exit and try again, or fork a copy to carry on in Kettu.",
+    "cannotList": "{{agent}} cannot list its sessions",
+    "configBetweenTurns": "{{option}} changes between turns",
+    "ultracodeDescription": "Dynamic workflows for substantial tasks",
+    "promptTooLarge": "The message is over 10 MB with its attachments. Remove some to send.",
+    "attachmentGone": "{{name}} is no longer available. Remove it and add it again.",
+    "attachmentMissing": "An attachment is no longer available. Remove it and add it again.",
+    "attachmentUnreadable": "Kettu can't read {{name}}.",
+    "attachmentDenied": "Kettu isn't allowed to read {{name}}.",
+    "otherConfigFolder": "This session was started with the configuration folder {{path}}, which its agent no longer uses, so it cannot continue here.",
+    "topLevelOnly": "Only a top-level session can be pinned or archived",
+    "archived": "This session is archived",
+    "worktreeGone": "This session's worktree and its branch were removed, so it can't continue.",
+    "worktreeInterrupted": "The worktree's preparation was interrupted. Run it again or go on without it.",
+    "untitled": "Untitled session",
+    "subagent": {
+      "noPrompt": "A subagent session takes its instructions from its parent",
+      "noFork": "A subagent session cannot be forked",
+      "noCancel": "The agent does not allow cancelling this subagent",
+      "noConfig": "A subagent session cannot be configured",
+      "closesWithParent": "A subagent session closes with its parent",
+      "deletedWithParent": "A subagent session is deleted with its parent",
+      "failed": "The subagent failed"
+    }
+  },
+  "notice": {
+    "historyUnavailable": {
+      "title": "Earlier history is not available",
+      "description": "{{agent}} cannot replay sessions, so this one continues without its history."
+    },
+    "signInNeeded": "{{agent}} needs you to sign in",
+    "closedBeforeSent": {
+      "title": "The session closed before your message was sent",
+      "description": "It waits in the queue until you resume it."
+    },
+    "outOfCredit": {
+      "title": "{{model}} is out of credit",
+      "titleNoModel": "{{agent}}'s model provider is out of credit"
+    },
+    "turnFailed": "The turn failed",
+    "archivedByAgent": "{{agent}} archived this session",
+    "notArchivedByAgent": {
+      "title": "{{agent}} did not archive this session",
+      "description": "It asked to once its turn ended, but the turn left work running: {{work}}."
+    },
+    "scheduledJobs_one": "{{count}} scheduled job",
+    "scheduledJobs_other": "{{count}} scheduled jobs",
+    "backgroundWork": "background work",
+    "listSeparator": ", ",
+    "reportsPaused": {
+      "title": "Reports from started sessions are paused",
+      "description": "{{count}} reports woke this session since your last message. Send a message to let them through again."
+    },
+    "diskFull": {
+      "title": "Kettu can't save this session: the disk is full",
+      "description": "Free up space on this computer. Until then the conversation stays in memory, and Kettu saves it once there is room."
+    },
+    "stopped": {
+      "title": "{{agent}} exited before finishing this turn"
+    },
+    "cancelUnconfirmed": {
+      "title": "{{agent}} did not confirm the cancellation",
+      "description": "Kettu ended the turn after {{seconds}} seconds. The agent may still be finishing work in the background."
+    },
+    "lostValues": {
+      "fork": {
+        "title": "This fork could not keep all of its settings",
+        "missing": "This fork has no {{option}} option, so {{wanted}} is not available.",
+        "cannotTurnOn": "This fork has no {{option}} option, so it cannot be turned on."
+      },
+      "session": {
+        "title": "This session could not keep all of its settings",
+        "missing": "This session has no {{option}} option, so {{wanted}} is not available.",
+        "cannotTurnOn": "This session has no {{option}} option, so it cannot be turned on."
+      },
+      "start": {
+        "title": "This session could not start with all of your settings",
+        "missing": "This session has no {{option}} option, so {{wanted}} is not available.",
+        "cannotTurnOn": "This session has no {{option}} option, so it cannot be turned on."
+      },
+      "differs": "{{option}} is {{actual}} instead of {{wanted}}.",
+      "isOff": "{{option}} is off instead of on.",
+      "isOn": "{{option}} is on instead of off.",
+      "next": "You can change them in the composer.",
+      "held": "Your message was not sent. It waits in the queue until you resume it."
+    },
+    "computerStopped": {
+      "title": "Stopped using the computer",
+      "description": "Agents can use it again after your next message."
+    },
+    "fullAccessNotCarried": {
+      "title": "Full access was not carried over",
+      "description": "This session ran in full access outside Kettu. Kettu does not attach a session in it, so it is in {{mode}} here."
+    }
+  },
+  "attention": {
+    "browserOrigin": "Wants to open {{site}}",
+    "deviceAccess": "Wants to use {{device}}",
+    "computerApp": "Wants to use {{app}}",
+    "computerSetup": "Wants to use your computer",
+    "controlAsk": {
+      "sign_in": "Needs you to sign in to {{target}}",
+      "code": "Needs you to enter the code for {{target}}",
+      "check": "Needs you to pass the check on {{target}}",
+      "other": "Needs you to do a step on {{target}}",
+      "nowhere": "Needs you to do a step in the browser"
+    },
+    "permission": "Asks for permission",
+    "turnEnd": {
+      "end_turn": "Finished",
+      "cancelled": "Cancelled",
+      "max_tokens": "Stopped at the token limit",
+      "max_turn_requests": "Stopped at the request limit",
+      "refusal": "The agent refused"
+    },
+    "wantsToRun": "Wants to run {{command}}",
+    "wantsToEdit": "Wants to edit {{target}}",
+    "wantsToDelete": "Wants to delete {{target}}",
+    "wantsToMove": "Wants to move {{target}}",
+    "wantsToUse": "Wants to use {{tool}}",
+    "asks": "Asks: {{question}}",
+    "done": "{{title}} · done",
+    "withChanges_one": "{{text}} {{count}} file changed.",
+    "withChanges_other": "{{text}} {{count}} files changed.",
+    "marketPublish": "Wants to publish {{name}} to the Kettu Marketplace",
+    "marketUnlist": "Wants to unlist {{name}} from the Kettu Marketplace"
+  },
+  "routines": {
+    "busy": "This routine already has a run working",
+    "stopping": "Kettu is stopping",
+    "noRun": "No such run",
+    "notFound": "No such routine",
+    "unnamed": "Routine",
+    "ended": "Finished",
+    "failed": "{{name}} failed",
+    "timedOut": "The run reached its time limit",
+    "needsApproval": "{{name}} needs approval",
+    "noScopeMode": "{{agent}} offers no mode for this routine's permissions",
+    "modeFailed": "{{agent}} would not set the mode for this routine's permissions",
+    "pausedTitle": "Routines paused for {{agent}}",
+    "pausedUsed": "{{limit}} limit {{percent}}% used · resets {{time}}",
+    "pausedReached": "{{limit}} limit reached · resets {{time}}",
+    "pausedUsedNoReset": "{{limit}} limit {{percent}}% used",
+    "pausedReachedNoReset": "{{limit}} limit reached"
+  },
+  "planWindow": {
+    "five_hour": "5-hour",
+    "seven_day": "Weekly",
+    "seven_day_opus": "Weekly · Opus",
+    "seven_day_sonnet": "Weekly · Sonnet",
+    "monthly": "Monthly",
+    "annual": "Annual",
+    "overage": "Extra usage",
+    "weeklyOf": "Weekly · {{model}}",
+    "fiveHourOf": "5-hour · {{model}}"
+  },
+  "planWindowInText": {
+    "seven_day_opus": "Opus weekly",
+    "seven_day_sonnet": "Sonnet weekly",
+    "weeklyOf": "{{model}} weekly",
+    "fiveHourOf": "{{model}} 5-hour"
+  },
+  "agent": {
+    "stoppedBeforeAnswer": "The agent stopped before it answered",
+    "failedToStart": "{{agent}} failed to start",
+    "notAvailable": "{{agent}} is not available",
+    "cannotInstall": "{{agent}} cannot be installed",
+    "busyInstalling": "{{agent}} is already being installed or started",
+    "closeSessionsFirst": "Close the sessions that use {{agent}} first",
+    "stillRunning": "{{agent}} did not stop and is still running; try again once it has exited",
+    "noLogout": "{{agent}} does not support signing out",
+    "keyInSettings": "{{method}} is set on {{agent}}'s page in Settings › Agents",
+    "signInOnComputer": "{{agent}} signs in through a browser on the computer it runs on, so sign in there.",
+    "signInCancelled": "The sign-in to {{agent}} was cancelled.",
+    "geminiAccountMoved": "Gemini CLI no longer takes personal Google accounts: Google moved them to Google Antigravity. Use this account in Google Antigravity; Gemini CLI still works with Gemini Code Assist Standard or Enterprise and with paid Gemini API or Vertex AI keys.",
+    "noOptions": "{{agent}} gave no models within {{seconds}} s",
+    "keychainRefused": "Kettu was not allowed to read {{agent}}’s sign-in from the keychain, so its usage is not shown. It asks again in 10 minutes.",
+    "noLimits": "{{agent}} gave no plan limits within {{seconds}} s",
+    "unreadableLimits": "Kettu could not find plan limits in {{agent}}'s {{command}} reply",
+    "antigravitySignedOut": "{{agent}} is signed out. Sign in again in a terminal to read its plan limits.",
+    "antigravityLimitsFailed": "{{agent}} could not read its plan limits: {{error}}",
+    "antigravityNoPlan": "{{agent}} named no Google plan, so it has no plan limits to read. If you use it with a Google account, sign in again in a terminal.",
+    "initializeTimeout": "{{agent}} did not answer initialize within {{seconds}} s.",
+    "exit": {
+      "code": "{{agent}} exited with code {{code}}",
+      "signal": "{{agent}} was stopped by {{signal}}",
+      "error": "{{agent}} {{error}}"
+    },
+    "exited": "{{exit}}.",
+    "exitedBeforeReady": "{{exit}} before it was ready.",
+    "stoppedTooOften_one": "{{detail}} It stopped {{count}} time in five minutes, so Kettu does not start it again until you retry.",
+    "stoppedTooOften_other": "{{detail}} It stopped {{count}} times in five minutes, so Kettu does not start it again until you retry.",
+    "installFailed": "{{agent}} could not be installed. {{message}}",
+    "sdkInstallFailed": "Found your {{command}}, but could not install the SDK that runs {{agent}}. {{message}}",
+    "runningFallback": "Running {{fallback}}: {{version}} could not be installed. {{message}}",
+    "installStopped": "The install was stopped.",
+    "busyTask": "{{agent}} is already being installed or updated",
+    "alreadyInstalled": "{{agent}} is already installed",
+    "updateFailed": "{{agent}} could not be updated. {{message}}",
+    "update": {
+      "none": "{{agent}} has no update to install",
+      "noNpm": "Updates are checked with npm, and npm was not found on PATH.",
+      "checkFailed": "Could not check for updates. {{reason}}",
+      "offline": "The npm registry could not be reached.",
+      "timeout": "npm did not answer within {{seconds}} s.",
+      "noVersion": "npm named no version of {{package}}.",
+      "registryOffline": "The ACP Registry could not be reached.",
+      "registryTimeout": "The ACP Registry did not answer within {{seconds}} s.",
+      "registryUnreadable": "The ACP Registry's listing could not be read.",
+      "stopped": "The check was stopped."
+    },
+    "binaryInstall": {
+      "noMethod": "No way to install {{agent}} was found: Homebrew, curl and bash, and npm are all missing from PATH.",
+      "unavailable": "{{command}} needs a program that was not found on PATH.",
+      "notOnPath": "{{agent}} was installed in {{folder}}, but {{command}} is still not found on PATH. Add that folder to PATH and reload the environment, or choose the program in Settings › Harnesses.",
+      "notFound": "{{agent}} was installed, but {{command}} is still not found on PATH. Reload the environment, or choose the program in Settings › Harnesses.",
+      "incomplete": "{{agent}} was installed, but its program cannot be run.",
+      "programOutside": "The archive names a program outside its folder: {{command}}.",
+      "programMissing": "The archive does not hold {{command}}.",
+      "downloadStart": "Downloading {{name}}",
+      "downloading": "Downloaded {{size}}",
+      "downloadFailed": "The download of {{url}} answered HTTP {{status}}.",
+      "downloadError": "{{name}} could not be downloaded: {{reason}}",
+      "downloadTimedOut": "{{name}} did not finish downloading within {{seconds}} s.",
+      "hashMismatch": "The downloaded file does not match its SHA-256: expected {{expected}}, got {{actual}}.",
+      "extracting": "Extracting the archive…"
+    },
+    "reportTimeout": "{{command}} did not finish in {{seconds}} s",
+    "unreadableReport": "{{agent}}'s {{command}} gave no report Kettu can read",
+    "removed": "This agent was deleted, so this session cannot continue.",
+    "disabled": "{{agent}} is turned off. Turn it on in Settings › Agents to use it.",
+    "uninstall": {
+      "busy": "{{agent}} is being installed or updated. Wait for it to finish, then uninstall."
+    }
+  },
+  "detect": {
+    "noVersion": "No version of {{agent}} fits this computer, so it cannot be installed.",
+    "nodeMissing": "{{agent}} runs on Node.js, and node was not found on PATH.",
+    "nodeToInstall": "{{agent}} is installed with npm on first use, which needs Node.js, and node was not found on PATH.",
+    "nodeOutdated": "{{agent}} needs Node.js {{required}} or later; {{installed}} is installed.",
+    "npmMissing": "{{agent}} is installed with npm on first use, and npm was not found on PATH. {{hint}}",
+    "programUnusable": "The program chosen for {{agent}} ({{path}}) cannot be run.",
+    "commandMissing": "{{command}} was not found on PATH. {{hint}}",
+    "requiresMissing": "{{agent}} runs the pi program, and {{command}} was not found on PATH. {{hint}}",
+    "requiresOutdated": "{{agent}} needs {{command}} {{required}} or later; {{installed}} is installed. {{hint}}",
+    "requiresFailed": "{{agent}} could not read the version of {{command}}: {{reason}} {{hint}}",
+    "scriptMissing": "{{script}} does not exist.",
+    "antigravityInstallNotice": "The official installer puts agy in ~/.local/bin and adds it to PATH in your shell configuration files.",
+    "opencodeInstallNotice": "Kettu runs OpenCode 2. OpenCode 1 uses the same command, so remove a Homebrew or npm copy of it before installing; the install script replaces it.",
+    "geminiAudience": "Gemini CLI is for Gemini Code Assist Standard and Enterprise, Code Assist for GitHub, and paid Gemini API or Vertex AI keys. Since June 18, 2026, Google serves personal Google accounts, free or Google AI Pro and Ultra, in Google Antigravity.",
+    "hermesInstallNotice": "The official installer adds ~/.local/bin to PATH in your shell configuration files. ACP is included; browser and computer-use components are skipped.",
+    "hint": {
+      "node": "Install Node.js from nodejs.org, then reload the environment in Settings.",
+      "uv": "Install uv from docs.astral.sh/uv, then reload the environment in Settings.",
+      "opencode": "Install OpenCode, or choose its binary in Settings › Harnesses.",
+      "pi": "Install pi with `npm install -g --ignore-scripts @earendil-works/pi-coding-agent` or the installer at pi.dev.",
+      "minimax": "Install MiniMax Code in Settings › Harnesses, or choose its program there.",
+      "cursor": "Install Cursor, or choose its binary in Settings › Harnesses.",
+      "kimi": "Install Kimi Code with Install.",
+      "amp": "Install Amp, or choose its binary in Settings › Harnesses.",
+      "goose": "Install goose, or choose its binary in Settings › Harnesses.",
+      "kilo": "Install Kilo Code, or choose its binary in Settings › Harnesses.",
+      "omp": "Install OMP with `bun install -g @oh-my-pi/pi-coding-agent` or its installer at omp.sh.",
+      "antigravity": "Install the Antigravity CLI in Settings › Harnesses on macOS or Linux. On Windows, run irm https://antigravity.google/cli/install.ps1 | iex in PowerShell.",
+      "hermes": "Install Hermes Agent in Settings › Harnesses on macOS or Linux. On Windows, follow the official guide for WSL2.",
+      "muse": "Install Muse Code from dev.meta.ai, or choose its binary in Settings › Harnesses.",
+      "codewhale": "Install CodeWhale with the installer at codewhale.net, or choose its binary in Settings › Harnesses.",
+      "deepseek": "Kettu installs DeepSeek Harness from npm on its first use, on Node.js 24.9 or later.",
+      "harn": "Install Harn, or choose its binary in Settings › Harnesses.",
+      "kimchi": "Install Kimchi, or choose its binary in Settings › Harnesses.",
+      "archive": "Install it in Settings › Harnesses.",
+      "fakeAgent": "The fake agent runs tools/fake-agent/main.ts from the repository.",
+      "claudeCode": "Install Claude Code in Settings › Harnesses, or choose its program there.",
+      "codex": "Install Codex in Settings › Harnesses, or choose its program there."
+    },
+    "cliMissing": "{{agent}} runs your own {{command}}, which was not found on PATH. Install it in Settings › Harnesses.",
+    "cliUnsupported": "{{agent}} found {{path}}, which cannot be run without a shell.",
+    "cliFailed": "{{agent}} could not read the version of its program: {{reason}}",
+    "cliOutdated": "{{agent}} needs {{command}} {{required}} or later; {{installed}} is installed. Update it in Settings › Harnesses.",
+    "uninstalled": "{{agent}} was uninstalled. Install it to use it again."
+  },
+  "environment": {
+    "inherited": "Changes to PATH made after Kettu started take effect after a restart.",
+    "fallback": "Could not read the environment of {{shell}} ({{error}}). Agents use the environment Kettu started with."
+  },
+  "git": {
+    "notReady": "Git is not available yet",
+    "ghMissing": "The GitHub CLI (gh) is not installed",
+    "ghSignedOut": "The GitHub CLI is not signed in; run \"gh auth login\" in a terminal",
+    "busy": "Another git operation is running in this project; try again when it ends",
+    "notRepository": "This folder is not a git repository",
+    "operationInProgress": "Finish the merge or rebase in progress first",
+    "conflicts": "Resolve the conflicts first",
+    "notAChange": "{{path}} has no uncommitted changes",
+    "nestedRepository": "{{path}} is a repository of its own; handle it from the terminal",
+    "alreadyPublished": "The branch already tracks {{upstream}}",
+    "remoteNotFound": "This repository has no remote named {{remote}}",
+    "noBranch": "Check out a branch first: HEAD is detached or has no commits",
+    "noUpstream": "The branch is not published yet",
+    "diverged": "The branch and {{upstream}} have diverged; rebase or merge first, then push",
+    "pullFirst": "{{upstream}} has commits this branch does not have; pull first",
+    "noRemote": "The repository has no remote to push to",
+    "remoteExists": "The repository already has a remote",
+    "pushTargetChanged": "Where this push goes has changed to {{target}}; look at the popover again",
+    "notOnGithub": "Push the branch to a GitHub remote first",
+    "sameBranch": "The branch and the base are the same branch",
+    "localUpstream": "The branch tracks a branch of this repository, so there is no remote to push to",
+    "otherName": "The branch tracks {{upstream}}, which has another name; push it from the terminal",
+    "unknownRemote": "This repository has several remotes and none is set for this branch",
+    "commitMessageNoAgent": "No agent is available to write the message; add one or turn one on in Settings",
+    "commitMessageFailed": "{{agent}} could not write the message: {{reason}}"
+  },
+  "permission": {
+    "allowOnce": "Allow once",
+    "allowAlways": "Always allow {{changes}}",
+    "addRules": "{{rules}} {{place}}",
+    "addDirectories": "access to {{directories}} {{place}}",
+    "setMode": "switch to {{mode}}",
+    "reject": "Deny, and say what to do instead",
+    "place": {
+      "user": "in every project",
+      "project": "in this project",
+      "shared": "in this project's shared settings",
+      "session": "for this session"
+    },
+    "listSeparator": ", ",
+    "changeSeparator": "; ",
+    "exitPlan": {
+      "keepPlanning": "Keep planning"
+    },
+    "allowEdit": "Allow this edit",
+    "acceptEdits": "Allow all edits in this session"
+  },
+  "content": {
+    "audioTooLarge": "Audio, {{size}}, too large to show",
+    "videoTooLarge": "Video, {{size}}, too large to show",
+    "image": "Image {{number}}",
+    "resource": "Embedded resource {{uri}}",
+    "text": "Text",
+    "unknown": "Unknown content",
+    "terminal": "Terminal {{id}}",
+    "unknownTool": "Unknown tool content",
+    "toolCall": "Tool call"
+  },
+  "antigravity": {
+    "plan": {
+      "title": "Plan"
+    },
+    "mode": {
+      "default": {
+        "name": "Default",
+        "description": "Ask before edits and commands"
+      },
+      "acceptEdits": {
+        "name": "Accept edits",
+        "description": "Approve file edits in the workspace without asking"
+      },
+      "auto": {
+        "name": "Auto",
+        "description": "Approve edits and safe commands; ask before irreversible actions"
+      },
+      "plan": {
+        "name": "Plan",
+        "description": "Plan carefully before executing a task"
+      },
+      "fullAccess": {
+        "name": "Full access",
+        "description": "Never asks. Applies between turns, restarting agy"
+      }
+    },
+    "fullAccess": {
+      "enterFailed": "Could not switch to Full access",
+      "leaveFailed": "Could not leave Full access"
+    }
+  },
+  "claude": {
+    "mode": {
+      "default": {
+        "name": "Ask before edits",
+        "description": "Asks before it changes a file or runs a command"
+      },
+      "acceptEdits": {
+        "name": "Accept edits",
+        "description": "Edits files freely; still asks before commands"
+      },
+      "plan": {
+        "name": "Plan only",
+        "description": "Reads and plans. Changes nothing"
+      },
+      "auto": {
+        "name": "Auto",
+        "description": "Claude handles permission decisions"
+      },
+      "bypassPermissions": {
+        "name": "Full access",
+        "description": "Never asks. Use it in a sandbox or a worktree"
+      }
+    }
+  },
+  "codex": {
+    "signInNeeded": "Sign in to Codex with `codex login` in a terminal",
+    "turnFailed": "The turn failed",
+    "noForkPoint": "Codex can't find this reply in its history",
+    "option": {
+      "mode": "Mode",
+      "modeDescription": "Approval and sandboxing preset for the session",
+      "collaboration": "Collaboration mode",
+      "collaborationDescription": "How Codex collaborates for the next turns",
+      "model": "Model",
+      "modelDescription": "Model Codex uses for the session",
+      "effort": "Reasoning effort",
+      "effortDescription": "How much reasoning effort the model uses",
+      "fast": "Fast mode",
+      "fastDescription": "1.5x speed, increased usage"
+    },
+    "mode": {
+      "read-only": {
+        "name": "Read-only",
+        "description": "Ask before edits or network access"
+      },
+      "workspace-write": {
+        "name": "Workspace access",
+        "description": "Ask for outside edits or network access"
+      },
+      "agent": {
+        "name": "Auto review",
+        "description": "Only ask about potentially unsafe actions"
+      },
+      "agent-full-access": {
+        "name": "Full access",
+        "description": "Any file or network, without approval"
+      }
+    },
+    "collaboration": {
+      "default": "Default",
+      "plan": "Plan",
+      "planDescription": "Plan before making changes"
+    },
+    "plan": {
+      "title": "Plan",
+      "implement": "Yes, implement this plan",
+      "implementDescription": "Leaves Plan mode; Codex keeps its permission mode, {{mode}}",
+      "keepPlanning": "No, keep planning"
+    },
+    "auth": {
+      "chatGpt": {
+        "name": "ChatGPT",
+        "description": "Sign in with your ChatGPT account in the browser"
+      },
+      "deviceCode": {
+        "name": "ChatGPT (device code)",
+        "description": "Sign in to ChatGPT by opening a verification page and entering a one-time code"
+      },
+      "apiKey": {
+        "name": "API key",
+        "description": "Paste an OpenAI API key, then press Enter and Ctrl+D"
+      }
+    },
+    "account": {
+      "none": "Not signed in",
+      "apiKey": "OpenAI API key",
+      "gateway": "Custom model provider"
+    },
+    "approval": {
+      "allowOnce": "Allow once",
+      "allowSession": "Allow for this session",
+      "allowTurn": "Allow for this turn",
+      "allowPrefix": "Always allow `{{command}}`",
+      "allowHost": "Always allow {{host}}",
+      "denyHost": "Always block {{host}}",
+      "decline": "Deny, and keep going",
+      "cancel": "Deny, and say what to do instead",
+      "dismiss": "Dismiss without answering",
+      "accept": "Continue",
+      "network": "Network access",
+      "networkHost": "{{protocol}} access to {{host}}",
+      "networkTitle": "{{protocol}} network access to {{host}}",
+      "read": "Read {{path}}",
+      "write": "Write {{path}}",
+      "permissionsTitle": "More permissions",
+      "elicitationTitle": "{{server}} asks to continue",
+      "allowEdit": "Allow this edit"
+    },
+    "tool": {
+      "readFile": "Read file '{{path}}'",
+      "listFiles": "List files",
+      "listFilesIn": "List files in '{{path}}'",
+      "search": "Search for '{{query}}'",
+      "searchIn": "Search for '{{query}}' in {{path}}",
+      "searchPath": "Search in '{{path}}'",
+      "searchAll": "Search",
+      "runCommand": "Run command",
+      "editFiles": "Editing files",
+      "mcp": "{{server}}: {{tool}}",
+      "webSearch": "Web search: {{query}}",
+      "webSearchAll": "Web search",
+      "openPage": "Open {{url}}",
+      "findInPage": "Find in {{url}}",
+      "viewImage": "View image '{{path}}'",
+      "generateImage": "Generate image",
+      "agent": {
+        "spawnAgent": "Start subagent",
+        "sendInput": "Message subagent",
+        "resumeAgent": "Resume subagent",
+        "wait": "Wait for subagents",
+        "closeAgent": "Close subagent"
+      }
+    },
+    "notice": {
+      "rerouted": "Codex switched from {{from}} to {{to}}"
+    },
+    "command": {
+      "plan": {
+        "description": "Turn plan mode on."
+      },
+      "mcp": {
+        "description": "Show the status of the MCP servers, or reconnect them.",
+        "hint": "[reconnect]"
+      },
+      "skills": {
+        "description": "List available skills."
+      },
+      "status": {
+        "description": "Display session configuration and token usage."
+      },
+      "review": {
+        "description": "Review uncommitted changes, or review with custom instructions.",
+        "hint": "optional review instructions"
+      },
+      "review-branch": {
+        "description": "Review changes relative to a base branch.",
+        "hint": "branch name"
+      },
+      "review-commit": {
+        "description": "Review a specific commit.",
+        "hint": "commit sha"
+      },
+      "compact": {
+        "description": "Summarize conversation to avoid hitting the context limit."
+      },
+      "goal": {
+        "description": "Set a goal to keep pursuing.",
+        "hint": "[<objective>|clear|pause|resume]"
+      },
+      "rename": {
+        "description": "Rename the current session.",
+        "hint": "new name"
+      },
+      "usage": "Command \"/{{name}}\" requires {{hint}}.",
+      "noArguments": "no arguments",
+      "goalTooLong": "Command \"/goal\" requires goal text of at most {{max}} characters.",
+      "skillsTitle": "Available skills:",
+      "noSkills": "No skills configured."
+    },
+    "status": {
+      "model": "**Model:** {{value}}",
+      "directory": "**Directory:** {{value}}",
+      "approval": "**Approval:** {{value}}",
+      "sandbox": "**Sandbox:** {{value}}",
+      "account": "**Account:** {{value}}",
+      "session": "**Session:** `{{value}}`",
+      "tokens": "**Token usage:** {{value}}",
+      "context": "**Context window:** {{value}}",
+      "limit": "**{{label}} limit:** {{value}}",
+      "limits": "**Limits:** {{value}}",
+      "notAvailable": "data not available yet",
+      "notSignedIn": "not logged in",
+      "tokenCounts": "{{total}} total  ({{input}} input + {{cached}} cached input{{cacheWrite}}, {{output}} output)",
+      "cacheWrite": " + {{count}} cache write",
+      "contextUsed": "{{percent}}% used ({{used}} used / {{size}})",
+      "left": "{{percent}}% left{{reset}}",
+      "resetsToday": " (resets {{time}})",
+      "resetsOn": " (resets {{time}} on {{date}})"
+    },
+    "mcp": {
+      "none": "No MCP servers are configured.",
+      "summary": "**MCP servers:** {{count}} ({{counts}})",
+      "count": "{{count}} {{status}}",
+      "status": {
+        "connected": "Connected",
+        "starting": "Connecting",
+        "notStarted": "Not started",
+        "authenticationRequired": "Needs authentication",
+        "failed": "Failed",
+        "cancelled": "Cancelled",
+        "disabled": "Disabled",
+        "unknown": "Unknown"
+      },
+      "tools_one": "{{count}} tool",
+      "tools_other": "{{count}} tools",
+      "notSignedIn": "not signed in",
+      "disabled": "**Disabled:** {{names}}",
+      "reconnectHint": "Run `/mcp reconnect` to restart the servers that are not connected.",
+      "arguments": "Command \"/mcp\" accepts no arguments, or `reconnect`.",
+      "reconnect": "**Reconnect:**",
+      "reloaded": "Reloaded the MCP configuration of all open sessions. Codex restarted the servers that failed, stopped, or changed. A connected server with unchanged settings keeps its connection.",
+      "reloadFailed": "Could not reload the MCP configuration: {{error}}",
+      "signInUnsupported": "MCP server {{name}} needs authentication, but this client cannot open a sign-in page.",
+      "stillStarting": "Some MCP servers are still starting. Run `/mcp` again later to see their status.",
+      "unknownError": "unknown MCP startup error",
+      "unnamed": "(unnamed)"
+    }
+  },
+  "dsh": {
+    "tool": {
+      "read": "Read file",
+      "write": "Write file '{{path}}'",
+      "editFile": "Edit file '{{path}}'",
+      "edit": "Edit file",
+      "fetch": "Open page",
+      "ask": "Ask a question",
+      "plan": "Plan"
+    },
+    "notice": {
+      "retry": "The model request failed; retrying ({{retry}} of {{max}})"
+    },
+    "permission": {
+      "reject": "Deny"
+    },
+    "plan": {
+      "approve": "Approve and leave plan mode"
+    },
+    "subagent": {
+      "failed": "The subagent ended: {{reason}}"
+    },
+    "auth": {
+      "account": "DeepSeek account",
+      "accountDescription": "Run `dsh web` and sign in to DeepSeek in its page"
+    },
+    "account": {
+      "account": "DeepSeek account",
+      "apiKey": "DeepSeek API key"
+    },
+    "mode": {
+      "name": "Mode",
+      "plan": "Plan",
+      "planDescription": "Plan before making changes",
+      "readOnly": "Read only",
+      "readOnlyDescription": "Reads files; asks before changing anything",
+      "workspaceWrite": "Workspace write",
+      "workspaceWriteDescription": "Changes files in the project; asks before going outside it",
+      "fullAccess": "Full access",
+      "fullAccessDescription": "Runs anything without asking"
+    },
+    "model": "Model",
+    "effort": {
+      "name": "Reasoning",
+      "off": "Off",
+      "low": "Low",
+      "high": "High",
+      "max": "Max"
+    }
+  },
+  "question": {
+    "other": "Something else…"
+  },
+  "elicitation": {
+    "formTitle": "{{server}} needs some details",
+    "urlTitle": "{{server}} asks you to open a page",
+    "submit": "Submit",
+    "open": "Open",
+    "decline": "Decline",
+    "yes": "Yes",
+    "no": "No"
+  },
+  "artifacts": {
+    "formatUpgraded": "Moved to version {{format}} of its type’s format"
+  },
+  "workflow": {
+    "unusable": "{{name}} cannot be used: {{problem}}",
+    "notApproved": "Approve {{name}} before starting a task with it",
+    "notFound": "No such workflow",
+    "changedSinceShown": "The workflow changed since you saw it. Look at it again before approving it.",
+    "invalid": "The workflow has problems to fix first",
+    "noSuchStep": "The workflow has no such step for an agent",
+    "notGithub": "Give the address of a file on GitHub",
+    "notFromGithub": "Only a workflow added from GitHub can be updated",
+    "tooLarge": "The workflow file is larger than 256 KB",
+    "libraryFull": "Your workflow library is full",
+    "downloadFailed": "Could not download the workflow: {{error}}",
+    "downloadStatus": "GitHub answered {{status}} for the workflow",
+    "listingProblem": "The workflow has a problem, so nothing was installed: {{problem}}"
+  },
+  "tasks": {
+    "notFound": "No such task",
+    "noStep": "No such step on this task",
+    "cannotStep": "{{agent}} cannot do workflow steps",
+    "notReviewing": "This step waits for no review",
+    "notPerson": "This step waits for no answer",
+    "noOutcome": "{{step}} has no outcome “{{outcome}}”",
+    "ended": "The task has ended",
+    "nothingToRetry": "This step waits for nothing to retry",
+    "stillRunning": "Cancel the task before deleting it",
+    "noteEmpty": "A note needs text",
+    "cannotPin": "This step has started, so it cannot be pinned now",
+    "needsYou": "{{title}} needs you",
+    "needsYouBody": "{{step}} · {{workflow}}",
+    "done": "{{title}} is done",
+    "dropped": "{{title}} ended without being done",
+    "endedBody": "{{workflow}} · {{steps}} steps"
+  },
+  "marketPublish": {
+    "handleInvalid": "A publisher name is 1 to 32 lowercase letters, digits and hyphens, starting and ending with a letter or digit.",
+    "handleTaken": "@{{handle}} is taken. Choose another publisher name.",
+    "publisherFailed": "Could not set the publisher name: {{reason}}",
+    "notReady": "Nothing was uploaded: fix what the check found first.",
+    "failure": {
+      "signed_out": "Sign in to a Kettu account with Kettu’s cloud services on to publish.",
+      "unauthorized": "Sign in to your Kettu account again to publish.",
+      "network": "Couldn’t reach the Kettu Marketplace. Check the connection and try again.",
+      "unreadable": "Couldn’t read what you published.",
+      "storage_full": "Your cloud storage is full, and something only you can see counts against it.",
+      "too_many_listings": "Your account has as many listings as it can have.",
+      "rate_limited": "Too many versions in the last hour. Try again later.",
+      "last_version": "It’s the only version left. Publish a new one before you withdraw this one, or delete the listing.",
+      "handle_taken": "That publisher name is taken. Choose another.",
+      "taken_down": "Kettu took it down, so it takes no new versions.",
+      "version_exists": "This version is published already. Raise the version and try again.",
+      "no_publisher": "Choose a publisher name first.",
+      "not_found": "It’s no longer in the Kettu Marketplace.",
+      "check_failed": "The Kettu Marketplace’s check didn’t pass.",
+      "conflict": "Something else changed it at the same time. Try again."
+    }
+  },
+  "marketCommunity": {
+    "signedOut": "Sign in to a Kettu account, with Kettu’s services on, to install from the Kettu Marketplace.",
+    "takenDown": "This was taken down from the Kettu Marketplace.",
+    "gone": "This is no longer in the Kettu Marketplace.",
+    "withdrawn": "Its publisher withdrew this version. Try again to get the current one.",
+    "failed": "Couldn’t reach the Kettu Marketplace: {{reason}}",
+    "mismatch": "{{path}} didn’t match the checksum the Kettu Marketplace gave for it, so nothing was installed.",
+    "badPath": "The Kettu Marketplace named a file Kettu won’t write, {{path}}, so nothing was installed.",
+    "tooLarge": "This version is larger than a version may be, so nothing was installed.",
+    "otherKind": "This listing is another kind of item.",
+    "otherHarness": "This plugin is for another agent.",
+    "noManifest": "The plugin has no {{file}} with a name, so it can’t be installed.",
+    "nameTaken": "Another plugin named {{name}} from the Kettu Marketplace is installed ({{other}}). Uninstall it first.",
+    "noWorkflow": "The listing has no workflow.yaml in UTF-8 text, so nothing was installed."
+  },
+  "marketBundle": {
+    "invalid": "This MCP bundle can’t be installed: {{reason}}",
+    "notZip": "it isn’t a zip archive.",
+    "tooMany": "it holds more files than a bundle may.",
+    "tooLarge": "it’s larger than a bundle may be once unpacked.",
+    "unsafePath": "it names a path Kettu won’t write, {{path}}.",
+    "notFile": "{{path}} is a link or something else that isn’t a plain file.",
+    "noManifest": "it has no readable manifest.json.",
+    "field": "its manifest has no valid {{field}}.",
+    "noEntry": "{{path}} isn’t in it.",
+    "variable": "{{where}} uses {{variable}}, which Kettu doesn’t know.",
+    "platform": "It runs only on {{platforms}}.",
+    "node": "It needs Node.js {{range}}, and Kettu’s is {{version}}.",
+    "needsPython": "It needs Python 3, which isn’t on this computer. Install it from https://www.python.org, then try again.",
+    "needsUv": "It needs uv, which isn’t on this computer. Install it from https://docs.astral.sh/uv, then try again.",
+    "needsCommand": "It needs {{command}}, which isn’t on this computer.",
+    "secretArg": "It would put {{title}}, a secret, on the command line, where other users of this computer could read it.",
+    "mixed": "Its {{name}} variable mixes a value you fill in with other text, which Kettu can’t keep in the keychain.",
+    "missing": "Fill in {{title}}.",
+    "badValue": "{{title}} isn’t a valid value.",
+    "expired": "This install waited too long. Click Install again.",
+    "noBundle": "This listing has no MCP bundle.",
+    "downloadFailed": "Couldn’t download the bundle: {{reason}}",
+    "tooBig": "The bundle is larger than {{mb}} MB, so nothing was installed.",
+    "mismatch": "The bundle didn’t match its checksum, so nothing was installed.",
+    "outside": "Kettu won’t run a path outside the bundle’s folder, {{path}}.",
+    "changed": "The listing changed while the bundle was downloading. Click Install again."
+  },
+  "marketSkills": {
+    "nameTaken": "You’ve already added a skill named {{name}}, from {{from}}. Remove that one first: an agent keeps only one of two skills with the same name."
+  }
+}

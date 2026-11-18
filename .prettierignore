@@ -1,0 +1,7 @@
+out
+dist
+pnpm-lock.yaml
+.worktrees
+src/renderer/src/lib/cn-tables.ts
+native/ios-device/target
+src/renderer/src/components/affect

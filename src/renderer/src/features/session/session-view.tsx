@@ -1,0 +1,513 @@
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { AlertCircleIcon } from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
+import { AnimatePresence } from 'motion/react'
+import { useTranslation } from 'react-i18next'
+import type { SessionSummary } from '@shared/agent-host'
+import type { AgentId } from '@shared/thread'
+import { Alert, AlertAction, AlertDescription, AlertTitle } from '@renderer/components/ui/alert'
+import { SurfaceLight } from '@renderer/components/control/surface-light'
+import { Button } from '@renderer/components/ui/button'
+import { BrowserLabel } from '@renderer/features/browser/browser-label'
+import { DeviceLabel } from '@renderer/features/devices/device-label'
+import { TerminalLabel } from '@renderer/features/terminal/terminal-label'
+import { ProjectPathContext } from '@renderer/features/files/file-refs'
+import { openHostSettings } from '@renderer/features/settings/host-sections'
+import { SHEET_INSIDE_RADIUS } from '@renderer/features/shell/sheet'
+import { usePane } from '@renderer/features/split/pane-context'
+import { StepSentBack } from '@renderer/features/tasks/step-crumb'
+import { useScrollbarGutter } from '@renderer/hooks/use-scrollbar-gutter'
+import { errorMessage, host } from '@renderer/lib/host'
+import { isMac } from '@renderer/lib/platform'
+import { AccountMovedAlert } from '@renderer/features/agents/moved-accounts'
+import { agentName, agentsOn, useAgentsStore } from '@renderer/stores/agents'
+import { ensureFiles, ensureFreshFiles } from '@renderer/stores/files'
+import { isAway, useOtherHost } from '@renderer/stores/hosts'
+import { hostOfSession, sessionArchived, useSessionsStore } from '@renderer/stores/sessions'
+import { focusSession, reloadSession, useThreadsStore } from '@renderer/stores/threads'
+import {
+  openAgentSettings,
+  openHarnessSettings,
+  shownPanel,
+  toggleSideChat,
+  useViewStore,
+} from '@renderer/stores/view'
+import { useNarrow } from '@renderer/features/side-chat/use-narrow'
+import { DropOverlay } from './attachments/drop-overlay'
+import { useFileDrop } from './attachments/use-file-drop'
+import { Composer } from './composer/composer'
+import { readDraft } from './composer/drafts'
+import { preloadRenderers, useRenderersReady } from './markdown/preload'
+import { ComputerLabel } from './computer-bar'
+import { QueueStack } from './queue-stack'
+import { SessionHeader } from './session-header'
+import {
+  ArchivedComposer,
+  ColumnScroller,
+  ComposerPlaceholder,
+  FailedState,
+  HostAway,
+  StartingAgent,
+  ThreadSkeleton,
+} from './session-states'
+import { SignIn } from './sign-in'
+import { SubagentBar } from './subagent-bar'
+import { Thread } from './thread'
+import { awaitsAnswer } from './turn-phase'
+import { useSessionView } from './use-thread'
+import { firstWaiting, pressWaitingCard } from './waiting-card'
+import { sessionFolder } from '@renderer/lib/session-folder'
+import { WorktreeGoneComposer, WorktreeState } from './worktree/worktree-state'
+
+const BoardRail = lazy(() => import('@renderer/features/board/board-pane'))
+const SideChatRail = lazy(() => import('@renderer/features/side-chat/side-chat-rail'))
+
+/** A session: its thread, and the composer or the subagent bar under it. */
+export function SessionView({ sessionId }: { sessionId: string }) {
+  const summary = useSessionsStore((s) => s.byId[sessionId])
+  if (!summary) return null
+  return <SessionBody summary={summary} />
+}
+
+function SessionBody({ summary }: { summary: SessionSummary }) {
+  const { t } = useTranslation(['session', 'common'])
+  const sessionId = summary.id
+  const replicaStatus = useThreadsStore((s) => s.replicas[sessionId]?.status ?? 'loading')
+  const replicaError = useThreadsStore((s) => s.replicas[sessionId]?.error ?? null)
+  const empty = useThreadsStore((s) => (s.replicas[sessionId]?.state?.order.length ?? 0) === 0)
+  const session = useSessionView(sessionId)
+  const renderersReady = useRenderersReady()
+  const hostId = hostOfSession(summary)
+  const name = agentName(summary.agentId, hostId)
+  const agentRemoved = useAgentsStore(
+    (s) => agentsOn(s, hostId).byId[summary.agentId]?.registered === false,
+  )
+  const agentStatus = useAgentsStore((s) => agentsOn(s, hostId).byId[summary.agentId])
+  const movedTo = agentStatus?.movedAccounts?.to
+  const movedToName = useAgentsStore(
+    (s) => (movedTo && agentsOn(s, hostId).byId[movedTo]?.harnessName) || movedTo,
+  )
+  const agentOff = useAgentsStore(
+    (s) => agentsOn(s, hostId).byId[summary.agentId]?.disabled === true,
+  )
+  const archived = useSessionsStore((s) => sessionArchived(s.byId, sessionId))
+  const otherHost = useOtherHost(hostId)
+  // Its host is offline: what the thread showed stays, and nothing goes to it.
+  const away = otherHost && isAway(otherHost.connection) ? otherHost : null
+  // It holds the computer: the composer carries the label, and while the agent has the app and
+  // the Computer pane is closed, the light runs along the column's edges.
+  const computer = !!session?.computer && !archived && !away
+  const paneShown = useViewStore(
+    (s) => shownPanel(s) === sessionId && s.sidePane[sessionId] === 'computer',
+  )
+  const lit = computer && session?.computer?.control !== 'you' && !paneShown
+  // The board sits at the right of the thread and the composer; a sub-agent's page has none.
+  const board = useViewStore((s) => !!s.boardOpen[sessionId]) && summary.origin !== 'subagent'
+  // The side chat takes the board's place; a window too narrow for both gets it over the thread.
+  const sideChat =
+    useViewStore((s) => !!s.sideChatOpen[sessionId]) && summary.origin !== 'subagent' && !board
+  const row = useRef<HTMLDivElement>(null)
+  const narrow = useNarrow(row, sideChat)
+
+  useEffect(() => {
+    preloadRenderers()
+    void focusSession(sessionId)
+  }, [sessionId])
+
+  const folder = sessionFolder(summary)
+
+  const [actionError, setActionError] = useState<string | null>(null)
+  // A queued message's failed action; the stack clears it with its next action or its last item.
+  const [queueError, setQueueError] = useState<string | null>(null)
+  const gutter = useScrollbarGutter()
+  const status = session?.status ?? summary.status
+  const running = status === 'running' || status === 'awaiting_permission'
+  // File references in replies link to the project's files once their list is known: read when
+  // the session shows, and again after a turn that changed the files.
+  useEffect(() => {
+    if (running) ensureFiles(folder)
+    else ensureFreshFiles(folder)
+  }, [folder, running])
+  const fail = useCallback((e: unknown) => setActionError(errorMessage(e)), [])
+  // Settings › Agents of the host the agent is on.
+  const openAgents = (agentId: AgentId | null) => {
+    openHostSettings(hostId)
+    openAgentSettings(agentId)
+  }
+  const retry = () => {
+    setActionError(null)
+    host('sessions.retry', { sessionId }).catch(fail)
+  }
+
+  const pane = usePane()
+  const focused = pane?.focused ?? true
+  usePermissionKeys(sessionId, focused)
+  useEscapeToCancel(sessionId, !!session && running, focused, fail)
+  const drop = useFileDrop(
+    session && !archived && summary.origin !== 'subagent' ? sessionId : null,
+    status === 'starting',
+  )
+
+  let body
+  if (!session && away) {
+    body = (
+      <ColumnScroller className="flex items-center justify-center px-6 pb-16">
+        <HostAway host={away} />
+      </ColumnScroller>
+    )
+  } else if (!session) {
+    body =
+      replicaStatus === 'error' ? (
+        <ColumnScroller>
+          <div className="ks-thread__column mx-auto w-full px-8 pt-8">
+            <FailedState
+              title={t('view.couldntOpen')}
+              message={replicaError ?? t('view.hostSilent')}
+              onRetry={() => void reloadSession(sessionId)}
+              report={{ hostId: otherHost?.id ?? null, sessionId, agentId: summary.agentId }}
+            />
+          </div>
+        </ColumnScroller>
+      ) : (
+        // A session that is not live waits for its agent and the whole `session/load` replay; the
+        // composer's placeholder says which.
+        <ColumnScroller>
+          <ThreadSkeleton />
+        </ColumnScroller>
+      )
+  } else if (status === 'auth_required' && empty) {
+    body = (
+      <ColumnScroller className="flex items-center justify-center">
+        <SignIn agentId={summary.agentId} hostId={hostId} panel={summary.id} onRetry={retry} />
+      </ColumnScroller>
+    )
+  } else if (status === 'starting' && empty) {
+    body = (
+      <ColumnScroller className="flex flex-col">
+        <StartingAgent agentId={summary.agentId} hostId={hostId} />
+        <ThreadSkeleton className="opacity-70" />
+      </ColumnScroller>
+    )
+  } else if (empty && (status === 'ready' || status === 'closed')) {
+    body = (
+      <ColumnScroller className="flex items-center justify-center px-6 pb-16">
+        <p className="animate-in text-ui text-muted-foreground fade-in animation-duration-(--duration-slow)">
+          {t('newSession.whatToWorkOn', { agent: name })}
+        </p>
+      </ColumnScroller>
+    )
+  } else if (!renderersReady) {
+    body = (
+      <ColumnScroller>
+        <ThreadSkeleton />
+      </ColumnScroller>
+    )
+  } else {
+    body = <Thread sessionId={sessionId} projectPath={folder} agentName={name} working={running} />
+  }
+
+  return (
+    <div className="ks-session relative flex h-full min-h-0 flex-col" {...drop.handlers}>
+      <SessionHeader summary={summary} session={session} />
+      <div ref={row} className="relative flex min-h-0 flex-1">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <ProjectPathContext value={folder}>
+            {/* The drop zone covers the thread and leaves the composer in view. */}
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              {summary.task && <StepSentBack summary={summary} />}
+              {body}
+              <DropOverlay shown={drop.over} starting={status === 'starting'} agentName={name} />
+            </div>
+          </ProjectPathContext>
+          {/* Leaves the width the column's scrollbar takes, so the composer centres on the column. */}
+          <div style={{ paddingRight: gutter }}>
+            <div className="px-8 pb-6">
+              <div className="mx-auto flex w-full max-w-(--thread-column) flex-col gap-2">
+                {session &&
+                status === 'failed' &&
+                movedTo &&
+                agentStatus?.movedAccounts?.refused ? (
+                  <AccountMovedAlert
+                    agent={name}
+                    to={movedToName ?? movedTo}
+                    message={session.error?.message ?? t('view.couldNotContinue', { agent: name })}
+                    onRetry={retry}
+                    onOpen={() => {
+                      openHostSettings(hostId)
+                      openHarnessSettings(movedTo)
+                    }}
+                  />
+                ) : session && status === 'failed' ? (
+                  <FailedState
+                    title={t('view.stopped', { agent: name })}
+                    message={session.error?.message ?? t('view.couldNotContinue', { agent: name })}
+                    detail={session.error?.detail}
+                    onRetry={retry}
+                    report={{ hostId: otherHost?.id ?? null, sessionId, agentId: summary.agentId }}
+                  />
+                ) : null}
+                {session && status === 'auth_required' && !empty && (
+                  <Alert variant="warning" className="has-data-[slot=alert-action]:pr-36">
+                    <HugeiconsIcon icon={AlertCircleIcon} strokeWidth={1.9} aria-hidden />
+                    <AlertTitle>{t('view.signInToContinue', { agent: name })}</AlertTitle>
+                    <AlertDescription>{t('view.historyStays')}</AlertDescription>
+                    <AlertAction className="flex gap-1.5">
+                      <Button size="xs" variant="outline" onClick={retry}>
+                        {t('common:actions.retry')}
+                      </Button>
+                      <Button size="xs" onClick={() => openAgents(summary.agentId)}>
+                        {t('view.signIn')}
+                      </Button>
+                    </AlertAction>
+                  </Alert>
+                )}
+                {agentRemoved && (
+                  <Alert variant="warning">
+                    <HugeiconsIcon icon={AlertCircleIcon} strokeWidth={1.9} aria-hidden />
+                    <AlertTitle>{t('view.agentRemoved', { agent: name })}</AlertTitle>
+                    <AlertDescription>{t('view.agentRemovedBody')}</AlertDescription>
+                    <AlertAction>
+                      <Button size="xs" variant="outline" onClick={() => openAgents(null)}>
+                        {t('view.openAgents')}
+                      </Button>
+                    </AlertAction>
+                  </Alert>
+                )}
+                {agentOff && !agentRemoved && (
+                  <Alert variant="warning">
+                    <HugeiconsIcon icon={AlertCircleIcon} strokeWidth={1.9} aria-hidden />
+                    <AlertTitle>{t('view.agentTurnedOff', { agent: name })}</AlertTitle>
+                    <AlertDescription>{t('view.agentTurnedOffBody')}</AlertDescription>
+                    <AlertAction>
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        onClick={() => openAgents(summary.agentId)}
+                      >
+                        {t('view.openAgent')}
+                      </Button>
+                    </AlertAction>
+                  </Alert>
+                )}
+                {summary.worktree && !archived && summary.origin !== 'subagent' && (
+                  <WorktreeState sessionId={sessionId} worktree={summary.worktree} />
+                )}
+                {(actionError || queueError) && (
+                  <p role="alert" className="animate-in px-1 text-xs text-danger fade-in">
+                    {actionError ?? queueError}
+                  </p>
+                )}
+                <div className="flex flex-col">
+                  {/* Mounted only while something waits; its cards sit behind the composer. */}
+                  {session &&
+                    !archived &&
+                    summary.origin !== 'subagent' &&
+                    session.queue.length > 0 && (
+                      <QueueStack session={session} onError={setQueueError} />
+                    )}
+                  {session && (
+                    <ComputerLabel
+                      sessionId={sessionId}
+                      view={computer ? (session.computer ?? null) : null}
+                      agentId={summary.agentId}
+                      hostId={hostId}
+                      onError={setQueueError}
+                    />
+                  )}
+                  {!archived && !away && summary.origin !== 'subagent' && (
+                    <>
+                      <BrowserLabel
+                        sessionId={sessionId}
+                        agentId={summary.agentId}
+                        hostId={hostId}
+                      />
+                      <DeviceLabel
+                        sessionId={sessionId}
+                        agentId={summary.agentId}
+                        hostId={hostId}
+                      />
+                      <TerminalLabel
+                        sessionId={sessionId}
+                        agentId={summary.agentId}
+                        hostId={hostId}
+                      />
+                    </>
+                  )}
+                  {away ? (
+                    session && <HostAway host={away} inline />
+                  ) : summary.origin === 'subagent' ? (
+                    <SubagentBar summary={summary} session={session} />
+                  ) : archived ? (
+                    <ArchivedComposer sessionId={sessionId} />
+                  ) : summary.worktree?.state === 'gone' ? (
+                    // Its history stays readable; nothing more can run without the branch.
+                    <WorktreeGoneComposer />
+                  ) : session ? (
+                    // Its menus open inside it, so while one is open it rises over the computer label.
+                    <div className="relative z-10 has-aria-expanded:z-20">
+                      {/* An agent removed or turned off: the session goes on with another one. */}
+                      <Composer
+                        key={sessionId}
+                        session={session}
+                        agentName={name}
+                        mustSwitch={agentRemoved || agentOff}
+                      />
+                    </div>
+                  ) : (
+                    <ComposerPlaceholder agentId={summary.agentId} hostId={hostId} />
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        {board && (
+          <Suspense fallback={null}>
+            <BoardRail sessionId={sessionId} />
+          </Suspense>
+        )}
+        {sideChat && narrow && (
+          <div
+            aria-hidden
+            className="absolute inset-0 z-10"
+            onClick={() => toggleSideChat(sessionId, false)}
+          />
+        )}
+        {sideChat && (
+          <Suspense fallback={null}>
+            <SideChatRail
+              sessionId={sessionId}
+              agentId={summary.agentId}
+              hostId={hostId}
+              overlay={narrow}
+            />
+          </Suspense>
+        )}
+      </div>
+      <AnimatePresence>
+        {lit && (
+          <SurfaceLight
+            key="computer"
+            placement="inside"
+            act={session?.computer?.act?.seq ?? 0}
+            radius={SHEET_INSIDE_RADIUS}
+          />
+        )}
+      </AnimatePresence>
+      <Announcer summary={summary} name={name} />
+    </div>
+  )
+}
+
+/** An aria-live region for permission requests, questions and turn ends, which happen out of view. */
+function Announcer({ summary, name }: { summary: SessionSummary; name: string }) {
+  const { t } = useTranslation('session')
+  const [event, setEvent] = useState<'approval' | 'question' | 'finished' | null>(null)
+  const asked = useThreadsStore((s) => awaitsAnswer(s.replicas[summary.id]?.state))
+  const previous = useRef(summary)
+  useEffect(() => {
+    const before = previous.current
+    previous.current = summary
+    if (summary.permissionCount > before.permissionCount) {
+      setEvent(asked ? 'question' : 'approval')
+    } else if (
+      (before.status === 'running' || before.status === 'awaiting_permission') &&
+      summary.status === 'ready'
+    ) {
+      setEvent('finished')
+    }
+  }, [summary, asked])
+  // The thread can arrive after the summary that counted the request.
+  if (event === 'approval' && asked && summary.permissionCount > 0) setEvent('question')
+  return (
+    <div aria-live="polite" className="sr-only">
+      {event === 'approval'
+        ? t('view.announceApproval', { agent: name })
+        : event === 'question'
+          ? t('view.announceQuestion', { agent: name })
+          : event === 'finished'
+            ? t('view.announceFinished', { agent: name })
+            : ''}
+    </div>
+  )
+}
+
+/** The most rows a number key picks: 1 to 9. */
+const NUMBERED = 9
+
+const isEditable = (target: EventTarget | null) =>
+  target instanceof HTMLElement &&
+  (target.isContentEditable || target.closest('input, textarea, select, [role="textbox"], .xterm'))
+
+// A waiting permission card is a dialog of the thread's own, not one over it.
+// The composer keeps its menus mounted, hidden and inert, while they are closed.
+const overlayOpen = () =>
+  [
+    ...document.querySelectorAll<HTMLElement>(
+      '[role="menu"], [role="dialog"]:not(.ui-prc__card), [role="alertdialog"], [role="listbox"]',
+    ),
+  ].some((el) => !el.closest('[inert]') && el.checkVisibility({ visibilityProperty: true }))
+
+// What answers Enter itself, so it never also answers a request.
+const handlesEnter = (target: EventTarget | null) =>
+  target instanceof HTMLElement &&
+  !!target.closest(
+    'button, a[href], summary, [role="button"], [role="link"], [role="menuitem"], [role="option"], [role="tab"], [role="checkbox"], [role="switch"]',
+  )
+
+/**
+ * Number keys 1 to 9 pick a row of the first card waiting for the user (a question or a new site)
+ * while the composer is empty, Enter allows a request or takes a card's highlighted option, and
+ * Mod+Enter confirms any card, unless the focus is on a control of its own.
+ */
+function usePermissionKeys(sessionId: string, focused: boolean): void {
+  useEffect(() => {
+    if (!focused) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.altKey || event.shiftKey || event.repeat) return
+      const confirm = event.key === 'Enter' && (isMac ? event.metaKey : event.ctrlKey)
+      if (!confirm && (event.metaKey || event.ctrlKey)) return
+      const enter = event.key === 'Enter' && !confirm
+      const n = Number(event.key)
+      if (!enter && !confirm && (!Number.isInteger(n) || n < 1 || n > NUMBERED)) return
+      if (event.defaultPrevented || event.isComposing) return
+      if (enter && handlesEnter(event.target)) return
+      if (isEditable(event.target) || overlayOpen() || readDraft(sessionId).trim()) return
+      if (pressWaitingCard(sessionId, confirm ? 'confirm' : enter ? 'enter' : n)) {
+        event.preventDefault()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [sessionId, focused])
+}
+
+/**
+ * Esc cancels the running turn from anywhere in the session, unless something else takes it; while
+ * a card waits for the user it takes Esc as its Deny, as its button shows, and the turn goes on.
+ */
+function useEscapeToCancel(
+  sessionId: string,
+  running: boolean,
+  focused: boolean,
+  onError: (error: unknown) => void,
+): void {
+  useEffect(() => {
+    if (!running || !focused) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      if (overlayOpen()) return
+      const target = event.target
+      // The composer handles its own Esc; other fields keep theirs.
+      if (isEditable(target)) return
+      if (firstWaiting(sessionId)) {
+        event.preventDefault()
+        pressWaitingCard(sessionId, 'escape')
+        return
+      }
+      host('sessions.cancel', { sessionId }).catch(onError)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [sessionId, running, focused, onError])
+}

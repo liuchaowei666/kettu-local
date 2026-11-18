@@ -1,0 +1,20 @@
+{
+  "readiness": {
+    "notFound": "Not found on PATH.",
+    "howToInstall": "How to install",
+    "needsNode": "Needs Node.js 22 or later.",
+    "installNode": "Install Node.js",
+    "couldNotStart": "Could not start.",
+    "outdated": "Older than Kettu needs; update it to use it.",
+    "update": "How to update"
+  },
+  "state": {
+    "ready": "Ready",
+    "signIn": "Sign in to start",
+    "installing": "Installing…",
+    "starting": "Starting…",
+    "failed": "Failed",
+    "notAvailable": "Not available",
+    "needsUpdate": "Needs update"
+  }
+}

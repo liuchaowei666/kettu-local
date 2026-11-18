@@ -1,0 +1,59 @@
+import { PreviewCard as PreviewCardPrimitive } from '@base-ui/react/preview-card'
+import { cn } from 'cn'
+import { useOverlayRoot } from '@renderer/stores/overlays'
+
+function HoverCard({ open, defaultOpen, onOpenChange, ...props }: PreviewCardPrimitive.Root.Props) {
+  const change = useOverlayRoot(open, defaultOpen, onOpenChange)
+  return (
+    <PreviewCardPrimitive.Root
+      data-slot="hover-card"
+      open={open}
+      defaultOpen={defaultOpen}
+      onOpenChange={change}
+      {...props}
+    />
+  )
+}
+
+function HoverCardTrigger({ ...props }: PreviewCardPrimitive.Trigger.Props) {
+  return <PreviewCardPrimitive.Trigger data-slot="hover-card-trigger" {...props} />
+}
+
+function HoverCardContent({
+  className,
+  side = 'bottom',
+  sideOffset = 4,
+  align = 'center',
+  alignOffset = 4,
+  anchor,
+  ...props
+}: PreviewCardPrimitive.Popup.Props &
+  Pick<
+    PreviewCardPrimitive.Positioner.Props,
+    'align' | 'alignOffset' | 'side' | 'sideOffset' | 'anchor'
+  >) {
+  return (
+    <PreviewCardPrimitive.Portal data-slot="hover-card-portal">
+      <PreviewCardPrimitive.Positioner
+        anchor={anchor}
+        align={align}
+        alignOffset={alignOffset}
+        side={side}
+        sideOffset={sideOffset}
+        className="isolate z-50"
+      >
+        <PreviewCardPrimitive.Popup
+          data-slot="hover-card-content"
+          data-overlay-layer=""
+          className={cn(
+            'z-50 w-64 origin-(--transform-origin) rounded-xl bg-popover p-2.5 text-sm text-popover-foreground shadow-menu outline-hidden duration-(--duration-fast) ease-standard data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
+            className,
+          )}
+          {...props}
+        />
+      </PreviewCardPrimitive.Positioner>
+    </PreviewCardPrimitive.Portal>
+  )
+}
+
+export { HoverCard, HoverCardTrigger, HoverCardContent }

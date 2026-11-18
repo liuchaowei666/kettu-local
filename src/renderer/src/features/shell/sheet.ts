@@ -1,0 +1,29 @@
+// Drag regions are inherited, and where two boxes overlap the later one wins. So the desk and what
+// lies on it mark a pseudo-element covering them instead of themselves: their content keeps no
+// region, and an overlay in it, even a transparent one, cannot cancel a drag bar it covers.
+
+/** What the columns lie on, which drags the window where nothing covers it. */
+export const DESK =
+  'relative before:pointer-events-none before:absolute before:inset-0 before:app-region-drag'
+
+/** Something on the desk that does not drag the window, except where a bar on it is a drag region. */
+export const ON_DESK =
+  'relative before:pointer-events-none before:absolute before:inset-0 before:app-region-no-drag'
+
+/** A sheet laid on the desk: the main area, a page or a side pane, as App Shell's main panel. */
+export const SHEET = `${ON_DESK} overflow-clip rounded-card border border-(--border-subtle) bg-app phone:rounded-none phone:border-0`
+
+/** The corners of a layer over a sheet's whole inside, flush with its rounded 1 px border. */
+export const SHEET_INSIDE = 'rounded-[calc(var(--radius-card)-1px)] phone:rounded-none'
+
+/** The radius of those corners, for a style. */
+export const SHEET_INSIDE_RADIUS = 'var(--sheet-inside-radius)'
+
+/** The edge of the pane in focus in a split view. */
+export const SHEET_FOCUSED = 'border-(--border-strong)'
+
+/**
+ * The style of a resizable panel, or a group of them, that holds a sheet, whose ring and shadow
+ * it would clip.
+ */
+export const SHEET_PANEL = { overflow: 'visible' } as const

@@ -1,0 +1,1546 @@
+import { createHash } from 'node:crypto'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
+import { afterEach, describe, expect, it } from 'vitest'
+import type { ContextBreakdown } from '@shared/context'
+import type { ContentRef, SessionView, ThreadEntry } from '@shared/thread'
+import { contentHash, contentPath } from '../artifacts/content'
+import { schemaAt, SCHEMA_VERSION, ThreadDb, ThreadDbError } from './db'
+import {
+  changesStored,
+  EMPTY_SESSION,
+  INLINE_MEDIA_LIMIT,
+  PAGE_ENTRIES,
+  PAGE_LIMIT,
+  storedSession,
+  type PositionedEntry,
+  type StoredSession,
+  type ThreadHead,
+} from './model'
+
+const head: ThreadHead = { agentId: 'claude-code', acpSessionId: 'acp-1' }
+const dirs: string[] = []
+const logs: { level: string; message: string }[] = []
+
+function tempFile(): string {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'kettu-threads-'))
+  dirs.push(dir)
+  return path.join(dir, 'state', 'threads.db')
+}
+
+function open(file = tempFile()): ThreadDb {
+  return ThreadDb.open(
+    file,
+    (level, message) => logs.push({ level, message }),
+    () => 0,
+  )
+}
+
+afterEach(() => {
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+  logs.length = 0
+})
+
+const user = (id: string, steered?: boolean): ThreadEntry => ({
+  kind: 'user',
+  id,
+  content: [{ type: 'text', text: id }],
+  ...(steered ? { steered } : {}),
+})
+const agent = (id: string): ThreadEntry => ({
+  kind: 'agent',
+  id,
+  markdown: id,
+  attachments: [],
+  streaming: false,
+})
+const tool = (id: string): ThreadEntry => ({
+  kind: 'tool',
+  id,
+  title: id,
+  toolKind: 'read',
+  status: 'completed',
+  content: [],
+  locations: [],
+  permission: null,
+  permissionResult: null,
+})
+const turnEnd = (id: string): ThreadEntry => ({
+  kind: 'turn_end',
+  id,
+  stopReason: 'end_turn',
+  durationMs: 1,
+})
+
+/** Turns of a prompt, `tools` tool calls, an answer and a turn end, positioned from 0. */
+function turns(count: number, tools: number): PositionedEntry[] {
+  const out: PositionedEntry[] = []
+  for (let t = 0; t < count; t++) {
+    out.push({ pos: out.length, entry: user(`u${t}`) })
+    for (let i = 0; i < tools; i++) out.push({ pos: out.length, entry: tool(`t${t}.${i}`) })
+    out.push({ pos: out.length, entry: agent(`a${t}`) })
+    out.push({ pos: out.length, entry: turnEnd(`end${t}`) })
+  }
+  return out
+}
+
+const ids = (entries: readonly ThreadEntry[]): string[] => entries.map((e) => e.id)
+
+const breakdown: ContextBreakdown = {
+  model: 'claude-opus-4-5',
+  used: 42_000,
+  size: 200_000,
+  categories: [
+    { name: 'Messages', tokens: 30_000, share: 0.15 },
+    { name: 'Free space', tokens: 158_000, share: 0.79 },
+  ],
+  lists: [{ name: 'Memory Files', items: [{ name: 'CLAUDE.md', detail: null, tokens: '1.2k' }] }],
+  observedAt: 1_700_000_000_000,
+}
+
+const view = (changes: Partial<SessionView>): SessionView => ({
+  id: 's1',
+  agentId: 'claude-code',
+  projectPath: '/p',
+  acpSessionId: 'acp-1',
+  status: 'closed',
+  title: null,
+  config: [],
+  commands: [],
+  usage: null,
+  error: null,
+  turnStartedAt: null,
+  turnStartUsed: null,
+  createdAt: 0,
+  updatedAt: 0,
+  parentId: null,
+  origin: 'user',
+  subagent: null,
+  routine: null,
+  queue: [],
+  queuePaused: false,
+  ...changes,
+})
+
+describe('the thread database', () => {
+  it('creates its schema once and keeps threads across a reopen', () => {
+    const file = tempFile()
+    const db = open(file)
+    expect(db.status).toBe('created')
+    db.write('s1', { head, session: { ...EMPTY_SESSION, title: 'Hi' }, entries: turns(1, 1) })
+    db.close()
+
+    const again = open(file)
+    expect(again.status).toBe('ok')
+    const page = again.page('s1', null)!
+    expect(page.head).toEqual(head)
+    expect(page.session.title).toBe('Hi')
+    expect(ids(page.entries)).toEqual(['u0', 't0.0', 'a0', 'end0'])
+    expect(page).toMatchObject({ from: 0, older: null, plan: null })
+    again.close()
+  })
+
+  it('answers null for a session with no thread', () => {
+    const db = open()
+    expect(db.page('nope', null)).toBeNull()
+    expect(db.tail('nope', 0)).toBeNull()
+    expect(db.load('nope')).toBeNull()
+    db.close()
+  })
+
+  it('reads the latest page back to the start of its turn, then the pages before it', () => {
+    const db = open()
+    const all = turns(40, 5) // 8 entries a turn, 320 in all
+    db.write('s1', { head, entries: all })
+
+    const latest = db.page('s1', null)!
+    expect(latest.entries.length).toBeGreaterThanOrEqual(PAGE_ENTRIES)
+    expect(latest.entries[0]!.kind).toBe('user')
+    expect(latest.entries.at(-1)!.id).toBe('end39')
+    expect(latest.from).toBe(all.length - latest.entries.length)
+    expect(latest.older).toBe(latest.from)
+
+    // Walking back covers every entry once, in order, and every page starts a turn.
+    const seen: ThreadEntry[] = [...latest.entries]
+    let cursor = latest.older
+    while (cursor !== null) {
+      const page = db.page('s1', cursor)!
+      expect(page.entries[0]!.kind).toBe('user')
+      expect(page.from + page.entries.length).toBe(cursor)
+      seen.unshift(...page.entries)
+      cursor = page.older
+    }
+    expect(ids(seen)).toEqual(ids(all.map((p) => p.entry)))
+    db.close()
+  })
+
+  it('cuts a turn longer than the page limit', () => {
+    const db = open()
+    const all = turns(1, PAGE_LIMIT + 100)
+    db.write('s1', { head, entries: all })
+    const latest = db.page('s1', null)!
+    expect(latest.entries).toHaveLength(PAGE_LIMIT)
+    expect(latest.older).toBe(all.length - PAGE_LIMIT)
+    expect(ids(db.page('s1', latest.older)!.entries)).toEqual(
+      ids(all.slice(0, all.length - PAGE_LIMIT).map((p) => p.entry)),
+    )
+    db.close()
+  })
+
+  it('starts turns at prompts of their own and after a turn ends', () => {
+    const db = open()
+    const notice: ThreadEntry = { kind: 'notice', id: 'n', severity: 'info', title: 'n' }
+    const entries: ThreadEntry[] = [
+      notice, // 0: before any prompt, turn 0
+      user('u0'), // 1: opens turn 1
+      user('steer', true), // 2: steered into turn 1
+      agent('a0'), // 3
+      turnEnd('end0'), // 4
+      { kind: 'session_message', id: 'sm', senderId: null, content: [] }, // 5: opens turn 5
+      agent('a1'), // 6
+    ]
+    db.write('s1', { head, entries: entries.map((entry, pos) => ({ pos, entry })) })
+    db.close()
+    const raw = new DatabaseSync(path.join(dirs[0]!, 'state', 'threads.db'))
+    const rows = raw.prepare('SELECT pos, turn FROM entries ORDER BY pos').all()
+    raw.close()
+    expect(rows.map((r) => Number(r.turn))).toEqual([0, 1, 1, 1, 1, 5, 5])
+  })
+
+  it('updates an entry in place and appends new ones after it', () => {
+    const db = open()
+    db.write('s1', { head, entries: turns(1, 1) })
+    const changed = { ...agent('a0'), markdown: 'longer answer' } as ThreadEntry
+    db.write('s1', {
+      head,
+      entries: [
+        { pos: 2, entry: changed },
+        { pos: 4, entry: user('u1') },
+      ],
+    })
+    const thread = db.load('s1')!
+    expect(thread.entries.map((p) => [p.pos, p.entry.id])).toEqual([
+      [0, 'u0'],
+      [1, 't0.0'],
+      [2, 'a0'],
+      [3, 'end0'],
+      [4, 'u1'],
+    ])
+    expect(thread.entries[2]!.entry).toEqual(changed)
+    db.close()
+  })
+
+  it('refuses a write that moves an entry, and keeps what was stored', () => {
+    const db = open()
+    db.write('s1', { head, entries: turns(1, 1) })
+    const write = (): void =>
+      db.write('s1', {
+        head,
+        session: { ...EMPTY_SESSION, title: 'changed' },
+        entries: [{ pos: 7, entry: user('u0') }],
+      })
+    expect(write).toThrow(ThreadDbError)
+    expect(write).toThrow(expect.objectContaining({ code: 'conflict' }))
+    // A new entry on a taken position conflicts too.
+    expect(() => db.write('s1', { head, entries: [{ pos: 1, entry: user('other') }] })).toThrow(
+      expect.objectContaining({ code: 'conflict' }),
+    )
+    const page = db.page('s1', null)!
+    expect(page.session.title).toBeNull()
+    expect(ids(page.entries)).toEqual(['u0', 't0.0', 'a0', 'end0'])
+    db.close()
+  })
+
+  it('replaces a whole thread, as after a replay', () => {
+    const db = open()
+    db.write('s1', { head, entries: turns(3, 2) })
+    db.write('s1', {
+      head: { ...head, acpSessionId: 'acp-2' },
+      replace: true,
+      entries: [{ pos: 0, entry: user('fresh') }],
+    })
+    const page = db.page('s1', null)!
+    expect(page.head.acpSessionId).toBe('acp-2')
+    expect(ids(page.entries)).toEqual(['fresh'])
+    db.close()
+  })
+
+  it('keeps the session view until a write brings a new one', () => {
+    const db = open()
+    const session = { ...EMPTY_SESSION, title: 'T', commands: [{ name: 'x', description: 'y' }] }
+    db.write('s1', { head, session, entries: [] })
+    db.write('s1', { head, entries: [{ pos: 0, entry: user('u0') }] })
+    expect(db.page('s1', null)!.session).toEqual(session)
+    db.close()
+  })
+
+  it('keeps the last context breakdown with the session view across a reopen', () => {
+    const file = tempFile()
+    const db = open(file)
+    db.write('s1', { head, session: { ...EMPTY_SESSION, context: breakdown }, entries: [] })
+    db.close()
+    const again = open(file)
+    expect(again.page('s1', null)!.session.context).toEqual(breakdown)
+    again.close()
+  })
+
+  it('reads a session view stored without a context, or with one that does not parse', () => {
+    const db = open()
+    const before = { title: 'Old', config: [], commands: [], usage: null, subagent: null }
+    db.write('s1', { head, session: before as unknown as StoredSession, entries: [] })
+    expect(db.page('s1', null)!.session).toEqual({ ...EMPTY_SESSION, title: 'Old' })
+    const damaged = { ...EMPTY_SESSION, title: 'Damaged', context: { used: 'many' } }
+    db.write('s2', { head, session: damaged as unknown as StoredSession, entries: [] })
+    expect(db.page('s2', null)!.session).toEqual({ ...EMPTY_SESSION, title: 'Damaged' })
+    expect(logs).toEqual([])
+    db.close()
+  })
+
+  it('stores the breakdown a context read brings, not the state of a read', () => {
+    const report = { key: '42000/200000', breakdown, loading: false, error: null }
+    expect(changesStored({ context: report })).toBe(true)
+    expect(changesStored({ context: { ...report, loading: true } })).toBe(false)
+    expect(changesStored({ context: { ...report, error: 'failed' } })).toBe(false)
+    expect(changesStored({ context: undefined })).toBe(true)
+    expect(storedSession(view({ context: { ...report, error: 'failed' } })).context).toBe(breakdown)
+    expect(storedSession(view({})).context).toBeNull()
+  })
+
+  it('reads everything from a position with tail', () => {
+    const db = open()
+    db.write('s1', { head, entries: turns(3, 1) }) // 12 entries
+    const tail = db.tail('s1', 4)!
+    expect(ids(tail.entries)).toEqual(['u1', 't1.0', 'a1', 'end1', 'u2', 't2.0', 'a2', 'end2'])
+    expect(tail).toMatchObject({ from: 4, older: 4 })
+    expect(db.tail('s1', 0)!.older).toBeNull()
+    db.close()
+  })
+
+  it('reads one entry by its id, its images by hash or with bytes', () => {
+    const db = open()
+    const bytes = Buffer.alloc(INLINE_MEDIA_LIMIT, 7)
+    const data = bytes.toString('base64')
+    const hash = createHash('sha256').update(bytes).digest('hex')
+    const shot: ThreadEntry = {
+      ...(tool('shot') as Extract<ThreadEntry, { kind: 'tool' }>),
+      content: [{ type: 'ref', ref: { kind: 'image', mimeType: 'image/png', data } }],
+    }
+    db.write('s1', { head, entries: [...turns(2, 1), { pos: 8, entry: shot }] })
+    expect(db.entry('s1', 't1.0')).toEqual({ head, entry: tool('t1.0') })
+    expect(db.entry('s1', 'shot', 'inline')!.entry).toEqual(shot)
+    expect(db.entry('s1', 'shot')!.entry).toEqual({
+      ...shot,
+      content: [{ type: 'ref', ref: { kind: 'image', mimeType: 'image/png', blob: hash } }],
+    })
+    expect(db.entry('s1', 'missing')).toBeNull()
+    expect(db.entry('s2', 't1.0')).toBeNull()
+    db.close()
+  })
+
+  it('reads what a session made from its stored thread', () => {
+    const db = open()
+    const reply = (id: string, markdown: string): ThreadEntry => ({
+      kind: 'agent',
+      id,
+      markdown,
+      attachments: [],
+      streaming: false,
+    })
+    const artifact = (
+      id: string,
+      artifactId: string,
+      title: string,
+      action: 'create' | 'update' | 'delete',
+    ): ThreadEntry => ({
+      kind: 'artifact',
+      id,
+      artifactId,
+      title,
+      action,
+      version: action === 'delete' ? null : 1,
+      writes: 1,
+      after: null,
+    })
+    const entries: ThreadEntry[] = [
+      user('u0'),
+      artifact('w0', 'art_a', 'Plan', 'create'),
+      artifact('w1', 'art_b', 'Sketch', 'create'),
+      reply(
+        'a0',
+        'Opened https://github.com/KettuAI/Kettu/issues/12 and ' +
+          '[the fix](https://github.com/KettuAI/cloud/pull/7/files#diff-1).',
+      ),
+      { kind: 'turn_end', id: 'end0', stopReason: 'end_turn', durationMs: 4000 },
+      user('u1'),
+      {
+        kind: 'plan',
+        id: 'p0',
+        items: [{ content: 'Old', priority: 'medium', status: 'pending' }],
+      },
+      {
+        kind: 'plan',
+        id: 'p1',
+        items: [
+          { content: 'Read', priority: 'medium', status: 'completed' },
+          { content: 'Write', priority: 'medium', status: 'in_progress' },
+        ],
+      },
+      artifact('w2', 'art_a', 'Plan v2', 'update'),
+      artifact('w3', 'art_b', 'Sketch', 'delete'),
+      reply('a1', 'Merged https://github.com/KettuAI/cloud/pull/7 and https://example.com/x.'),
+      reply('a2', 'Also see https://github.com/KettuAI/Kettu/pull/30'),
+      { kind: 'turn_end', id: 'end1', stopReason: 'end_turn', durationMs: 9000 },
+      user('u2'),
+    ]
+    db.write('s1', { head, entries: entries.map((entry, pos) => ({ pos, entry })) })
+    expect(db.outputs('s1')).toEqual({
+      head,
+      outputs: {
+        artifacts: [{ id: 'art_a', title: 'Plan v2' }],
+        references: [
+          'https://github.com/KettuAI/Kettu/pull/30',
+          'https://github.com/KettuAI/cloud/pull/7',
+          'https://github.com/KettuAI/Kettu/issues/12',
+        ],
+        reply: 'Also see https://github.com/KettuAI/Kettu/pull/30',
+        turnMs: 9000,
+        plan: [
+          { content: 'Read', priority: 'medium', status: 'completed' },
+          { content: 'Write', priority: 'medium', status: 'in_progress' },
+        ],
+      },
+    })
+    expect(db.outputs('missing')).toBeNull()
+    db.close()
+  })
+
+  it('keeps only user input in the outline across a reopen', () => {
+    const file = tempFile()
+    const db = open(file)
+    const entries: ThreadEntry[] = [
+      user('u0'),
+      agent('a0'),
+      tool('t0'),
+      {
+        kind: 'user',
+        id: 'from-agent',
+        content: [{ type: 'text', text: 'Restart browser and check' }],
+        from: { sessionId: 'sender', title: 'Review' },
+      },
+      user('steer', true),
+      {
+        kind: 'user',
+        id: 'remote',
+        content: [{ type: 'text', text: 'Check the result' }],
+        device: { id: 'phone', name: 'Phone' },
+      },
+      {
+        kind: 'user',
+        id: 'approved',
+        content: [{ type: 'text', text: 'Implement the plan.' }],
+        approval: true,
+      },
+      { kind: 'session_message', id: 'sm', senderId: 'sender', content: [] },
+    ]
+    db.write('s1', { head, entries: entries.map((entry, pos) => ({ pos, entry })) })
+    db.setOutlineTitles('s1', [{ pos: 3, title: 'Restart browser' }])
+    const expected = [
+      { pos: 0, entryId: 'u0', text: 'u0', title: null },
+      { pos: 4, entryId: 'steer', text: 'steer', title: null },
+      { pos: 5, entryId: 'remote', text: 'Check the result', title: null },
+    ]
+    expect(db.outline('s1')!.entries).toEqual(expected)
+    expect(db.load('s1')!.entries.map(({ entry }) => entry)).toEqual(entries)
+    db.close()
+
+    const again = open(file)
+    expect(again.outline('s1')!.entries).toEqual(expected)
+    again.close()
+  })
+
+  it('keeps large images apart, once per session, and reads them back by hash or with bytes', () => {
+    const file = tempFile()
+    const db = open(file)
+    const bytes = Buffer.alloc(INLINE_MEDIA_LIMIT, 7)
+    const big = bytes.toString('base64')
+    const hash = createHash('sha256').update(bytes).digest('hex')
+    const small = Buffer.from('tiny').toString('base64')
+    const shot = (id: string, ref: ContentRef): ThreadEntry => ({
+      ...(tool(id) as Extract<ThreadEntry, { kind: 'tool' }>),
+      content: [{ type: 'ref', ref }],
+    })
+    const prompt = (ref: ContentRef): ThreadEntry => ({
+      kind: 'user',
+      id: 'u',
+      content: [{ type: 'ref', ref }],
+    })
+    const image = (data: string): ContentRef => ({ kind: 'image', mimeType: 'image/png', data })
+    const stored: ContentRef = { kind: 'image', mimeType: 'image/png', blob: hash }
+    const entries = [prompt(image(big)), shot('t1', image(big)), shot('t2', image(small))]
+    db.write('s1', { head, entries: entries.map((entry, pos) => ({ pos, entry })) })
+    // A client that reads only bytes gets them back; the others, and a load, the hash.
+    expect(db.page('s1', null, null, 'inline')!.entries).toEqual(entries)
+    const byHash = [prompt(stored), shot('t1', stored), shot('t2', image(small))]
+    expect(db.page('s1', null)!.entries).toEqual(byHash)
+    expect(db.tail('s1', 0)!.entries).toEqual(byHash)
+    expect(db.load('s1')!.entries.map(({ entry }) => entry)).toEqual(byHash)
+    expect(db.blob('s1', hash)?.data).toEqual(new Uint8Array(bytes))
+    db.close()
+
+    const raw = new DatabaseSync(file)
+    expect(raw.prepare('SELECT COUNT(*) AS n FROM blobs').get()!.n).toBe(1)
+    const json = raw.prepare("SELECT json FROM entries WHERE entry_id = 't1'").get()!.json
+    raw.close()
+    expect(String(json)).not.toContain(big.slice(0, 64))
+    expect(String(json)).toContain('"blob"')
+  })
+
+  it('keeps large sounds and clips apart as it does images, with their kind and size', () => {
+    const file = tempFile()
+    const db = open(file)
+    const big = Buffer.alloc(INLINE_MEDIA_LIMIT, 3).toString('base64')
+    const size = Buffer.byteLength(big, 'base64')
+    const reply: ThreadEntry = {
+      kind: 'agent',
+      id: 'a',
+      markdown: 'Here',
+      attachments: [
+        { kind: 'audio', mimeType: 'audio/wav', data: big, size, name: null },
+        { kind: 'video', mimeType: 'video/mp4', data: 'AAAA', size: 3, name: 'clip.mp4' },
+      ],
+      streaming: false,
+    }
+    const call: ThreadEntry = {
+      ...(tool('t1') as Extract<ThreadEntry, { kind: 'tool' }>),
+      content: [
+        {
+          type: 'ref',
+          ref: { kind: 'video', mimeType: 'video/webm', data: big, size, name: 'demo.webm' },
+        },
+      ],
+    }
+    db.write('s1', { head, entries: [reply, call].map((entry, pos) => ({ pos, entry })) })
+    expect(db.page('s1', null)!.entries).toEqual([reply, call])
+    db.close()
+
+    const raw = new DatabaseSync(file)
+    // The same bytes once, whatever kind each ref says they are.
+    expect(raw.prepare('SELECT COUNT(*) AS n FROM blobs').get()!.n).toBe(1)
+    const json = String(raw.prepare("SELECT json FROM entries WHERE entry_id = 'a'").get()!.json)
+    raw.close()
+    expect(json).not.toContain(big.slice(0, 64))
+    expect(JSON.parse(json).attachments[0]).toEqual({
+      kind: 'audio',
+      mimeType: 'audio/wav',
+      size,
+      name: null,
+      blob: expect.any(String),
+    })
+  })
+
+  it('keeps the bytes of images read by hash through a whole write that still names them', () => {
+    const db = open()
+    const bytes = Buffer.alloc(INLINE_MEDIA_LIMIT + 1, 5)
+    const hash = createHash('sha256').update(bytes).digest('hex')
+    const shot: ThreadEntry = {
+      ...(tool('t1') as Extract<ThreadEntry, { kind: 'tool' }>),
+      content: [
+        {
+          type: 'ref',
+          ref: { kind: 'image', mimeType: 'image/png', data: bytes.toString('base64') },
+        },
+      ],
+    }
+    db.write('s1', { head, entries: [{ pos: 0, entry: shot }] })
+    // A session that came back from the store holds the image by its hash, and is written whole.
+    const loaded = db.load('s1')!.entries
+    expect(loaded[0]!.entry).toMatchObject({
+      content: [{ type: 'ref', ref: { kind: 'image', mimeType: 'image/png', blob: hash } }],
+    })
+    db.write('s1', { head, entries: [...loaded, { pos: 1, entry: user('u1') }], replace: true })
+    expect(db.page('s1', null, null, 'inline')!.entries).toEqual([shot, user('u1')])
+    // A ref whose bytes are gone reads as one that cannot show.
+    db.write('s1', { head, entries: [{ pos: 0, entry: user('u0') }], replace: true })
+    db.write('s1', { head, entries: [{ pos: 1, entry: loaded[0]!.entry }] })
+    expect(db.page('s1', null)!.entries[1]).toMatchObject({
+      content: [{ type: 'ref', ref: { kind: 'unsupported', label: 'image/png' } }],
+    })
+    db.close()
+  })
+
+  it('keeps the bytes of sent attachments through a whole write that still names them', () => {
+    const file = tempFile()
+    const db = open(file)
+    const hash = 'ab'.repeat(32)
+    const data = new Uint8Array([1, 2, 3, 4])
+    const sent: ThreadEntry = {
+      kind: 'user',
+      id: 'u',
+      content: [
+        { type: 'text', text: 'Look' },
+        {
+          type: 'ref',
+          ref: {
+            kind: 'attachment',
+            attachment: {
+              id: 'a1',
+              type: 'image',
+              name: 'Image 1',
+              uri: null,
+              mimeType: 'image/png',
+              size: 4,
+              sent: 'image',
+              thumb: 'data:image/webp;base64,AAAA',
+              blob: hash,
+            },
+          },
+        },
+      ],
+    }
+    // The bytes go in with the entry that names them, in the same write as the thread row.
+    db.write('s1', {
+      head,
+      entries: [{ pos: 0, entry: sent }],
+      blobs: [{ hash, mime: 'image/png', data }],
+    })
+    expect(db.blob('s1', hash)).toEqual({ hash, mime: 'image/png', data })
+    expect(db.blob('s1', 'cd'.repeat(32))).toBeNull()
+    expect(db.page('s1', null)!.entries).toEqual([sent])
+
+    db.write('s1', {
+      head,
+      entries: [{ pos: 0, entry: sent }, ...turns(1, 0).map((e) => ({ ...e, pos: e.pos + 1 }))],
+      replace: true,
+    })
+    expect(db.blob('s1', hash)?.data).toEqual(data)
+
+    // A whole write without the entry drops its bytes, and so does removing the thread.
+    db.write('s2', {
+      head,
+      entries: [{ pos: 0, entry: sent }],
+      blobs: [{ hash, mime: 'image/png', data }],
+    })
+    db.write('s1', { head, entries: turns(1, 0), replace: true })
+    expect(db.blob('s1', hash)).toBeNull()
+    db.remove(['s2'])
+    expect(db.blob('s2', hash)).toBeNull()
+    db.close()
+  })
+
+  it('tells a write that finds no room apart, and keeps what was stored', () => {
+    const db = open()
+    db.write('s1', { head, entries: turns(1, 0) })
+    // The pages it has are all it gets, as on a full disk.
+    const connection = (db as unknown as { db: DatabaseSync }).db
+    const pages = Number(connection.prepare('PRAGMA page_count').get()!.page_count)
+    connection.exec(`PRAGMA max_page_count = ${pages}`)
+    const long: ThreadEntry = {
+      kind: 'agent',
+      id: 'a1',
+      markdown: 'x'.repeat(1_000_000),
+      attachments: [],
+      streaming: false,
+    }
+    let failure: unknown = null
+    try {
+      db.write('s1', { head, entries: [{ pos: 3, entry: long }] })
+    } catch (error) {
+      failure = error
+    }
+    expect(failure).toBeInstanceOf(ThreadDbError)
+    expect((failure as ThreadDbError).code).toBe('full')
+    expect(ids(db.page('s1', null)!.entries)).toEqual(['u0', 'a0', 'end0'])
+    db.close()
+  })
+
+  it('tells whether an agent or user entry holds a text, as written', () => {
+    const db = open()
+    const shot = 'C:\\Users\\me\\Application Support\\"shot".png'
+    const reply: ThreadEntry = {
+      kind: 'agent',
+      id: 'a',
+      markdown: `Saved:\n\n![shot](${shot})`,
+      attachments: [{ kind: 'link', uri: 'file:///tmp/linked.png', name: 'linked.png' }],
+      streaming: false,
+    }
+    db.write('s1', {
+      head,
+      entries: [
+        { pos: 0, entry: user('look at ~/a b.png') },
+        { pos: 1, entry: reply },
+      ],
+    })
+    db.write('s2', { head, entries: [{ pos: 0, entry: tool('/tmp/x.png') }] })
+    expect(db.mentions('s1', shot)).toBe(true)
+    expect(db.mentions('s1', '~/a b.png')).toBe(true)
+    expect(db.mentions('s1', '/tmp/y.png')).toBe(false)
+    // Only the text of a reply or a message, as the live thread looks.
+    expect(db.mentions('s1', '/tmp/linked.png')).toBe(false)
+    expect(db.mentions('s1', '"kind"')).toBe(false)
+    // A tool call's text is not where a reply names its files.
+    expect(db.mentions('s2', '/tmp/x.png')).toBe(false)
+    expect(db.mentions('missing', shot)).toBe(false)
+    db.close()
+  })
+
+  it('removes threads with their images', () => {
+    const file = tempFile()
+    const db = open(file)
+    const big = Buffer.alloc(INLINE_MEDIA_LIMIT, 1).toString('base64')
+    const image: ThreadEntry = {
+      kind: 'agent',
+      id: 'a',
+      markdown: '',
+      attachments: [{ kind: 'image', mimeType: 'image/png', data: big }],
+      streaming: false,
+    }
+    db.write('s1', { head, entries: [{ pos: 0, entry: image }] })
+    db.write('s2', { head, entries: turns(1, 1) })
+    db.remove(['s1', 'missing'])
+    expect(db.page('s1', null)).toBeNull()
+    expect(db.page('s2', null)).not.toBeNull()
+    db.close()
+    const raw = new DatabaseSync(file)
+    expect(raw.prepare('SELECT COUNT(*) AS n FROM blobs').get()!.n).toBe(0)
+    expect(raw.prepare("SELECT COUNT(*) AS n FROM entries WHERE session_id = 's1'").get()!.n).toBe(
+      0,
+    )
+    raw.close()
+  })
+
+  it('treats a thread with an entry that does not parse as not stored, and says so', () => {
+    const file = tempFile()
+    const db = open(file)
+    db.write('s1', { head, entries: turns(1, 1) })
+    db.close()
+    const raw = new DatabaseSync(file)
+    raw.prepare('UPDATE entries SET json = \'{"kind":"tool"}\' WHERE entry_id = \'t0.0\'').run()
+    raw.close()
+    const again = open(file)
+    expect(again.page('s1', null)).toBeNull()
+    expect(again.load('s1')).toBeNull()
+    expect(logs.some((l) => l.level === 'error' && l.message.includes('s1'))).toBe(true)
+    again.close()
+  })
+
+  it('moves a damaged file aside and starts empty', () => {
+    const file = tempFile()
+    open(file).close()
+    writeFileSync(file, 'this is not a database, only text long enough to look like one'.repeat(80))
+    const db = open(file)
+    expect(db.status).toBe('recovered')
+    expect(db.page('s1', null)).toBeNull()
+    db.write('s1', { head, entries: turns(1, 0) })
+    expect(db.page('s1', null)!.entries).toHaveLength(3)
+    db.close()
+    const files = readdirSync(path.dirname(file))
+    expect(files).toContain('threads.db.corrupt-1970-01-01T00-00-00-000Z')
+    expect(logs.some((l) => l.level === 'error' && l.message.includes('damaged'))).toBe(true)
+  })
+
+  it('leaves a database from a newer app alone', () => {
+    const file = tempFile()
+    open(file).close()
+    const raw = new DatabaseSync(file)
+    raw.exec(`PRAGMA user_version = ${SCHEMA_VERSION + 1}`)
+    raw.close()
+    const db = open(file)
+    expect(db.status).toBe('newer')
+    db.write('s1', { head, entries: turns(1, 0) })
+    expect(db.page('s1', null)).toBeNull()
+    db.close()
+    const check = new DatabaseSync(file)
+    expect(check.prepare('SELECT COUNT(*) AS n FROM threads').get()!.n).toBe(0)
+    check.close()
+  })
+})
+
+describe("the thread database's artifacts", () => {
+  const bytes = (text: string): Uint8Array => new TextEncoder().encode(text)
+  const ID = 'art_01J9Z3K4V5W6X7Y8Z9A0B1C2D3'
+
+  function withContent(file = tempFile()): { db: ThreadDb; content: string } {
+    const content = path.join(path.dirname(file), 'content')
+    const db = ThreadDb.open(
+      file,
+      (level, message) => logs.push({ level, message }),
+      () => 0,
+      content,
+    )
+    return { db, content }
+  }
+
+  function create(db: ThreadDb, files: Record<string, string>): void {
+    db.createArtifact({
+      id: ID,
+      project: '/p',
+      sessionId: 's1',
+      title: 'Report',
+      files: Object.entries(files).map(([path, text]) => ({ path, data: bytes(text) })),
+      pages: 0,
+      note: null,
+      at: 1,
+    })
+  }
+
+  const pathsOf = (db: ThreadDb, version: number | null = null): Record<string, string> =>
+    Object.fromEntries(
+      db.getArtifact({ id: ID, version, project: null }).files.map((f) => [f.path, f.hash]),
+    )
+
+  it('keeps a version as its paths, each naming the content file of its bytes', () => {
+    const { db, content } = withContent()
+    create(db, { 'index.html': '<p>hi</p>', 'styles/app.css': 'p{}' })
+    const { version, files } = db.getArtifact({ id: ID, version: null, project: null })
+    expect(files.map((f) => f.path)).toEqual(['index.html', 'styles/app.css'])
+    expect(version.size).toBe(9 + 3)
+    for (const f of files) {
+      expect(f.hash).toBe(contentHash(bytes(f.path === 'index.html' ? '<p>hi</p>' : 'p{}')))
+      expect(readFileSync(contentPath(content, f.hash), 'utf8')).toBe(
+        f.path === 'index.html' ? '<p>hi</p>' : 'p{}',
+      )
+    }
+    db.close()
+  })
+
+  it('writes a version from the latest, keeping the files it does not change', () => {
+    const { db } = withContent()
+    create(db, { 'index.html': 'a', 'app.js': 'b', 'old.css': 'c' })
+    const before = pathsOf(db)
+    db.writeArtifact({
+      id: ID,
+      project: '/p',
+      baseVersion: 1,
+      changes: [
+        { path: 'app.js', data: bytes('b2') },
+        { path: 'old.css', data: null },
+        { path: 'img/logo.svg', data: bytes('<svg/>') },
+      ],
+      pages: 0,
+      author: 's1',
+      note: null,
+      at: 2,
+    })
+    const after = pathsOf(db)
+    expect(Object.keys(after)).toEqual(['app.js', 'img/logo.svg', 'index.html'])
+    expect(after['index.html']).toBe(before['index.html'])
+    expect(after['app.js']).toBe(contentHash(bytes('b2')))
+    expect(pathsOf(db, 1)).toEqual(before)
+    expect(() =>
+      db.writeArtifact({
+        id: ID,
+        project: '/p',
+        baseVersion: 1,
+        changes: [{ path: 'app.js', data: bytes('b3') }],
+        pages: 0,
+        author: 's1',
+        note: null,
+        at: 3,
+      }),
+    ).toThrow(ThreadDbError)
+    expect(db.getArtifact({ id: ID, version: null, project: null }).artifact.head).toBe(2)
+    db.close()
+  })
+
+  it('lands a write from an older version on the latest when no file it writes changed since', () => {
+    const { db } = withContent()
+    create(db, { 'canvas.json': '{}', 'pages/a.html': 'a', 'pages/b.html': 'b' })
+    const write = (base: number, path: string, text: string, at: number) =>
+      db.writeArtifact({
+        id: ID,
+        project: '/p',
+        baseVersion: base,
+        changes: [{ path, data: bytes(text) }],
+        pages: 2,
+        author: 's1',
+        note: null,
+        at,
+      })
+    // Two sessions read version 1; each changes its own page.
+    expect(write(1, 'pages/a.html', 'a2', 2).version).toBe(2)
+    expect(write(1, 'pages/b.html', 'b2', 3).version).toBe(3)
+    expect(pathsOf(db)).toMatchObject({
+      'pages/a.html': contentHash(bytes('a2')),
+      'pages/b.html': contentHash(bytes('b2')),
+    })
+    // A third, also from version 1, writes a page the first changed: refused, naming the file.
+    let refused: unknown
+    try {
+      write(1, 'pages/a.html', 'a3', 4)
+    } catch (error) {
+      refused = error
+    }
+    expect(refused).toBeInstanceOf(ThreadDbError)
+    expect((refused as ThreadDbError).data).toEqual({
+      version: 3,
+      deleted: false,
+      changed: ['pages/a.html'],
+    })
+    expect(() => write(4, 'pages/a.html', 'x', 5)).toThrow(ThreadDbError)
+    expect(db.getArtifact({ id: ID, version: null, project: null }).artifact.head).toBe(3)
+    db.close()
+  })
+
+  it('keeps the latest page count when a write leaves the entry alone', () => {
+    const { db } = withContent()
+    create(db, { 'canvas.json': '{}', 'pages/a.html': 'a' })
+    db.writeArtifact({
+      id: ID,
+      project: '/p',
+      baseVersion: 1,
+      changes: [{ path: 'canvas.json', data: bytes('{ }') }],
+      pages: 5,
+      author: null,
+      note: null,
+      at: 2,
+    })
+    db.writeArtifact({
+      id: ID,
+      project: '/p',
+      baseVersion: 1,
+      changes: [{ path: 'pages/a.html', data: bytes('a2') }],
+      pages: 1,
+      author: 's1',
+      note: null,
+      at: 3,
+    })
+    expect(db.getArtifact({ id: ID, version: null, project: null }).version.pages).toBe(5)
+    db.close()
+  })
+
+  it('lists whether the latest version is a canvas document', () => {
+    const { db } = withContent()
+    create(db, { 'index.html': '<p>one</p>' })
+    const listed = () => db.listArtifacts({ project: null, deleted: false })[0]!.canvas
+    expect(listed()).toBe(false)
+    db.writeArtifact({
+      id: ID,
+      project: '/p',
+      baseVersion: 1,
+      changes: [
+        { path: 'index.html', data: null },
+        { path: 'canvas.json', data: bytes('{}') },
+        { path: 'a.html', data: bytes('a') },
+      ],
+      pages: 1,
+      author: null,
+      note: null,
+      at: 2,
+    })
+    expect(listed()).toBe(true)
+    db.close()
+  })
+
+  it('restores from an older base only when the files it brings back did not change since', () => {
+    const { db } = withContent()
+    create(db, { 'canvas.json': '{}', 'pages/a.html': 'a', 'pages/b.html': 'b' })
+    const write = (base: number, path: string, text: string) =>
+      db.writeArtifact({
+        id: ID,
+        project: '/p',
+        baseVersion: base,
+        changes: [{ path, data: bytes(text) }],
+        pages: 2,
+        author: 's1',
+        note: null,
+        at: 2,
+      })
+    write(1, 'pages/a.html', 'a2') // version 2
+    write(2, 'pages/b.html', 'b2') // version 3
+    // Restoring version 2 brings back b; from base 2 that file changed since: refused.
+    expect(() =>
+      db.restoreArtifact({
+        id: ID,
+        project: '/p',
+        version: 2,
+        baseVersion: 2,
+        author: null,
+        note: null,
+        at: 4,
+      }),
+    ).toThrow(ThreadDbError)
+    expect(
+      db.restoreArtifact({
+        id: ID,
+        project: '/p',
+        version: 2,
+        baseVersion: 3,
+        author: null,
+        note: null,
+        at: 4,
+      }).version,
+    ).toBe(4)
+    db.close()
+  })
+
+  it('refuses a version without its entry page, and records nothing of it', () => {
+    const { db } = withContent()
+    create(db, { 'index.html': 'a' })
+    expect(() =>
+      db.writeArtifact({
+        id: ID,
+        project: '/p',
+        baseVersion: 1,
+        changes: [{ path: 'index.html', data: null }],
+        pages: 0,
+        author: 's1',
+        note: null,
+        at: 2,
+      }),
+    ).toThrow(/index\.html/)
+    expect(db.getArtifact({ id: ID, version: null, project: null }).artifact.head).toBe(1)
+    db.close()
+  })
+
+  it('restores a version with all its files', () => {
+    const { db } = withContent()
+    create(db, { 'index.html': 'a', 'app.js': 'b' })
+    db.writeArtifact({
+      id: ID,
+      project: null,
+      baseVersion: 1,
+      changes: [{ path: 'app.js', data: null }],
+      pages: 0,
+      author: null,
+      note: null,
+      at: 2,
+    })
+    db.restoreArtifact({
+      id: ID,
+      project: null,
+      version: 1,
+      baseVersion: 2,
+      author: null,
+      note: null,
+      at: 3,
+    })
+    expect(pathsOf(db, 3)).toEqual(pathsOf(db, 1))
+    expect(db.getArtifact({ id: ID, version: 3, project: null }).version.size).toBe(2)
+    db.close()
+  })
+
+  it('removes only the content files no version names when it erases and purges', () => {
+    const { db, content } = withContent()
+    create(db, { 'index.html': 'shared', 'only.css': 'mine' })
+    db.createArtifact({
+      id: 'art_01J9Z3K4V5W6X7Y8Z9A0B1C2D4',
+      project: '/p',
+      sessionId: 's1',
+      title: 'Other',
+      files: [{ path: 'index.html', data: bytes('shared') }],
+      pages: 0,
+      note: null,
+      at: 1,
+    })
+    const stray = contentPath(content, contentHash(bytes('stray')))
+    mkdirSync(path.dirname(stray), { recursive: true })
+    writeFileSync(stray, 'stray')
+    db.deleteArtifact({ id: ID, project: null, at: 2 })
+    db.eraseArtifact(ID)
+    expect(existsSync(contentPath(content, contentHash(bytes('shared'))))).toBe(true)
+    expect(existsSync(contentPath(content, contentHash(bytes('mine'))))).toBe(false)
+    expect(existsSync(stray)).toBe(true)
+    expect(db.purgeArtifacts(0)).toEqual({ artifacts: 0, files: 1 })
+    expect(existsSync(stray)).toBe(false)
+    expect(existsSync(contentPath(content, contentHash(bytes('shared'))))).toBe(true)
+    db.close()
+  })
+
+  it('records the type and format of each version of a typed artifact', () => {
+    const { db } = withContent()
+    db.createArtifact({
+      id: ID,
+      project: '/p',
+      sessionId: 's1',
+      title: 'Doc',
+      files: [{ path: 'document.md', data: bytes('# A') }],
+      pages: 1,
+      note: null,
+      at: 1,
+      type: { name: 'document', format: 1 },
+    })
+    expect(db.getArtifact({ id: ID, version: null, project: null }).type).toEqual({
+      name: 'document',
+      format: 1,
+    })
+    expect(db.listArtifacts({ project: null, deleted: false })[0]!.type).toBe('document')
+    db.writeArtifact({
+      id: ID,
+      project: null,
+      baseVersion: 1,
+      changes: [{ path: 'document.md', data: bytes('# B') }],
+      pages: 1,
+      author: null,
+      note: null,
+      at: 2,
+      type: { name: 'document', format: 2 },
+    })
+    expect(db.getArtifact({ id: ID, version: 2, project: null }).type).toEqual({
+      name: 'document',
+      format: 2,
+    })
+    db.restoreArtifact({
+      id: ID,
+      project: null,
+      version: 1,
+      baseVersion: 2,
+      author: null,
+      note: null,
+      at: 3,
+    })
+    expect(db.getArtifact({ id: ID, version: 3, project: null }).type).toEqual({
+      name: 'document',
+      format: 1,
+    })
+    db.close()
+  })
+
+  it('keeps an artifact of the type it was made from, or of none', () => {
+    const { db } = withContent()
+    db.createArtifact({
+      id: ID,
+      project: '/p',
+      sessionId: 's1',
+      title: 'Deck',
+      files: [{ path: 'slides.json', data: bytes('{}') }],
+      pages: 1,
+      note: null,
+      at: 1,
+      type: { name: 'slides', format: 1 },
+    })
+    const write = (type: { name: 'document' | 'slides'; format: number } | null) =>
+      db.writeArtifact({
+        id: ID,
+        project: null,
+        baseVersion: 1,
+        changes: [{ path: 'slides.json', data: bytes('{"a":1}') }],
+        pages: 1,
+        author: null,
+        note: null,
+        at: 2,
+        type,
+      })
+    expect(() => write(null)).toThrow(/is a slides, not plain/)
+    expect(() => write({ name: 'document', format: 1 })).toThrow(/is a slides, not a document/)
+    expect(db.getArtifact({ id: ID, version: null, project: null }).artifact.head).toBe(1)
+    const plain = 'art_01J9Z3K4V5W6X7Y8Z9A0B1C2D4'
+    db.createArtifact({
+      id: plain,
+      project: '/p',
+      sessionId: 's1',
+      title: 'Page',
+      files: [{ path: 'index.html', data: bytes('<p>') }],
+      pages: 0,
+      note: null,
+      at: 1,
+    })
+    expect(db.getArtifact({ id: plain, version: null, project: null }).type).toBeNull()
+    expect(() =>
+      db.writeArtifact({
+        id: plain,
+        project: null,
+        baseVersion: 1,
+        changes: [{ path: 'index.html', data: bytes('<p>2') }],
+        pages: 0,
+        author: null,
+        note: null,
+        at: 2,
+        type: { name: 'document', format: 1 },
+      }),
+    ).toThrow(/is plain, not a document/)
+    db.close()
+  })
+
+  it('keeps the artifacts of a database before types as plain ones', () => {
+    const file = tempFile()
+    mkdirSync(path.dirname(file), { recursive: true })
+    const raw = new DatabaseSync(file)
+    raw.exec(`BEGIN; ${schemaAt(5)} PRAGMA user_version = 5; COMMIT;`)
+    raw
+      .prepare(
+        'INSERT INTO artifacts (id, project, title, head, session_id, created_at, updated_at) VALUES (?, ?, ?, 1, ?, 1, 1)',
+      )
+      .run(ID, '/p', 'Old', 's1')
+    raw
+      .prepare(
+        "INSERT INTO artifact_versions (artifact_id, n, size, pages, author, note, created_at) VALUES (?, 1, 3, 0, 's1', NULL, 1)",
+      )
+      .run(ID)
+    raw
+      .prepare(
+        "INSERT INTO artifact_files (artifact_id, n, path, hash, size) VALUES (?, 1, 'index.html', ?, 3)",
+      )
+      .run(ID, contentHash(bytes('<p>')))
+    raw.close()
+    const { db } = withContent(file)
+    expect(db.status).toBe('ok')
+    expect(db.getArtifact({ id: ID, version: 1, project: null }).type).toBeNull()
+    expect(db.listArtifacts({ project: null, deleted: false })[0]!.type).toBeNull()
+    db.close()
+    const check = new DatabaseSync(file)
+    expect(check.prepare('PRAGMA user_version').get()!.user_version).toBe(SCHEMA_VERSION)
+    expect(
+      check.prepare("SELECT name FROM sqlite_master WHERE name = 'artifact_types'").get(),
+    ).toBeDefined()
+    check.close()
+  })
+
+  it('makes each version of a database before files an index.html of its one file', () => {
+    const file = tempFile()
+    mkdirSync(path.dirname(file), { recursive: true })
+    const content = path.join(path.dirname(file), 'content')
+    const pages = ['<h1>v1</h1>', '<h1>v2</h1>']
+    const raw = new DatabaseSync(file)
+    raw.exec(`BEGIN; ${schemaAt(4)} PRAGMA user_version = 4; COMMIT;`)
+    raw
+      .prepare(
+        'INSERT INTO artifacts (id, project, title, head, session_id, created_at, updated_at) VALUES (?, ?, ?, 2, ?, 1, 2)',
+      )
+      .run(ID, '/p', 'Old', 's1')
+    pages.forEach((html, i) => {
+      const hash = contentHash(bytes(html))
+      raw
+        .prepare(
+          'INSERT INTO artifact_versions (artifact_id, n, hash, size, pages, author, note, created_at) VALUES (?, ?, ?, ?, 0, ?, NULL, ?)',
+        )
+        .run(ID, i + 1, hash, html.length, 's1', i + 1)
+      mkdirSync(path.dirname(contentPath(content, hash)), { recursive: true })
+      writeFileSync(contentPath(content, hash), html)
+    })
+    raw.close()
+    const { db } = withContent(file)
+    expect(db.status).toBe('ok')
+    for (const [i, html] of pages.entries()) {
+      const found = db.getArtifact({ id: ID, version: i + 1, project: null })
+      expect(found.files).toEqual([
+        { path: 'index.html', hash: contentHash(bytes(html)), size: html.length },
+      ])
+      expect(found.version.size).toBe(html.length)
+    }
+    expect(db.purgeArtifacts(0).files).toBe(0)
+    for (const html of pages) {
+      expect(readFileSync(contentPath(content, contentHash(bytes(html))), 'utf8')).toBe(html)
+    }
+    db.close()
+    const check = new DatabaseSync(file)
+    expect(check.prepare('PRAGMA user_version').get()!.user_version).toBe(SCHEMA_VERSION)
+    const columns = check.prepare('PRAGMA table_info(artifact_versions)').all()
+    expect(columns.map((c) => c.name)).not.toContain('hash')
+    check.close()
+  })
+})
+
+describe("the thread database's comments", () => {
+  const bytes = (text: string): Uint8Array => new TextEncoder().encode(text)
+  const ID = 'art_01J9Z3K4V5W6X7Y8Z9A0B1C2D3'
+  const T1 = 'thr_01J9Z3K4V5W6X7Y8Z9A0B1C2D3'
+  const T2 = 'thr_01J9Z3K4V5W6X7Y8Z9A0B1C2D4'
+  const owner = { person: 'owner', session: null }
+  const agent = { person: 'owner', session: 's1' }
+  const anchor = {
+    version: 1,
+    path: 'index.html',
+    page: { number: 1, name: 'General' },
+    offset: 20,
+    tag: 'button',
+    text: 'Save changes',
+    missing: false,
+  }
+
+  function withArtifact(file = tempFile()): ThreadDb {
+    const db = ThreadDb.open(
+      file,
+      (level, message) => logs.push({ level, message }),
+      () => 0,
+      path.join(path.dirname(file), 'content'),
+    )
+    db.createArtifact({
+      id: ID,
+      project: '/p',
+      sessionId: 's1',
+      title: 'Settings',
+      files: [{ path: 'index.html', data: bytes('<button>Save changes</button>') }],
+      pages: 0,
+      note: null,
+      at: 1,
+    })
+    return db
+  }
+
+  const add = (db: ThreadDb, threadId = T1, project: string | null = null) =>
+    db.addThread({
+      id: ID,
+      project,
+      threadId,
+      anchor,
+      author: owner,
+      body: 'Make it orange',
+      at: 5,
+    })
+
+  it('keeps threads apart from versions, with their author, anchor and replies', () => {
+    const db = withArtifact()
+    add(db)
+    db.replyThread({
+      id: ID,
+      project: '/p',
+      threadId: T1,
+      author: agent,
+      body: 'Done in v2',
+      at: 6,
+    })
+    db.writeArtifact({
+      id: ID,
+      project: null,
+      baseVersion: 1,
+      changes: [{ path: 'index.html', data: bytes('<p>x</p>') }],
+      pages: 0,
+      author: 's1',
+      note: null,
+      at: 7,
+    })
+    const [thread] = db.artifactThreads({ id: ID, project: null })
+    expect(thread).toEqual({
+      id: T1,
+      anchor,
+      comments: [
+        { author: owner, createdAt: 5, body: 'Make it orange' },
+        { author: agent, createdAt: 6, body: 'Done in v2' },
+      ],
+      resolvedAt: null,
+      sentAt: null,
+      sentTo: null,
+    })
+    db.close()
+  })
+
+  it('marks threads sent until the user writes in them again, and resolves them', () => {
+    const db = withArtifact()
+    add(db)
+    add(db, T2)
+    db.markThreadsSent({ id: ID, threadIds: [T1, T2], sessionId: 's2', at: 8 })
+    db.replyThread({ id: ID, project: '/p', threadId: T2, author: agent, body: 'On it', at: 9 })
+    db.replyThread({ id: ID, project: null, threadId: T1, author: owner, body: 'Also bold', at: 9 })
+    const sent = db.artifactThreads({ id: ID, project: null }).map((t) => [t.id, t.sentTo])
+    expect(sent).toEqual([
+      [T1, null],
+      [T2, 's2'],
+    ])
+    expect(
+      db.resolveThread({ id: ID, project: '/p', threadId: T2, resolved: true, at: 10 }),
+    ).toMatchObject({
+      resolvedAt: 10,
+    })
+    expect(
+      db.resolveThread({ id: ID, project: null, threadId: T2, resolved: false, at: 11 }),
+    ).toMatchObject({
+      resolvedAt: null,
+    })
+    db.close()
+  })
+
+  it("reaches no thread of another project's artifact, or one that does not exist", () => {
+    const db = withArtifact()
+    add(db)
+    expect(() => db.artifactThreads({ id: ID, project: '/q' })).toThrow(ThreadDbError)
+    expect(() => add(db, T2, '/q')).toThrow(ThreadDbError)
+    expect(() =>
+      db.replyThread({ id: ID, project: null, threadId: T2, author: owner, body: 'x', at: 1 }),
+    ).toThrow(/no thread/)
+    db.close()
+  })
+
+  it('keeps threads in Recently deleted, writes none there, and erases them with it', () => {
+    const db = withArtifact()
+    add(db)
+    db.deleteArtifact({ id: ID, project: null, at: 2 })
+    expect(db.artifactThreads({ id: ID, project: null })).toHaveLength(1)
+    expect(() => add(db, T2)).toThrow(ThreadDbError)
+    db.eraseArtifact(ID)
+    const raw = (db as unknown as { db: DatabaseSync }).db
+    expect(raw.prepare('SELECT COUNT(*) AS n FROM artifact_threads').get()!.n).toBe(0)
+    expect(raw.prepare('SELECT COUNT(*) AS n FROM artifact_comments').get()!.n).toBe(0)
+    db.close()
+  })
+
+  it('purges the threads of an artifact gone from Recently deleted', () => {
+    const db = withArtifact()
+    add(db)
+    db.deleteArtifact({ id: ID, project: null, at: 2 })
+    db.purgeArtifacts(3)
+    const raw = (db as unknown as { db: DatabaseSync }).db
+    expect(raw.prepare('SELECT COUNT(*) AS n FROM artifact_comments').get()!.n).toBe(0)
+    db.close()
+  })
+
+  it('moves an anchor to where a later version has its element', () => {
+    const db = withArtifact()
+    add(db)
+    const moved = { ...anchor, version: 2, offset: 42 }
+    db.reanchorThreads({ id: ID, anchors: [{ threadId: T1, anchor: moved }] })
+    expect(db.artifactThreads({ id: ID, project: null })[0]!.anchor).toEqual(moved)
+    db.close()
+  })
+
+  it('adds the comment tables to a database of version 5, keeping its artifacts', () => {
+    const file = tempFile()
+    mkdirSync(path.dirname(file), { recursive: true })
+    const raw = new DatabaseSync(file)
+    raw.exec(`BEGIN; ${schemaAt(5)} PRAGMA user_version = 5; COMMIT;`)
+    raw
+      .prepare(
+        'INSERT INTO artifacts (id, project, title, head, session_id, created_at, updated_at) VALUES (?, ?, ?, 1, ?, 1, 1)',
+      )
+      .run(ID, '/p', 'Old', 's1')
+    raw
+      .prepare(
+        'INSERT INTO artifact_versions (artifact_id, n, size, pages, author, note, created_at) VALUES (?, 1, 1, 0, NULL, NULL, 1)',
+      )
+      .run(ID)
+    raw.close()
+    const db = ThreadDb.open(
+      file,
+      () => {},
+      () => 0,
+      path.join(path.dirname(file), 'content'),
+    )
+    expect(db.artifactThreads({ id: ID, project: null })).toEqual([])
+    add(db)
+    expect(db.artifactThreads({ id: ID, project: null })).toHaveLength(1)
+    db.close()
+  })
+})
+
+describe('Workflow tasks', () => {
+  const task = (id: string, updatedAt: number) =>
+    ({
+      id,
+      projectPath: '/p',
+      title: 'Export',
+      text: 'Add export',
+      workflowId: 'fix-a-bug',
+      workflowName: 'Fix a bug',
+      workflowSource: 'official',
+      workflowHash: 'h',
+      workflow: {
+        format: 1,
+        name: 'Fix a bug',
+        description: '',
+        locales: {},
+        sendBackLimit: 3,
+        steps: [
+          {
+            id: 'fix',
+            name: 'Fix',
+            prompt: 'Fix it.',
+            by: 'agent',
+            handIn: 'note',
+            outcomes: [{ name: 'Done', to: [], end: 'done', limit: null }],
+            youReview: false,
+            hint: null,
+            reviewOf: [],
+            tools: { mcp: [], skills: [] },
+          },
+        ],
+      },
+      pace: 'quick',
+      paceReason: null,
+      first: { agentId: 'claude-code', options: {} },
+      pins: {},
+      status: 'running',
+      end: null,
+      rounds: [],
+      waiting: [],
+      lanes: [
+        { id: 'main', parent: null, worktree: null, base: null, state: 'open', createdAt: 1 },
+      ],
+      arrows: {},
+      extra: {},
+      ahead: {},
+      notes: [],
+      ending: null,
+      needing: false,
+      from: null,
+      pinnedAt: null,
+      archivedAt: null,
+      unread: false,
+      createdAt: 1,
+      updatedAt,
+      endedAt: null,
+    }) as const
+
+  it('keeps a task whole, replaces it on a change and removes it', () => {
+    const db = open()
+    db.taskPut({ task: structuredClone(task('t-000000000001', 2)) as never })
+    db.taskPut({ task: structuredClone(task('t-000000000002', 1)) as never })
+    db.taskPut({
+      task: { ...structuredClone(task('t-000000000001', 3)), title: 'Renamed' } as never,
+    })
+    const all = db.taskAll()
+    expect(all.map((t) => [t.id, t.title])).toEqual([
+      ['t-000000000002', 'Export'],
+      ['t-000000000001', 'Renamed'],
+    ])
+    db.taskRemove({ taskId: 't-000000000002' })
+    expect(db.taskAll().map((t) => t.id)).toEqual(['t-000000000001'])
+    db.close()
+  })
+
+  it('still reads a task whose workflow shipped with Kettu', () => {
+    const file = tempFile()
+    const db = open(file)
+    db.taskPut({ task: structuredClone(task('t-000000000001', 1)) as never })
+    db.close()
+    const again = open(file)
+    expect(again.taskAll()).toMatchObject([
+      { id: 't-000000000001', workflowId: 'fix-a-bug', workflowSource: 'official' },
+    ])
+    again.close()
+  })
+
+  it('leaves out a stored task that does not read, and says so', () => {
+    const file = tempFile()
+    const db = open(file)
+    db.taskPut({ task: structuredClone(task('t-000000000001', 1)) as never })
+    db.close()
+    const raw = new DatabaseSync(file)
+    raw.prepare('UPDATE workflow_tasks SET json = \'{"id":1}\'').run()
+    raw.close()
+    const again = open(file)
+    expect(again.taskAll()).toEqual([])
+    expect(logs.some((l) => l.level === 'warn' && l.message.includes('t-000000000001'))).toBe(true)
+    again.close()
+  })
+
+  it('adds the task table to a database of version 8, keeping what it holds', () => {
+    const file = tempFile()
+    mkdirSync(path.dirname(file), { recursive: true })
+    const raw = new DatabaseSync(file)
+    raw.exec(`BEGIN; ${schemaAt(8)} PRAGMA user_version = 8; COMMIT;`)
+    raw
+      .prepare(
+        'INSERT INTO artifacts (id, project, title, head, session_id, created_at, updated_at) VALUES (?, ?, ?, 1, ?, 1, 1)',
+      )
+      .run('art_kept', '/p', 'Kept', 's1')
+    raw.close()
+    const db = open(file)
+    expect(db.taskAll()).toEqual([])
+    db.taskPut({ task: structuredClone(task('t-000000000001', 1)) as never })
+    expect(db.taskAll()).toHaveLength(1)
+    db.close()
+    const check = new DatabaseSync(file)
+    expect(check.prepare('PRAGMA user_version').get()!.user_version).toBe(SCHEMA_VERSION)
+    expect(check.prepare('SELECT title FROM artifacts').get()).toEqual({ title: 'Kept' })
+    check.close()
+  })
+})

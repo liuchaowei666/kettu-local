@@ -1,0 +1,1346 @@
+{
+  "clamp": {
+    "more": "Show more",
+    "less": "Show less"
+  },
+  "status": {
+    "needsApproval": "Needs approval",
+    "pending": "Pending",
+    "running": "Running",
+    "done": "Done",
+    "failed": "Failed",
+    "cancelled": "Cancelled"
+  },
+  "summary": {
+    "separator": " · ",
+    "nameSeparator": ", ",
+    "thought": "Thought",
+    "thoughtFor": "Thought for {{duration}}",
+    "plan": "Updated the plan",
+    "memory_one": "Updated memory",
+    "memory_other": "Updated memory {{count}} times",
+    "execute_one": "Ran a command",
+    "execute_other": "Ran {{count}} commands",
+    "search_one": "Searched once",
+    "search_other": "Searched {{count}} times",
+    "fetch_one": "Fetched a page",
+    "fetch_other": "Fetched {{count}} pages",
+    "tool_one": "Used a tool",
+    "tool_other": "Used {{count}} tools",
+    "read_one": "Read {{count}} file",
+    "read_other": "Read {{count}} files",
+    "readNamed": "Read {{names}}",
+    "readMore": "Read {{names}} and {{more}} more",
+    "create_one": "Created {{count}} file",
+    "create_other": "Created {{count}} files",
+    "createNamed": "Created {{names}}",
+    "createMore": "Created {{names}} and {{more}} more",
+    "edit_one": "Edited {{count}} file",
+    "edit_other": "Edited {{count}} files",
+    "editNamed": "Edited {{names}}",
+    "editMore": "Edited {{names}} and {{more}} more",
+    "delete_one": "Deleted {{count}} file",
+    "delete_other": "Deleted {{count}} files",
+    "deleteNamed": "Deleted {{names}}",
+    "deleteMore": "Deleted {{names}} and {{more}} more",
+    "move_one": "Moved {{count}} file",
+    "move_other": "Moved {{count}} files",
+    "moveNamed": "Moved {{names}}",
+    "moveMore": "Moved {{names}} and {{more}} more",
+    "failed": "{{failed}} failed"
+  },
+  "stopReason": {
+    "endTurn": "Worked for {{duration}}",
+    "cancelled": "Cancelled",
+    "maxTokens": "Stopped at the token limit",
+    "maxTurnRequests": "Stopped at the request limit",
+    "refusal": "Declined",
+    "withTime": "{{reason}} · {{time}}"
+  },
+  "tool": {
+    "verb": {
+      "read": "Read",
+      "edit": "Edit",
+      "delete": "Delete",
+      "move": "Move",
+      "run": "Run"
+    },
+    "verbDone": {
+      "read": "Read",
+      "edit": "Edited",
+      "delete": "Deleted",
+      "move": "Moved",
+      "run": "Ran"
+    },
+    "runInTerminal": "Run in terminal",
+    "copyCommand": "Copy command",
+    "showAll": "Show all",
+    "showFullDiff": "Show full diff"
+  },
+  "permission": {
+    "outsideScope": "Outside this routine's permissions: {{level}}.",
+    "answer": {
+      "allowOnce": "Allowed once",
+      "allowAlways": "Always allowed",
+      "rejectOnce": "Denied",
+      "rejectAlways": "Always denied",
+      "allowedByRoutine": "Allowed by the routine",
+      "cancelled": "Cancelled",
+      "withdrawn": "No longer needed",
+      "onDevice": "{{answer}} · {{device}}"
+    },
+    "answeredOn": "Already answered on {{device}}.",
+    "answeredInWindow": "Already answered in another window.",
+    "card": {
+      "title": "<b>{{agent}}</b> wants to <b>{{action}}</b>",
+      "action": {
+        "read": "read a file",
+        "edit": "edit a file",
+        "delete": "delete a file",
+        "move": "move a file",
+        "search": "search the project",
+        "execute": "run a command",
+        "fetch": "fetch a page",
+        "switchMode": "switch modes",
+        "other": "use a tool"
+      },
+      "risky": "Risky",
+      "destructive": "Destructive",
+      "allowOnce": "Allow once",
+      "allowAlways": "Always allow",
+      "deny": "Deny",
+      "touches": "What it touches",
+      "more": "{{count}} more",
+      "showLess": "Show less",
+      "note": {
+        "allowOnce": "Just this once, it will not carry over",
+        "allowAlways": "{{agent}} will not ask for this again",
+        "rejectOnce": "{{agent}} was told and will not do it",
+        "rejectAlways": "{{agent}} will not ask for this again",
+        "cancelled": "The turn ended before an answer",
+        "withdrawn": "{{agent}} went on without it"
+      }
+    }
+  },
+  "browserOrigin": {
+    "decision": {
+      "session": "Allow for this session",
+      "project": "Always allow {{site}} in this project",
+      "deny": "Don’t allow"
+    },
+    "answer": {
+      "session": "Allowed for this session",
+      "project": "Always allowed for this project",
+      "deny": "Denied",
+      "timeout": "Not answered in time"
+    },
+    "where": "In this session’s browser · with your sign-ins"
+  },
+  "deviceAccess": {
+    "decision": {
+      "session": "Allow for this session",
+      "always": "Always allow this device",
+      "deny": "Don’t allow"
+    },
+    "answer": {
+      "session": "Allowed for this session",
+      "always": "Always allowed",
+      "deny": "Denied",
+      "timeout": "Not answered in time",
+      "revoked": "Allowed for this session, then taken back"
+    },
+    "where": "Tap, type and take screenshots, which go to the agent’s model provider"
+  },
+  "computerApp": {
+    "decision": {
+      "session": "Allow for this session",
+      "always": "Always allow {{app}}",
+      "deny": "Don’t allow"
+    },
+    "answer": {
+      "session": "Allowed for this session",
+      "always": "Always allowed",
+      "deny": "Denied",
+      "timeout": "Not answered in time"
+    },
+    "where": "Reads its windows and clicks and types in them, in the background"
+  },
+  "projectMcp": {
+    "where": "Declared in the project’s .mcp.json. Once used, they run on this computer as you.",
+    "servers": "Servers",
+    "decision": {
+      "use": "Use",
+      "all": "Use all",
+      "skip": "Don’t use"
+    },
+    "answer": {
+      "use": "Used",
+      "all": "All of this project’s used",
+      "skip": "Not used",
+      "timeout": "Not answered"
+    }
+  },
+  "projectHooks": {
+    "where": "This project’s .claude settings run these commands by themselves, such as when a session starts, on this computer as you. Until you allow them, this session runs no such commands, your own included.",
+    "hooks": "Commands",
+    "decision": {
+      "use": "Run",
+      "all": "Always run",
+      "skip": "Don’t run"
+    },
+    "answer": {
+      "use": "Allowed",
+      "all": "All of this project’s allowed",
+      "skip": "Not run",
+      "timeout": "Not answered"
+    }
+  },
+  "problemReport": {
+    "action": "send a problem report to Kettu",
+    "send": "Send to Kettu",
+    "save": "Save locally",
+    "skip": "Don’t send",
+    "edit": "Edit…",
+    "attached": {
+      "title": "Sent with it",
+      "about": "Kettu’s version and your system",
+      "logs": "Logs and steps of the last hour",
+      "ids": "This session and agent"
+    },
+    "answer": {
+      "sent": "Sent · report {{id}}",
+      "saved": "Saved locally",
+      "skipped": "Not sent"
+    }
+  },
+  "memory": {
+    "action": {
+      "remember": "Remembered",
+      "update": "Updated memory",
+      "forget": "Forgot"
+    },
+    "undo": "Undo",
+    "undoLabel": "Undo “{{title}}”",
+    "undone": "Undone",
+    "proposal": {
+      "remember": {
+        "action": "remember something about you",
+        "allow": "Remember",
+        "deny": "Don’t remember",
+        "accepted": "Saved to global memory",
+        "declined": "Not remembered"
+      },
+      "update": {
+        "action": "change something it remembers about you",
+        "allow": "Change",
+        "deny": "Don’t change",
+        "accepted": "Global memory updated",
+        "declined": "Not changed"
+      },
+      "forget": {
+        "action": "forget something it remembers about you",
+        "allow": "Forget",
+        "deny": "Keep it",
+        "accepted": "Forgotten from global memory",
+        "declined": "Kept"
+      }
+    }
+  },
+  "computerBar": {
+    "waiting": "Waiting for you to allow <app>{{app}}</app>",
+    "stopping": "Taking back the computer…",
+    "stopLabel": "Stop using the computer for this turn; the turn goes on"
+  },
+  "computerPane": {
+    "title": "Computer",
+    "live": "Live",
+    "paused": "Paused",
+    "show": "Show {{app}}",
+    "showApp": "Show the app",
+    "note": "Only the window {{agent}} uses shows here. Your other windows stay out of it.",
+    "idle": "{{agent}} is not using the computer",
+    "idleHint": "The window an agent uses shows here, live, while its turn uses the computer.",
+    "noWindow": "{{agent}} has not opened a window yet",
+    "noWindowHint": "Its window shows here as soon as it reads or uses one.",
+    "starting": "Showing the window…",
+    "hiddenHint": "It is minimized, hidden or on another desktop. Show it to see it here.",
+    "failed": "Kettu could not show this window",
+    "noPermission": "Kettu needs Screen Recording to show the window",
+    "noPermissionHint": "Allow it in System Settings, then quit and reopen Kettu.",
+    "allow": "Open System Settings",
+    "retry": "Try again",
+    "elsewhere": "The window shows only on the computer whose apps the agent uses."
+  },
+  "computerSetup": {
+    "label": "Computer use setup",
+    "ask": "{{agent}} wants to use your computer and waits while you set computer use up.",
+    "wants": "wants to use your computer",
+    "waiting": "Waiting for you",
+    "granting": "Waiting for the grant",
+    "step": "Step {{n}} of {{count}}",
+    "enable": {
+      "title": "Turn on computer use",
+      "body": "{{agent}} reads your apps’ windows and clicks and types in them, in the background, only for messages you send from this computer.",
+      "action": "Turn on",
+      "switch": "Computer use"
+    },
+    "accessibility": {
+      "title": "Allow Accessibility",
+      "body": "Kettu reads windows and clicks and types through it. System Settings opens Accessibility: turn on the switch next to Kettu, then come back here.",
+      "pane": "Accessibility"
+    },
+    "screen-recording": {
+      "title": "Allow Screen Recording",
+      "body": "Kettu sees what is in a window through its screenshots. System Settings opens Screen Recording: turn on the switch next to Kettu, then come back here.",
+      "pane": "Screen Recording"
+    },
+    "open": "Open System Settings",
+    "openAgain": "Open System Settings again",
+    "inSettings": "Waiting in System Settings",
+    "goesOn": "Goes on by itself once it is done.",
+    "notNow": "Not now",
+    "elsewhere": "Finish setting up on {{host}}",
+    "elsewhereBody": "The switch and the permissions can only be set in Kettu on that computer. {{agent}} goes on by itself once they are.",
+    "thatComputer": "the computer it runs on",
+    "outcome": {
+      "ready": "Computer use set up",
+      "declined": "Computer use not set up",
+      "timeout": "Computer use not set up in time"
+    },
+    "declinedNote": "Not now"
+  },
+  "subagent": {
+    "fallbackTitle": "Sub-agent",
+    "tools_one": "{{count}} tool",
+    "tools_other": "{{count}} tools"
+  },
+  "subagentBar": {
+    "runsFor": "{{agent}} runs this sub-agent for <parent/>",
+    "runsForParent": "{{agent}} runs this sub-agent for <parent>its parent session</parent>",
+    "stop": "Stop",
+    "back": "Back to {{title}}",
+    "backShort": "Back"
+  },
+  "subSession": {
+    "back": "Back to {{title}}",
+    "startedFrom": "Started from <parent>{{title}}</parent>"
+  },
+  "sessionMessage": {
+    "from": "From {{title}}",
+    "fromParent": "From the parent session"
+  },
+  "viewers": {
+    "more": "{{name}} +{{count}}",
+    "label": "Also open on {{names, list}}"
+  },
+  "userEntry": {
+    "device": "Sent from {{device}}"
+  },
+  "sessionReport": {
+    "agent": "The session",
+    "finished": "{{agent}} finished",
+    "stopped": "{{agent}} was stopped",
+    "failed": "{{agent}} failed",
+    "failedWith": "{{agent}} failed · {{reason}}"
+  },
+  "sessionStarted": {
+    "label": "Started <title>{{title}}</title>",
+    "missing": "Started a session"
+  },
+  "compaction": {
+    "inProgress": "Compacting context…",
+    "completed": "Context compacted",
+    "failed": "Couldn't compact the context",
+    "cancelled": "Compaction cancelled",
+    "summary": "Summary"
+  },
+  "gitEvent": {
+    "committed": "Committed <id/> <subject/>",
+    "moreCommits_one": "and {{count}} more commit",
+    "moreCommits_other": "and {{count}} more commits",
+    "pushed_one": "Pushed {{count}} commit to <upstream/>",
+    "pushed_other": "Pushed {{count}} commits to <upstream/>",
+    "switchedTo": "Switched to <branch/>",
+    "openedPr": "Opened pull request",
+    "copyCommitId": "Copy commit id"
+  },
+  "artifactEntry": {
+    "created": "Created",
+    "updated": "Updated",
+    "restored": "Restored",
+    "version": "v{{version}}",
+    "versions": "v{{from}} → v{{to}}"
+  },
+  "planChip": {
+    "label": "Plan: step {{step}} of {{total}}, {{content}}",
+    "labelDone": "Plan: all {{total}} steps done",
+    "title": "Plan",
+    "count": "{{step}}/{{total}}"
+  },
+  "userActions": {
+    "steered": "Steered",
+    "copyMessage": "Copy message",
+    "label": "Message actions"
+  },
+  "replyFooter": {
+    "copyReply": "Copy reply",
+    "fork": "Fork from here",
+    "forking": "Forking…",
+    "forkNotReady": "Forks once the session is ready",
+    "label": "Reply actions"
+  },
+  "changes": {
+    "label": "Changes",
+    "files_one": "{{count}} file changed",
+    "files_other": "{{count}} files changed",
+    "review": "Review",
+    "commit": "Commit and open PR",
+    "more_one": "Show {{count}} more file",
+    "more_other": "Show {{count}} more files",
+    "fewer": "Show fewer files"
+  },
+  "queue": {
+    "label": "Queued messages: {{count}}",
+    "paused": "Paused",
+    "position": "{{number}} / {{count}}",
+    "previous": "Previous queued message",
+    "following": "Next queued message",
+    "resume": "Resume",
+    "attachment": "Attachment",
+    "from": "From {{device}}",
+    "fromSession": "From {{title}}",
+    "attachments_one": "{{count}} attachment",
+    "attachments_other": "{{count}} attachments",
+    "sendNow": "Send now",
+    "steer": "Steer now: send into the running turn",
+    "stopAndSend": "Stop this turn and send this message next",
+    "edit": "Edit in the composer",
+    "remove": "Remove",
+    "count_one": "{{count}} queued",
+    "count_other": "{{count}} queued",
+    "title": "Queued",
+    "collapse": "Hide the queue"
+  },
+  "agentStart": {
+    "installing": "Installing {{agent}}…",
+    "starting": "Starting {{agent}}…",
+    "loading": "Loading the conversation…"
+  },
+  "failed": {
+    "reportProblem": "Report a problem"
+  },
+  "pending": {
+    "back": "Back",
+    "newSubSessionOf": "New sub-session of {{title}}",
+    "notRunning": "{{agent}} is not running",
+    "couldntStart": "Couldn't start {{agent}}"
+  },
+  "newSession": {
+    "title": "New session",
+    "subSessionTitle": "New sub-session",
+    "subSessionProject": "A sub-session works in its parent's project",
+    "chooseProject": "Choose a project to work in",
+    "projectMissing": "{{project}} no longer exists",
+    "chooseAgent": "Choose an agent for this session",
+    "whatToWorkOn": "What should {{agent}} work on?",
+    "message": "Message",
+    "messageAgent": "Message {{agent}}",
+    "describeTask": "Describe a task…",
+    "send": "Send",
+    "host": "Host",
+    "project": "Project",
+    "chooseProjectShort": "Choose a project",
+    "missing": "Missing",
+    "openProject": "Open project…",
+    "agent": "Agent",
+    "chooseAgentShort": "Choose an agent",
+    "notInstalled": "Not installed",
+    "noProject": "No project",
+    "searchProjects": "Search projects…",
+    "searchProjectsLabel": "Search projects",
+    "recent": "Recent",
+    "noMatchingProjects": "No matching projects",
+    "greeting": {
+      "hello": {
+        "morning": "Good morning",
+        "afternoon": "Good afternoon",
+        "evening": "Good evening",
+        "late": "Up late",
+        "back": "Welcome back"
+      },
+      "named": "{{hello}}, {{name}}",
+      "first": "Hi, I’m Kettu",
+      "lines": {
+        "morning": ["Where shall we start?", "What’s first?"],
+        "afternoon": ["What’s next?", "Time for the hard part"],
+        "evening": ["Anything to wrap up?", "Long day?"],
+        "late": ["Take it slow", "One more, then rest"],
+        "monday": ["New week. What’s first?", "Easing into Monday"],
+        "friday": ["Friday. Wrap it up", "Good week?"],
+        "weekend": ["Busy weekend?", "Something light today?"]
+      }
+    },
+    "branchHint": "The session starts on this branch",
+    "commitHint": "The session starts at this commit",
+    "missingLine": "This project's folder is missing. Choose another project.",
+    "chooseProjectFirst": "Choose a project first",
+    "chooseAgentFirst": "Choose an agent first",
+    "noAgent": "No agent to start with. Add one, or turn one on, to begin.",
+    "noAgentOnHost": "No agent can start on {{host}} yet.",
+    "noAgentNode_one": "No agent can start yet: {{agents, list}} needs Node.js 22 or later.",
+    "noAgentNode_other": "No agent can start yet: {{agents, list}} need Node.js 22 or later.",
+    "noAgentUpdate_one": "No agent can start yet: your {{agents, list}} is older than Kettu needs.",
+    "noAgentUpdate_other": "No agent can start yet: your {{agents, list}} are older than Kettu needs.",
+    "setUpAgents": "Set up agents…",
+    "agentMenu": {
+      "label": "Agent and model",
+      "search": "Search agents and models",
+      "agents": "Agents",
+      "setsUp": "Sets up on first use",
+      "installing": "Installing…",
+      "failed": "Failed",
+      "signIn": "Sign in",
+      "window": "{{limit}} {{value}}",
+      "windowResets": "{{limit}} {{value}} · {{reset}}",
+      "valueUsed": "{{percent}}% used",
+      "valueLeft": "{{percent}}% left",
+      "setsUpLong": "{{agent}} sets up on first use: Kettu installs its adapter, which runs your {{command}}.",
+      "needsUpdate": "Needs update",
+      "updateLong": "Your {{command}} {{current}} is older than Kettu needs (at least {{minimum}}); update it to use it.",
+      "updateOnHost": "Update {{agent}} on {{host}} to use it.",
+      "updateTo": "Update to {{version}}",
+      "updating": "Updating…",
+      "howToUpdate": "How to update…",
+      "install": "Install…",
+      "failedLong": "{{agent}} failed to start.",
+      "retry": "Retry",
+      "signInLong": "Sign in to {{agent}} to use it.",
+      "signInOnHost": "Sign in to {{agent}} on {{host}} to use it.",
+      "signInAction": "Sign in…",
+      "modelsOnStart": "{{agent}} lists its models once it has started.",
+      "useAgent": "Use {{agent}}",
+      "moreModels": "More models ({{number}})",
+      "noMatch": "No matching agents or models",
+      "checking": "Checking {{agent}}'s models…",
+      "prepareFailed": "{{agent}} could not open a session: {{error}}",
+      "versionBroken": "Kettu's checks found your {{command}} {{version}} does not work with it.",
+      "versionUnsupported": "Your {{command}} {{version}} is outside the versions Kettu works with ({{supported}}).",
+      "versionOnHost": "Change {{agent}} on {{host}} to a version Kettu works with.",
+      "howToChange": "How to change…"
+    },
+    "startNotice": {
+      "model": {
+        "not_offered": "{{agent}} no longer offers {{wanted}}, so it starts with {{actual}}.",
+        "refused": "{{agent}} did not accept {{wanted}}, so it starts with {{actual}}.",
+        "replaced": "{{agent}}'s default changed to {{actual}} outside Kettu, so it starts with that instead of {{wanted}}."
+      },
+      "option": {
+        "not_offered": "{{agent}} no longer offers {{option}} {{wanted}}, so it starts with {{actual}}.",
+        "refused": "{{agent}} did not accept {{option}} {{wanted}}, so it starts with {{actual}}.",
+        "replaced": "{{agent}}'s default {{option}} changed to {{actual}} outside Kettu, so it starts with that instead of {{wanted}}."
+      },
+      "noOption": "{{agent}} has no {{option}} option now, so {{wanted}} is not used.",
+      "noSwitch": "{{agent}} has no {{option}} option now, so it cannot be turned on.",
+      "switchOff": "{{agent}} starts with {{option}} off, not on.",
+      "switchOn": "{{agent}} starts with {{option}} on, not off."
+    },
+    "installHarness": "Install a harness…",
+    "updateHarness": "Update the harness…",
+    "thisComputer": "This computer",
+    "hostOffline": "Offline",
+    "hostNotConnected": "{{host}} is not connected yet",
+    "openProjectHere": "Open project on this computer…",
+    "openProjectOn": "Open project on {{host}}…",
+    "projectOnHost": "Project: {{name}} on {{host}}",
+    "hostFolders": {
+      "title": "Open project on {{host}}",
+      "description": "The project stays on {{host}} and is not copied to this computer; the agent reads and writes it there.",
+      "up": "Up one folder",
+      "location": "Location",
+      "list": "Folders in {{folder}}",
+      "folders": "Folders",
+      "goIn": "Go in",
+      "goUp": "Go up",
+      "empty": "No folders here.",
+      "emptyHint": "You can still open this folder.",
+      "errorHint": "You can go up, or try again.",
+      "retry": "Try again",
+      "repo": "Git repository",
+      "note": "Only folders are listed, with paths as {{host}} writes them.",
+      "opens": "Opens",
+      "open": "Open"
+    },
+    "picker": {
+      "search": "Search agents",
+      "noMatch": "No matching agents",
+      "signedOut": "Signed out · sign in to use",
+      "failed": "Failed to start",
+      "needsUpdate": "Too old · click to update",
+      "versionBroken": "{{version}} does not work with Kettu",
+      "versionUnsupported": "{{version}} is outside the versions Kettu works with",
+      "limitUsed": "{{percent}}% of {{limit}} limit",
+      "limitLeft": "{{percent}}% of {{limit}} limit left",
+      "limitReached": "{{limit}} limit reached",
+      "manage": "Manage agents…"
+    },
+    "modelMenu": {
+      "label": "Model",
+      "search": "Search models",
+      "model": "Model"
+    },
+    "pickup": {
+      "title": "Pick up where you left off",
+      "waiting": "Waiting for your approval",
+      "working": "Working",
+      "failed": "Stopped with an error",
+      "signIn": "Waiting for sign-in",
+      "finished": "Finished {{ago}}"
+    },
+    "artifacts": {
+      "title": "Latest artifacts",
+      "viewAll": "View all"
+    },
+    "addAgent": "Add an agent…",
+    "guide": {
+      "title": "No agent yet",
+      "hint": "Install one to start. A program you installed in a terminal shows up after Re-detect.",
+      "about": {
+        "claude-code": "From Anthropic. Sign in with a Claude plan or an API key.",
+        "codex": "From OpenAI. Sign in with ChatGPT or an API key.",
+        "opencode": "Open source. Bring any provider.",
+        "pi": "A small, extensible terminal agent."
+      },
+      "found": "Found on this computer",
+      "outdated": "Your {{name}} {{current}} is older than Kettu needs; update it to use it.",
+      "redetect": "Re-detect"
+    },
+    "workflow": {
+      "label": "Workflow",
+      "chat": "Chat",
+      "chatHint": "Talk with one agent, as a session does",
+      "heading": "Workflows",
+      "unreadableHint": "Its file doesn't read",
+      "blocked": {
+        "approval": "Needs approval",
+        "changed": "Changed, needs approval",
+        "unreadable": "Can't be read"
+      },
+      "findMore": "Find more workflows in the Marketplace…",
+      "addFromMarketplace": "Add a workflow from the Marketplace",
+      "worktreeHint": "A task works in a worktree and on a branch of its own.",
+      "worktreeNote": "A task works in its own worktree, on a new branch cut from <base>{{base}}</base>. Kettu names it when you send.",
+      "textOnly": "A task takes text only: remove the attachments to send it.",
+      "stepAgents": "Only Claude Code and Codex agents work on workflow steps: choose one of them.",
+      "previewFoot": "Pace: {{pace}} · Auto steps are picked when they start"
+    }
+  },
+  "signIn": {
+    "title": "Sign in to {{agent}}",
+    "description": "{{agent}} needs you to sign in before it can start. Kettu never sees your credentials.",
+    "descriptionWithKey": "{{agent}} needs you to sign in before it can start.",
+    "noMethods": "{{agent}} did not say how to sign in. Sign in with its own command line, then retry.",
+    "apiKey": "API key",
+    "keyOnly": "{{agent}} signs in only with an API key. Codebuddy Code keeps its browser and WeChat sign-in for the whole computer, so an added agent cannot have a sign-in of its own.",
+    "copyCommand": "Copy command",
+    "inTerminal": "Sign in in terminal",
+    "signedIn": "I've signed in, retry",
+    "envHint": "Set it on {{agent}}'s page in Settings › Agents.",
+    "inSettings": "Set in Settings",
+    "keySet": "I've set it, retry",
+    "optional": "Optional",
+    "pageOpen": "Waiting for the browser",
+    "pageOpenHint": "The sign-in page for {{agent}} opened in this device's browser. Finish signing in there.",
+    "openPageAgain": "Open the page again",
+    "onComputer": "This opens a browser on the computer {{agent}} runs on, so sign in there, then retry."
+  },
+  "takeover": {
+    "title": "{{agent}} took over",
+    "carried_one": "{{agent}} took over · with the earlier turn",
+    "carried_other": "{{agent}} took over · with {{count}} earlier turns",
+    "omitted_one": "What it was given. 1 earlier turn was left out; it can read it with the history tool.",
+    "omitted_other": "What it was given. {{count}} earlier turns were left out; it can read them with the history tool.",
+    "whole": "What it was given.",
+    "summarize": "Asked to summarize the conversation before carrying on"
+  },
+  "view": {
+    "couldntOpen": "Couldn't open this session",
+    "hostSilent": "The agent host did not answer.",
+    "stopped": "{{agent}} stopped",
+    "couldNotContinue": "{{agent}} could not continue this session.",
+    "signInToContinue": "Sign in to {{agent}} to continue",
+    "historyStays": "Your history stays here; the session picks up where it was.",
+    "accountMoved": "{{agent}} can't use this account",
+    "openHarness": "Open {{name}}",
+    "signIn": "Sign in…",
+    "agentRemoved": "{{agent}} was removed",
+    "agentRemovedBody": "Its history stays here. Pick another agent in the composer to carry on in this session, or add the agent again.",
+    "agentTurnedOff": "{{agent}} is turned off",
+    "agentTurnedOffBody": "Its history stays here. Turn the agent on in Settings, or pick another agent in the composer to carry on.",
+    "openAgent": "Open agent",
+    "archivedComposer": "This session is archived and no longer takes messages.",
+    "restore": "Restore",
+    "openAgents": "Open Agents",
+    "announceApproval": "{{agent}} needs your approval",
+    "announceQuestion": "{{agent}} has a question for you",
+    "announceFinished": "{{agent}} finished"
+  },
+  "find": {
+    "placeholder": "Find in this session",
+    "previous": "Previous match (Shift+Enter)",
+    "next": "Next match (Enter)",
+    "close": "Close (Esc)",
+    "none": "No results",
+    "failed": "Search failed",
+    "short": "Type at least 2 characters",
+    "indexing": "Indexing conversations, results may be incomplete",
+    "unsupported": "This computer can't find in a session yet"
+  },
+  "thread": {
+    "label": "Thread",
+    "olderFailed": "Couldn't load earlier messages",
+    "tokens_one": "{{tokens}} token",
+    "tokens_other": "{{tokens}} tokens",
+    "phase": {
+      "thinking": "Thinking",
+      "execute_one": "Running a command",
+      "execute_other": "Running {{count}} commands",
+      "read_one": "Reading a file",
+      "read_other": "Reading {{count}} files",
+      "search": "Searching",
+      "fetch_one": "Fetching a page",
+      "fetch_other": "Fetching {{count}} pages",
+      "edit_one": "Editing a file",
+      "edit_other": "Editing {{count}} files",
+      "writing": "Writing",
+      "compacting": "Compacting context",
+      "approval": "Waiting for your approval",
+      "question": "Waiting for your answer",
+      "working": "Working"
+    },
+    "resume": "Resume",
+    "continuePrompt": "Continue",
+    "outOfCredit": {
+      "details": "Details",
+      "copy": "Copy the message"
+    },
+    "outline": {
+      "label_one": "Outline, {{count}} message",
+      "label_other": "Outline, {{count}} messages",
+      "noText": "No text",
+      "matches_one": "{{count}} match",
+      "matches_other": "{{count}} matches"
+    },
+    "jump": {
+      "label": "Jump to latest",
+      "labelWith": "Jump to latest, {{state}}",
+      "tooltipWith": "{{state}} · Jump to latest",
+      "failed": "Stopped with an error"
+    }
+  },
+  "routine": {
+    "link": "Open the routine {{name}}",
+    "sent": "Sent by {{name}} · Run now",
+    "due": "Sent by {{name}} · due {{when}}",
+    "catchUp": "Sent by {{name}} · Catch-up for {{when}}"
+  },
+  "link": {
+    "title": "Open link?",
+    "userinfo": "The text before “@” in this link is not where it goes.",
+    "copy": "Copy link",
+    "copyMarkdown": "Copy as Markdown",
+    "copyReference": "Copy reference",
+    "firstVisit": "First visit",
+    "firstVisitNote": "You haven’t opened this site from Kettu before. Its icon shows once the session browser opens it.",
+    "defaultBrowser": "Default browser",
+    "yourBrowser": "your default browser",
+    "sessionBrowser": "Session browser",
+    "browserHint": "Your own browser and sign-ins",
+    "sessionHint": "{{agent}} can see and use it",
+    "sessionHintGeneric": "The session’s agent can see and use it",
+    "writtenBy": "Written by {{agent}} in <title>{{title}}</title>",
+    "openIn": "Open in {{browser}}",
+    "openInSession": "Open in session browser",
+    "opensIn": "{{url}} · opens in {{browser}}",
+    "opensInSession": "{{url}} · opens in the session browser",
+    "alwaysSite": "Always open {{site}} links in {{browser}}",
+    "alwaysSiteSession": "Always open {{site}} links in the session browser",
+    "alwaysHost": "Always open this site in {{browser}}",
+    "alwaysHostSession": "Always open this site in the session browser",
+    "openFailed": "Couldn’t open the link: {{error}}"
+  },
+  "alert": {
+    "note": "Note",
+    "tip": "Tip",
+    "important": "Important",
+    "warning": "Warning",
+    "caution": "Caution"
+  },
+  "svg": {
+    "alt": "SVG image"
+  },
+  "block": {
+    "openInTerminal": "Open in terminal",
+    "copy": "Copy",
+    "wrap": "Wrap lines",
+    "showMore_one": "Show {{count}} more line",
+    "showMore_other": "Show {{count}} more lines",
+    "showLess": "Show fewer lines",
+    "view": "View",
+    "preview": "Preview",
+    "source": "Source",
+    "download": "Download",
+    "diagram": "Diagram",
+    "diagramFailed": "Could not draw this diagram.",
+    "copyLatex": "Copy LaTeX",
+    "copyMarkdown": "Copy as Markdown",
+    "downloadCsv": "Download CSV",
+    "tableSize": "{{rows}} · {{columns}}",
+    "rows_one": "{{count}} row",
+    "rows_other": "{{count}} rows",
+    "columns_one": "{{count}} column",
+    "columns_other": "{{count}} columns"
+  },
+  "command": {
+    "run": "Run",
+    "more": "More ways to run",
+    "runNote": "In a new terminal; {{agent}} follows the output",
+    "runOnly": "Run only",
+    "runOnlyNote": "In a new terminal, without telling {{agent}}",
+    "put": "Put in terminal",
+    "putNote": "Without Enter, for you to check and press it",
+    "openTerminal": "Open terminal",
+    "goType": "Type password",
+    "stop": "Stop",
+    "runAgain": "Run again",
+    "state": {
+      "running": "Running",
+      "password": "Waiting for your password",
+      "ended": "Ended",
+      "shellExited": "Shell exited with code {{code}}",
+      "gone": "Terminal closed"
+    },
+    "failed": "Could not run the block: {{message}}",
+    "notNotified": "The block runs, but {{agent}} could not be told",
+    "chip": "Ran <code>{{command}}</code> in a terminal",
+    "chipMore_one": "and {{count}} more line",
+    "chipMore_other": "and {{count}} more lines",
+    "chipOpen": "Open its terminal",
+    "chipGone": "Its terminal is closed"
+  },
+  "media": {
+    "openImage": "Open image {{name}}",
+    "openImageMore_one": "Open image {{name}} and {{count}} more",
+    "openImageMore_other": "Open image {{name}} and {{count}} more",
+    "moreBadge": "+{{count}}",
+    "pixels": "{{width}} × {{height}}",
+    "retryFile": "Retry {{name}}",
+    "notFound": "Not found at {{path}}.",
+    "cannotReadShort": "Can't read it: {{message}}",
+    "unsupported": "This image's format can't be shown here.",
+    "unsupportedVideo": "This video's format can't be played here.",
+    "unsupportedAudio": "This sound's format can't be played here.",
+    "unsupportedShort": "can't be shown here",
+    "unsupportedPlayShort": "can't be played here",
+    "tooLargeShort": "too large to show here",
+    "inProject": "written to the project folder",
+    "download": "Download",
+    "play": "Play {{name}}",
+    "speed": "Playback speed {{rate}}×",
+    "rate": "{{rate}}×",
+    "openLarger": "Open larger",
+    "showInFiles": "Show in Files",
+    "showIn": "Show in {{name}}",
+    "openWithDefault": "Open with default app",
+    "saveAs": "Save as…",
+    "sound": "Sound",
+    "video": "Video"
+  },
+  "viewer": {
+    "image": "Image",
+    "position": "{{number}} / {{count}}",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "fit": "Zoom to fit",
+    "actualSize": "Actual size",
+    "copy": "Copy image",
+    "copied": "Copied",
+    "saveAs": "Save as…",
+    "previous": "Previous",
+    "next": "Next"
+  },
+  "host": {
+    "away": "{{name}} is not connected",
+    "awayBody": "{{state}}. Its sessions open here again once it is back.",
+    "awayComposer": "{{name}} is not connected: {{state}}. You can send messages again once it is back."
+  },
+  "question": {
+    "asksYou": "Waiting for you",
+    "answeredOther": "Something else",
+    "other": "Something else…",
+    "otherPlaceholder": "Write your own answer",
+    "steps": "Questions",
+    "step": "Question {{number}}",
+    "skip": "Skip",
+    "skipAll": "Skip all",
+    "next": "Next",
+    "submit": "Submit",
+    "answered": "Answered {{answered}}/{{total}}",
+    "answeredOne": "Answered",
+    "skipped": "Skipped",
+    "secret": "Hidden",
+    "secretHint": "Hidden as you type, and not kept in the conversation",
+    "hint": {
+      "one": "Pick one",
+      "oneOrOwn": "Pick one, or type your own",
+      "any": "Pick any that apply",
+      "anyOrOwn": "Pick any that apply, or type your own"
+    },
+    "picked_one": "{{count}} picked",
+    "picked_other": "{{count}} picked",
+    "ownAnswer": "Your own answer",
+    "typing": "Type your answer",
+    "separator": ", ",
+    "of": "{{agent}} · question {{number}} of {{count}}",
+    "otherTell": "Something else? Tell {{agent}}"
+  },
+  "reply": {
+    "button": "Reply",
+    "placeholder": "Reply to {{agent}}…",
+    "send": "Send reply",
+    "quote": "Quoted text",
+    "side": "Side chat"
+  },
+  "planCard": {
+    "label": "Plan",
+    "version": "Plan {{version}}",
+    "show": "Show",
+    "plan": "Plan",
+    "changes": "Changes",
+    "changesSince": "What changed since the last version.",
+    "unchanged_one": "{{count}} line unchanged",
+    "unchanged_other": "{{count}} lines unchanged",
+    "added": "Added",
+    "removed": "Removed",
+    "buildIn": "Start building in",
+    "implementAsk": "Implement this plan?",
+    "keepPlanning": "Keep planning, and tell {{agent}} what to change…",
+    "sendNote": "Send note",
+    "keepPlanningButton": "Keep planning",
+    "startBuilding": "Start building",
+    "implement": "Implement",
+    "approved": "Plan approved",
+    "keptPlanning": "Kept planning",
+    "dropped": "Plan cancelled",
+    "showPlan": "Show plan",
+    "hidePlan": "Hide plan",
+    "planMode": "Plan",
+    "modeChanged": "Mode changed from <b>{{from}}</b> to <b>{{mode}}</b>",
+    "copy": "Copy the plan",
+    "copied": "Plan copied",
+    "copyFailed": "Couldn't copy the plan",
+    "showWhole": "Show the whole plan",
+    "finishedBuild": "{{agent}} finished planning. Start building, or keep planning with a note.",
+    "finishedImplement": "{{agent}} finished planning. Implement it, or keep planning with a note."
+  },
+  "elicitation": {
+    "inAgent": "MCP server in {{agent}}",
+    "optional": "Optional",
+    "required": "Required",
+    "tooShort_one": "At least {{count}} character",
+    "tooShort_other": "At least {{count}} characters",
+    "tooLong_one": "At most {{count}} character",
+    "tooLong_other": "At most {{count}} characters",
+    "notEmail": "Not an email address",
+    "notUrl": "Not a web address",
+    "notDate": "Not a date",
+    "notInteger": "Not a whole number",
+    "notNumber": "Not a number",
+    "atLeast": "At least {{value}}",
+    "atMost": "At most {{value}}",
+    "pickAtLeast_one": "Pick at least {{count}}",
+    "pickAtLeast_other": "Pick at least {{count}}",
+    "pickAtMost_one": "Pick at most {{count}}",
+    "pickAtMost_other": "Pick at most {{count}}",
+    "pickDate": "Pick a date",
+    "sentTo": "Sent to {{server}}",
+    "decline": "Decline",
+    "submit": "Submit",
+    "opensInBrowser": "Opens in your browser. Kettu doesn't see what you enter there.",
+    "open": "Open {{site}}",
+    "finishIn": "Finish in your browser on {{site}}",
+    "opened": "Opened {{site}}",
+    "submitted": "Submitted",
+    "declined": "Declined",
+    "openAgain": "Open again",
+    "showValues": "Show values",
+    "hideValues": "Hide values"
+  },
+  "toolCall": {
+    "usingTools": "Working…",
+    "announce": {
+      "running": "{{name}} running",
+      "success": "{{name}} finished",
+      "error": "{{name}} failed",
+      "cancelled": "{{name}} cancelled"
+    },
+    "copy": "Copy {{what}}",
+    "copied": "Copied",
+    "section": {
+      "command": "Command",
+      "output": "Output",
+      "content": "Content",
+      "result": "Result",
+      "changes": "Changes"
+    },
+    "exitCode": "Exit code {{code}}",
+    "earlierLines_one": "{{count}} earlier line",
+    "earlierLines_other": "{{count}} earlier lines",
+    "noOutput": "No output"
+  },
+  "access": {
+    "action": {
+      "site": "open a site",
+      "device": "use a device",
+      "app": "use an app",
+      "projectMcp": "start MCP servers",
+      "projectHooks": "run commands this project sets to run automatically"
+    }
+  },
+  "worktree": {
+    "where": "Where the session works",
+    "local": "Local",
+    "new": "New worktree",
+    "localTrigger": "Local · <name>{{branch}}</name>",
+    "newTrigger": "Worktree · <name>{{branch}}</name>",
+    "localWorks": "Works on <name>{{branch}}</name> in the project folder",
+    "localHint": "Other sessions in this project edit the same files. Pick New worktree to give this one a branch and a folder of its own.",
+    "basedOn": "Based on",
+    "auto": "Auto",
+    "autoHint": "named from your message",
+    "uncommitted_one": "{{count}} uncommitted change stays in the project folder.",
+    "uncommitted_other": "{{count}} uncommitted changes stay in the project folder.",
+    "back": "Back",
+    "findBranch": "Find a branch",
+    "noBranchMatch": "No branch matches “{{query}}”",
+    "localBranches": "Local",
+    "remoteBranches": "Remote",
+    "current": "current",
+    "branchesFailed": "Couldn't list the branches: {{message}}",
+    "branchName": "Branch name",
+    "namedForYou": "named for you",
+    "nameHelp": "Optional. Leave it empty and Kettu names the branch from your first message, in English, such as <code>{{example}}</code>.",
+    "branchInvalid": "Git can't take this as a branch name: no spaces, no .., none of ~ ^ : ? * [ \\, and no - at the start.",
+    "templateReading": "Reading the project's branch template…",
+    "templateFailed": "Couldn't read the project's branch template: {{message}}",
+    "noteAuto": "Starts on a new branch, cut from <base/>. Kettu names it when you send.",
+    "noteAutoAt": "Starts on a new branch, cut from <base/> at <oid/>. Kettu names it when you send.",
+    "noteNamed": "Starts on <branch/>, cut from <base/>.",
+    "noteNamedAt": "Starts on <branch/>, cut from <base/> at <oid/>.",
+    "branch": "Branch",
+    "inWorktree": "Works in a worktree on {{branch}}",
+    "creating": "Creating the worktree…",
+    "preparing": "Preparing the worktree…",
+    "showOutput": "Show output",
+    "outputTitle": "Worktree setup output",
+    "noOutput": "No output yet.",
+    "outputFailed": "Couldn't read the output: {{message}}",
+    "failedTitle": "Couldn't prepare the worktree",
+    "failedCopy": "Copying the local files failed.",
+    "failedSetup": "The setup command exited with code {{code}}.",
+    "failedStopped": "The setup command was stopped before it finished.",
+    "failedWaits": "Your first message waits until the worktree is ready.",
+    "retry": "Retry",
+    "skip": "Skip and continue",
+    "missing": "The worktree folder was deleted outside Kettu. Your next message recreates it from branch <branch/>.",
+    "removed": "The worktree folder was removed. Your next message recreates it from branch <branch/>.",
+    "gone": "This session's worktree and branch were removed, so it can't continue.",
+    "agentWorktree": "Worked in its own worktree <branch/>",
+    "agentWorktreeUnnamed": "Worked in its own worktree",
+    "copyPath": "Copy path"
+  },
+  "workflow": {
+    "pace": "Pace",
+    "paces": {
+      "quick": "Quick",
+      "balanced": "Balanced",
+      "thorough": "Thorough"
+    },
+    "auto": "Auto",
+    "you": "You",
+    "youReview": "You review",
+    "source": {
+      "first": "First step",
+      "pinned": "Pinned",
+      "task": "This task",
+      "you": "You"
+    },
+    "reviews": "Reviews {{steps}}",
+    "hint": "“{{hint}}”",
+    "pinnedHint": "Pinned for every task of this workflow, on its Marketplace page",
+    "backToAuto": "Back to Auto",
+    "whoDoes": "Who does {{step}}",
+    "pinEveryTask": "Pin steps for every task",
+    "suggest": {
+      "title": "Run this as a workflow?",
+      "description": "One session per step.",
+      "descriptionReview_one": "One session per step; {{steps}} waits for your review.",
+      "descriptionReview_other": "One session per step; {{steps}} wait for your review.",
+      "label": "Suggested by {{agent}} · Waiting for you",
+      "workflow": "Workflow",
+      "steps_one": "{{count}} step",
+      "steps_other": "{{count}} steps",
+      "task": "Task · written by {{agent}}, editable",
+      "taskLabel": "The task",
+      "who": "Who does each step · Auto steps are picked when they start",
+      "edit": "Edit",
+      "doneEditing": "Done",
+      "start": "Start",
+      "decline": "No, just do it",
+      "declineMessage": "No workflow for this one: just do it yourself.",
+      "unusable": "{{workflow}} can't start a task now. Choose another workflow or do it without one.",
+      "missing": "This workflow is no longer in the library. Choose another or do it without one.",
+      "emptyTask": "Write the task first.",
+      "started": "Started as a task",
+      "openTask": "Open",
+      "declined": "Doing it without a workflow",
+      "chooseWorkflow": "Choose the workflow"
+    },
+    "saved": {
+      "pending": "Saved “{{name}}” for your approval",
+      "approved": "“{{name}}” is approved",
+      "changed": "“{{name}}” changed since you approved it",
+      "removed": "“{{name}}” is no longer in the library",
+      "refused": "The workflow wasn't saved",
+      "refusedHint": "{{agent}} can fix these and save it again.",
+      "approveHint": "Nothing can use it until you approve it in the Marketplace.",
+      "open": "Open in Marketplace",
+      "madeBy": "Written by {{agent}}"
+    },
+    "check": {
+      "report": "Report · {{outcome}}",
+      "reportPlain": "Report",
+      "pick": "Pick · {{steps}}",
+      "accepted": "Accepted",
+      "refused": "Refused",
+      "lines": {
+        "report": {
+          "step_open": "The step was open for its report",
+          "outcome": "“{{outcome}}” is one of this step's outcomes",
+          "outcomePlain": "It reported one of this step's outcomes",
+          "note": "The note it hands in is there",
+          "document": "It wrote the document it hands in during this step",
+          "committed": "Its changes are committed",
+          "merged": "The merge is committed",
+          "picks": "Its picks hold"
+        },
+        "pick": {
+          "step": "{{step}} waits for this pick",
+          "agent": "{{agent}} is there and on",
+          "allowed": "Auto can pick {{agent}}",
+          "model": "{{agent}} lists {{model}}",
+          "modelPlain": "{{agent}} lists the model",
+          "effort": "{{effort}} is one of its efforts",
+          "effortPlain": "It takes the effort",
+          "tools": "The step's tools can be handed to it",
+          "limit": "Its plan limit isn't used up",
+          "review": "It doesn't review its own work"
+        }
+      },
+      "next": {
+        "review": "{{step}} now waits for your review.",
+        "pick": "Next, {{agent}} picks who does {{steps}}.",
+        "endDone": "The task is done.",
+        "endDropped": "The task ends as dropped.",
+        "retryReport": "{{agent}} fixes this and reports again.",
+        "retryPick": "{{agent}} picks again.",
+        "stuck": "Refused too often: the task waits for you.",
+        "start_one": "{{steps}} starts next.",
+        "start_other": "{{steps}} start next.",
+        "wait_one": "{{steps}} waits for the other branches.",
+        "wait_other": "{{steps}} wait for the other branches.",
+        "person_one": "{{steps}} waits for you.",
+        "person_other": "{{steps}} wait for you."
+      },
+      "showDetails": "What Kettu said",
+      "hideDetails": "Hide"
+    }
+  },
+  "marketPublish": {
+    "kind": {
+      "skill": "Skill",
+      "plugin": "Plugin",
+      "mcp-server": "MCP server",
+      "workflow": "Workflow"
+    },
+    "visibility": {
+      "public": "Everyone",
+      "private": "Only me",
+      "unlisted": "Unlisted"
+    },
+    "visibilityHint": {
+      "public": "Listed in the Marketplace for anyone signed in to Kettu.",
+      "private": "Not listed. Installs on the computers signed in to your account."
+    },
+    "harness": {
+      "claude-code": "Claude Code",
+      "codex": "Codex"
+    },
+    "everyAgent": "Every agent",
+    "stepAgents": "Claude Code and Codex",
+    "visibleTo": "Visible to",
+    "asBefore": "as before",
+    "adds": "Adds",
+    "addsGroup": {
+      "skills": "Skill",
+      "commands": "Commands",
+      "agents": "Agents",
+      "hooks": "Hooks",
+      "servers": "MCP server"
+    },
+    "workflowGroup": {
+      "steps": "Steps",
+      "waits": "Waits for you at",
+      "servers": "Names MCP servers",
+      "skills": "Names Skills"
+    },
+    "stepsBy": "Steps run by",
+    "worksWith": "Works with",
+    "runs": "Runs",
+    "changes": "Changes",
+    "change": {
+      "added": "new",
+      "removed": "removed"
+    },
+    "uploads": "Uploads",
+    "filesSize_one": "{{count}} file, {{size}}",
+    "filesSize_other": "{{count}} files, {{size}}",
+    "from": "from {{folder}}",
+    "viewFiles": "View files",
+    "hideFiles": "Hide files",
+    "checks": "Checks",
+    "noSecrets": "No secrets",
+    "runsNothing": "Runs nothing on install",
+    "withinLimits": "Within the limits",
+    "title": {
+      "new": "Publish to the Kettu Marketplace?",
+      "version": "Publish version {{version}} of {{name}}?",
+      "unlist": "Unlist {{name}} from the Kettu Marketplace?"
+    },
+    "description": {
+      "new": "Nothing is uploaded until you publish. Later versions ask you again.",
+      "version_one": "{{count}} person has it. They get {{version}} at their next update.",
+      "version_other": "{{count}} people have it. They get {{version}} at their next update.",
+      "unlist": "It leaves the Marketplace. People who have it keep it and its updates."
+    },
+    "notes": "What’s new · Written by {{agent}}, editable",
+    "notesYours": "What’s new",
+    "notesPlaceholder": "What changed in this version",
+    "publisherName": "Publisher name",
+    "publisherHint": "Your first publish: this name goes on everything you publish. Change it later in Published.",
+    "handleInvalid": "A publisher name is 1 to 32 lowercase letters, digits and hyphens, starting and ending with a letter or digit.",
+    "publish": "Publish",
+    "publishVersion": "Publish {{version}}",
+    "unlist": "Unlist",
+    "notNow": "Not now",
+    "keptDraft": "Kept as a draft",
+    "showProblems_one": "Show {{count}} problem",
+    "showProblems_other": "Show {{count}} problems",
+    "hideProblems": "Hide problems",
+    "outcome": {
+      "publishing": "Publishing {{name}}…",
+      "unlisting": "Unlisting {{name}}…",
+      "published": "Published {{name}} {{version}}",
+      "unlisted": "Unlisted {{name}}",
+      "failed": "Couldn’t publish {{name}}",
+      "unlistFailed": "Couldn’t unlist {{name}}",
+      "later": "Not published",
+      "expired": "No answer in time",
+      "ended": "The turn ended first",
+      "interrupted": "Kettu stopped before the Marketplace answered"
+    }
+  },
+  "sideChat": {
+    "title": "Side chat",
+    "note": {
+      "claude": "Not in the conversation · no tools",
+      "codex": "Not in the conversation · read only, no approvals",
+      "fork": "Not in the conversation · temporary fork, removed after",
+      "hidden": "Not in the conversation · temporary session, removed after",
+      "other": "Answered by {{agent}} · temporary session"
+    },
+    "empty": {
+      "title": "Ask {{agent}}",
+      "claudeSees": "Sees this session's whole conversation so far, the running turn included; only the reply still being written is missing",
+      "codexSees": "Sees the whole conversation so far, the finished parts of the running turn included",
+      "noInterrupt": "Does not interrupt it, and nothing enters the conversation",
+      "claudeTools": "No tools; to read files or run commands, ask in the main conversation",
+      "codexTools": "Can read files and run read-only commands; changes nothing and asks for no approval",
+      "claudeCost": "Uses this session's plan and its prompt cache; Claude Code does not report side chat usage, so the Usage page leaves it out",
+      "codexCost": "Uses this session's plan and shares its prompt cache",
+      "forkHow": "{{agent}} forks this session to answer, and Kettu removes the fork after",
+      "forkSees": "Sees the whole conversation so far; a tool call still running may be missing",
+      "forkCost": "Shares part of the session's prompt cache; the fork takes a few seconds to open",
+      "hiddenHow": "{{agent}} has no side question or fork of its own: Kettu opens a temporary session to answer and removes it after",
+      "hiddenCarried": "It gets the whole conversation when it fits the model's window, else the first request and the latest turns, and says which",
+      "hiddenCost": "It shares no cache with the session: the first question pays for that conversation in full and takes a few seconds; follow-ups get cheaper"
+    },
+    "pick": {
+      "title": "{{agent}} cannot side chat yet",
+      "why": "Its temporary sessions are not removed cleanly and would stay in its own history. Another agent can answer, given this session's conversation.",
+      "before": "Answer with",
+      "after": "",
+      "cost": "Uses {{agent}}'s plan; it carries the whole conversation when it fits, else the first request and the latest turns.",
+      "ask": "Ask with {{agent}}",
+      "none": "No agent on this computer can answer side questions.",
+      "change": "Answer with another agent"
+    },
+    "answering": "Answering…",
+    "stop": "Stop",
+    "stopped": "Stopped",
+    "retry": "Retry",
+    "quote": "Quote in composer",
+    "copy": "Copy",
+    "copied": "Copied",
+    "saw": {
+      "agent": "Saw the whole conversation · {{agent}}'s own side question",
+      "fork": "Saw the whole conversation · a temporary fork",
+      "agentCompacted": "Saw the conversation as the agent holds it · {{agent}}'s own side question",
+      "forkCompacted": "Saw the conversation as the agent holds it · a temporary fork",
+      "compacted_one": "The agent compacted its context: the first turn is only in its summary",
+      "compacted_other": "The agent compacted its context: the first {{count}} turns are only in its summary",
+      "compactedNone": "The agent compacted its context and nothing came after it",
+      "copyAfter_one": "Saw everything since the compaction, 1 turn · about {{tokens}}k tokens · temporary session",
+      "copyAfter_other": "Saw everything since the compaction, {{count}} turns · about {{tokens}}k tokens · temporary session",
+      "none": "The session has no conversation yet",
+      "copyAll_one": "Saw the whole conversation, 1 turn · about {{tokens}}k tokens · temporary session",
+      "copyAll_other": "Saw the whole conversation, {{count}} turns · about {{tokens}}k tokens · temporary session",
+      "copyPart_one": "Saw the first request and the latest turn, of {{total}} · about {{tokens}}k tokens · temporary session",
+      "copyPart_other": "Saw the first request and the latest {{count}} of {{total}} turns · about {{tokens}}k tokens · temporary session",
+      "fellBackAgent": "{{agent}}'s own side question was not available, so a temporary session answered",
+      "fellBackFork": "{{agent}} could not fork the session, so a temporary session answered"
+    },
+    "step": {
+      "read": "Read {{title}}",
+      "search": "Searched {{title}}",
+      "run": "Ran {{title}}",
+      "other": "{{title}}"
+    },
+    "placeholder": {
+      "first": "Ask a question…",
+      "more": "Ask a follow-up…"
+    },
+    "hint": {
+      "keys": "{{send}} asks · Esc back to the conversation",
+      "close": "{{keys}} hides"
+    },
+    "clear": "Clear",
+    "cleared": "Side chat cleared",
+    "undo": "Undo",
+    "close": "Close",
+    "send": "Ask",
+    "quoted": "Quoted passage",
+    "removeQuote": "Remove the quote",
+    "seconds": "{{n}} s",
+    "by": "Answered by {{agent}}"
+  }
+}

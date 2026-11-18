@@ -1,0 +1,83 @@
+{
+  "actions": {
+    "cancel": "取消",
+    "close": "关闭",
+    "copy": "复制",
+    "copyCommand": "复制命令",
+    "copied": "已复制",
+    "dismiss": "关闭提示",
+    "done": "完成",
+    "retry": "重试"
+  },
+  "untitledSession": "未命名会话",
+  "loading": "正在加载",
+  "time": {
+    "now": "刚刚",
+    "minutesShort": "{{count}} 分钟",
+    "hoursShort": "{{count}} 小时",
+    "daysShort": "{{count}} 天",
+    "weeksShort": "{{count}} 周",
+    "justNow": "刚刚",
+    "yesterday": "昨天",
+    "onDate": "{{date}}",
+    "minAgo_other": "{{count}} 分钟前",
+    "hAgo_other": "{{count}} 小时前",
+    "daysAgo_other": "{{count}} 天前",
+    "seconds": "{{s}} 秒",
+    "secondsShort": "{{s}} 秒",
+    "minutesSeconds": "{{m}} 分 {{s}} 秒",
+    "minutesSecondsShort": "{{m}} 分 {{s}} 秒",
+    "minutesLeft": "{{m}} 分钟",
+    "hoursMinutes": "{{h}} 小时 {{m}} 分",
+    "hoursMinutesShort": "{{h}} 小时 {{m}} 分",
+    "minutes": "{{m}} 分钟"
+  },
+  "errors": {
+    "hostRestarted": "Kettu 的后台进程已重启，请重试。",
+    "hostOffline": "这台主机没有连上，等它回来后再试。",
+    "hostTimeout": "Kettu 没有及时得到响应，请重试。"
+  },
+  "planReset": {
+    "in": "{{time}}后重置",
+    "at": "{{time}} 重置"
+  },
+  "planWindow": {
+    "five_hour": "5 小时",
+    "seven_day": "每周",
+    "seven_day_opus": "每周 · Opus",
+    "seven_day_sonnet": "每周 · Sonnet",
+    "monthly": "每月",
+    "annual": "每年",
+    "overage": "额外用量",
+    "weeklyOf": "每周 · {{model}}",
+    "fiveHourOf": "5 小时 · {{model}}"
+  },
+  "planWindowInText": {
+    "seven_day_opus": "Opus 每周",
+    "seven_day_sonnet": "Sonnet 每周",
+    "weeklyOf": "{{model}} 每周",
+    "fiveHourOf": "{{model}} 5 小时"
+  },
+  "planView": {
+    "label": "限额显示方式",
+    "used": "已用",
+    "left": "剩余"
+  },
+  "fileManager": {
+    "mac": "访达",
+    "windows": "资源管理器",
+    "linux": "文件管理器"
+  },
+  "windowTitle": {
+    "onHost": "{{host}} — Kettu"
+  },
+  "toasts": {
+    "region": "通知"
+  },
+  "pane": {
+    "maximize": "最大化",
+    "restore": "还原",
+    "collapse": "隐藏侧边面板",
+    "open": "显示侧边面板"
+  }
+}

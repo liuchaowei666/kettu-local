@@ -1,0 +1,1683 @@
+// The scripted scenarios the fake agent plays. Each returns the turn's stop reason.
+
+import { join } from 'node:path'
+import { RequestError } from '@agentclientprotocol/sdk/unstable'
+import type {
+  ContentBlock,
+  PermissionOption,
+  PlanEntry,
+  SessionUpdate,
+  StopReason,
+  ToolKind,
+} from '@agentclientprotocol/sdk/unstable'
+import {
+  BASIC_DONE,
+  CHINESE_ANSWER,
+  REASONING,
+  REASONING_MESSAGES,
+  REPORT_ANSWER,
+  SHORT_THOUGHTS,
+  BASIC_NOTE,
+  BASIC_REPLY,
+  CLOCK_AFTER,
+  CLOCK_BEFORE,
+  CLOCK_TEST,
+  COMMANDS,
+  SVG_REPLY,
+  SHELL_REPLY,
+  CONTENT_BLOCKS,
+  CONTENT_FAILING,
+  CONTENT_NEW,
+  CONTENT_OLD,
+  CONTENT_PASSING,
+  CONTENT_TEXT,
+  MEDIA_REPLY,
+  TABLES_REPLY,
+  THINKING_ANSWER,
+  THOUGHT_TEXT,
+  chunkText,
+  commandOutput,
+  fakeFile,
+  longMarkdown,
+  tokenChunks,
+} from './content.ts'
+import { artifacts } from './artifacts.ts'
+import { browser, deviceTool, openSite } from './browser.ts'
+import { computer } from './computer.ts'
+import type { ScenarioName } from './options.ts'
+import type { Scenario, Turn } from './turn.ts'
+
+// A 1x1 transparent PNG, so image content has something valid to decode.
+const PIXEL_PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+
+export const ALL_PERMISSION_OPTIONS: PermissionOption[] = [
+  { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
+  { optionId: 'allow-always', name: 'Always allow', kind: 'allow_always' },
+  { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' },
+  { optionId: 'reject-always', name: 'Always reject', kind: 'reject_always' },
+]
+
+interface StreamOptions {
+  kind?: 'agent' | 'thought'
+  messageId?: string
+  delayMs?: number
+  chunks?: string[]
+  sessionId?: string
+}
+
+/** Streams text in token-sized chunks; returns false if the turn was cancelled. */
+async function stream(turn: Turn, text: string, options: StreamOptions = {}): Promise<boolean> {
+  const chunks = options.chunks ?? groupTokens(tokenChunks(text), 3)
+  const sessionUpdate = options.kind === 'thought' ? 'agent_thought_chunk' : 'agent_message_chunk'
+  for (const chunk of chunks) {
+    if (turn.signal.aborted) return false
+    await turn.send(
+      {
+        sessionUpdate,
+        content: { type: 'text', text: chunk },
+        ...(options.messageId ? { messageId: options.messageId } : {}),
+      },
+      options.sessionId,
+    )
+    await turn.sleep(options.delayMs ?? 30)
+  }
+  return !turn.signal.aborted
+}
+
+function groupTokens(tokens: string[], size: number): string[] {
+  const groups: string[] = []
+  for (let i = 0; i < tokens.length; i += size) groups.push(tokens.slice(i, i + size).join(''))
+  return groups
+}
+
+function filePath(turn: Turn, relative: string): string {
+  return join(turn.session.cwd, relative)
+}
+
+/** Context usage plus the two plan windows, as claude-agent-acp reports them. */
+export async function sendUsage(turn: Turn, extraTokens = 1800): Promise<void> {
+  const session = turn.session
+  session.usedTokens = Math.min(200_000, session.usedTokens + extraTokens)
+  const now = Math.floor(Date.now() / 1000)
+  const { fiveHour, weekly } = planWindows(session.turns)
+  const windows = [
+    { rateLimitType: 'five_hour', utilization: fiveHour, resetsAt: now + 2 * 3600 + 840 },
+    { rateLimitType: 'seven_day', utilization: weekly, resetsAt: now + 3 * 86400 + 7200 },
+  ]
+  for (const window of windows) {
+    await turn.send({
+      sessionUpdate: 'usage_update',
+      used: session.usedTokens,
+      size: 200_000,
+      cost: { amount: Math.round(session.usedTokens * 0.3) / 100_000, currency: 'USD' },
+      _meta: {
+        '_claude/rateLimit': {
+          status: window.utilization >= 0.8 ? 'allowed_warning' : 'allowed',
+          ...window,
+        },
+      },
+    })
+  }
+}
+
+const basicTurn: Scenario = async (turn) => {
+  const intro = turn.text ? `> ${turn.text.split('\n')[0]}\n\n` : ''
+  if (!(await stream(turn, intro + BASIC_REPLY, { messageId: turn.messageId() }))) {
+    return 'cancelled'
+  }
+  // Two runs of work around a short note, which the thread folds into a line each.
+  const n = turn.id
+  for (const [i, file] of ['src/clock.ts', 'src/session.ts', 'test/login.ts'].entries()) {
+    const path = filePath(turn, file)
+    await turn.send({
+      sessionUpdate: 'tool_call',
+      toolCallId: `read-${n}-${i}`,
+      title: `Read ${file}`,
+      kind: 'read',
+      status: 'completed',
+      locations: [{ path }],
+      rawInput: { file_path: path },
+    })
+    await turn.sleep(40)
+  }
+  const toolCallId = `edit-${n}`
+  const path = filePath(turn, 'src/clock.ts')
+  await turn.send({
+    sessionUpdate: 'tool_call',
+    toolCallId,
+    title: 'Edit src/clock.ts',
+    kind: 'edit',
+    status: 'pending',
+    locations: [{ path, line: 1 }],
+    rawInput: { file_path: path, old_string: CLOCK_BEFORE, new_string: CLOCK_AFTER },
+  })
+  await turn.sleep(150)
+  await turn.send({ sessionUpdate: 'tool_call_update', toolCallId, status: 'in_progress' })
+  await turn.sleep(250)
+  await turn.send({
+    sessionUpdate: 'tool_call_update',
+    toolCallId,
+    status: 'completed',
+    content: [{ type: 'diff', path, oldText: CLOCK_BEFORE, newText: CLOCK_AFTER }],
+  })
+  if (!(await stream(turn, BASIC_NOTE, { messageId: turn.messageId() }))) return 'cancelled'
+  const testPath = filePath(turn, 'test/clock.test.ts')
+  await turn.send({
+    sessionUpdate: 'tool_call',
+    toolCallId: `write-${n}`,
+    title: 'Write test/clock.test.ts',
+    kind: 'edit',
+    status: 'completed',
+    locations: [{ path: testPath }],
+    rawInput: { file_path: testPath, content: CLOCK_TEST },
+    content: [{ type: 'diff', path: testPath, oldText: null, newText: CLOCK_TEST }],
+  })
+  await turn.sleep(80)
+  const command = 'pnpm test test/login.ts test/clock.test.ts'
+  await turn.send({
+    sessionUpdate: 'tool_call',
+    toolCallId: `test-${n}`,
+    title: command,
+    kind: 'execute',
+    status: 'in_progress',
+    rawInput: { command, description: 'Run the login and clock tests' },
+  })
+  await turn.sleep(300)
+  await turn.send({
+    sessionUpdate: 'tool_call_update',
+    toolCallId: `test-${n}`,
+    status: 'completed',
+    content: [
+      {
+        type: 'content',
+        content: { type: 'text', text: '```\n' + commandOutput(command, 1) + '```' },
+      },
+    ],
+    rawOutput: { exitCode: 0 },
+  })
+  if (!(await stream(turn, BASIC_DONE, { messageId: turn.messageId() }))) return 'cancelled'
+  await sendUsage(turn)
+  return 'end_turn'
+}
+
+const longStream: Scenario = async (turn) => {
+  const text = longMarkdown(turn.options.size)
+  const chunks = chunkText(text, 100)
+  const interval = 1000 / turn.options.rate
+  const start = Date.now()
+  for (let i = 0; i < chunks.length; i++) {
+    if (turn.signal.aborted) return 'cancelled'
+    await turn.send({
+      sessionUpdate: 'agent_message_chunk',
+      content: { type: 'text', text: chunks[i]! },
+    })
+    const wait = start + (i + 1) * interval - Date.now()
+    await turn.sleep(Math.max(0, wait))
+  }
+  await sendUsage(turn, Math.round(text.length / 4))
+  return 'end_turn'
+}
+
+const TOOL_KINDS: ToolKind[] = ['read', 'search', 'edit', 'execute', 'read', 'fetch', 'think']
+
+const toolStorm: Scenario = async (turn) => {
+  if (!(await stream(turn, 'Scanning the repository before I change anything.\n\n'))) {
+    return 'cancelled'
+  }
+  for (let i = 0; i < turn.options.count; i++) {
+    if (turn.signal.aborted) return 'cancelled'
+    const kind = TOOL_KINDS[i % TOOL_KINDS.length]!
+    const toolCallId = `storm-${turn.id}-${i}`
+    const file = fakeFile(i)
+    const path = filePath(turn, file)
+    const command = COMMANDS[i % COMMANDS.length]!
+    const title =
+      kind === 'read'
+        ? `Read ${file}`
+        : kind === 'search'
+          ? `Search for "token" in ${file}`
+          : kind === 'edit'
+            ? `Edit ${file}`
+            : kind === 'execute'
+              ? `Run ${command}`
+              : kind === 'fetch'
+                ? 'Fetch https://agentclientprotocol.com/protocol/tool-calls'
+                : 'Think about the next step'
+    await turn.send({
+      sessionUpdate: 'tool_call',
+      toolCallId,
+      title,
+      kind,
+      status: 'pending',
+      locations: kind === 'read' || kind === 'edit' ? [{ path, line: (i % 40) + 1 }] : [],
+      rawInput: kind === 'execute' ? { command } : { path },
+    })
+    await turn.send({ sessionUpdate: 'tool_call_update', toolCallId, status: 'in_progress' })
+    await turn.sleep(turn.options.paceMs)
+    await turn.send({
+      sessionUpdate: 'tool_call_update',
+      toolCallId,
+      status: i % 97 === 13 ? 'failed' : 'completed',
+      content:
+        kind === 'edit'
+          ? [
+              {
+                type: 'diff',
+                path,
+                oldText: `const value = ${i}\n`,
+                newText: `const value = ${i + 1}\n`,
+              },
+            ]
+          : [
+              {
+                type: 'content',
+                content: {
+                  type: 'text',
+                  text:
+                    kind === 'execute'
+                      ? '```\n' + commandOutput(command, i) + '```'
+                      : `Line ${(i % 40) + 1}: \`issueToken(user, now)\``,
+                },
+              },
+            ],
+    })
+    await turn.sleep(turn.options.paceMs)
+  }
+  if (
+    !(await stream(turn, `\nChecked ${turn.options.count} places. Nothing else needs to change.`))
+  ) {
+    return 'cancelled'
+  }
+  await sendUsage(turn, 12_000)
+  return 'end_turn'
+}
+
+async function runCommand(
+  turn: Turn,
+  toolCallId: string,
+  command: string,
+  outcome: string,
+  sessionId?: string,
+): Promise<void> {
+  if (outcome.startsWith('allow')) {
+    await turn.send(
+      { sessionUpdate: 'tool_call_update', toolCallId, status: 'in_progress' },
+      sessionId,
+    )
+    await turn.sleep(400)
+    await turn.send(
+      {
+        sessionUpdate: 'tool_call_update',
+        toolCallId,
+        status: 'completed',
+        content: [
+          {
+            type: 'content',
+            content: { type: 'text', text: '```\n' + commandOutput(command, 1) + '```' },
+          },
+        ],
+        rawOutput: { exitCode: 0 },
+      },
+      sessionId,
+    )
+  } else {
+    await turn.send(
+      {
+        sessionUpdate: 'tool_call_update',
+        toolCallId,
+        status: 'failed',
+        content: [{ type: 'content', content: { type: 'text', text: 'The user declined.' } }],
+      },
+      sessionId,
+    )
+  }
+}
+
+const permission: Scenario = async (turn) => {
+  if (!(await stream(turn, 'I need to run the test suite to check the fix.\n\n')))
+    return 'cancelled'
+  const toolCallId = `cmd-${turn.id}`
+  const command = 'pnpm test --filter login'
+  await turn.send({
+    sessionUpdate: 'tool_call',
+    toolCallId,
+    title: `Run ${command}`,
+    kind: 'execute',
+    status: 'pending',
+    rawInput: { command, description: 'Runs the login tests' },
+  })
+  const outcome = await turn.requestPermission(
+    { toolCallId, title: `Run ${command}`, kind: 'execute', rawInput: { command } },
+    ALL_PERMISSION_OPTIONS,
+    { withdrawAfterMs: turn.options.withdrawMs },
+  )
+  if (outcome === 'cancelled') return 'cancelled'
+  if (outcome === 'withdrawn') {
+    await turn.send({ sessionUpdate: 'tool_call_update', toolCallId, status: 'failed' })
+    await stream(turn, 'I withdrew the request; the tests can wait.')
+    return 'end_turn'
+  }
+  await runCommand(turn, toolCallId, command, outcome)
+  const reply = outcome.startsWith('allow')
+    ? 'All 12 login tests pass. '
+    : 'OK, I will not run it. '
+  await stream(turn, reply + `You chose \`${outcome}\`.`)
+  await sendUsage(turn)
+  return 'end_turn'
+}
+
+const parallelPermissions: Scenario = async (turn) => {
+  if (!(await stream(turn, 'Three things need your approval.\n\n'))) return 'cancelled'
+  const calls: { id: string; title: string; kind: ToolKind; command: string }[] = [
+    { id: 'lint', title: 'Run pnpm lint --fix', kind: 'execute', command: 'pnpm lint --fix' },
+    { id: 'pkg', title: 'Edit package.json', kind: 'edit', command: 'edit package.json' },
+    { id: 'cache', title: 'Delete .cache', kind: 'delete', command: 'rm -rf .cache' },
+  ]
+  for (const call of calls) {
+    await turn.send({
+      sessionUpdate: 'tool_call',
+      toolCallId: `${call.id}-${turn.id}`,
+      title: call.title,
+      kind: call.kind,
+      status: 'pending',
+      rawInput: { command: call.command },
+    })
+  }
+  const outcomes = await Promise.all(
+    calls.map((call) =>
+      turn.requestPermission(
+        { toolCallId: `${call.id}-${turn.id}`, title: call.title, kind: call.kind },
+        ALL_PERMISSION_OPTIONS.filter((option) => option.kind !== 'reject_always'),
+      ),
+    ),
+  )
+  if (outcomes.includes('cancelled')) return 'cancelled'
+  for (const [index, call] of calls.entries()) {
+    await runCommand(turn, `${call.id}-${turn.id}`, call.command, outcomes[index]!)
+  }
+  await stream(turn, `Answers: ${outcomes.map((o) => `\`${o}\``).join(', ')}.`)
+  await sendUsage(turn)
+  return 'end_turn'
+}
+
+// Worded as Claude Code's requests are in Kettu: allowing always names only the safe step.
+const COMMAND_OPTIONS: PermissionOption[] = [
+  { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
+  {
+    optionId: 'allow-always',
+    name: 'Always allow `pnpm dev` in this project',
+    kind: 'allow_always',
+  },
+  { optionId: 'reject-once', name: 'Deny, and say what to do instead', kind: 'reject_once' },
+]
+const EDIT_OPTIONS: PermissionOption[] = [
+  { optionId: 'allow-once', name: 'Allow this edit', kind: 'allow_once' },
+  { optionId: 'allow-always', name: 'Allow all edits in this session', kind: 'allow_always' },
+  { optionId: 'reject-once', name: 'Deny, and say what to do instead', kind: 'reject_once' },
+]
+const DAY_KEY_BEFORE = `export function dayKey(ts: number) {
+  return new Date(ts).toISOString().slice(0, 10)
+}
+`
+const DAY_KEY_AFTER = `export function dayKey(ts: number) {
+  const d = new Date(ts)
+  return format(d, "yyyy-MM-dd")
+}
+`
+
+const approvals: Scenario = async (turn) => {
+  // `/approvals single` asks for one plain command and stops there.
+  const single = turn.text.trim() === 'single'
+  const intro = single
+    ? 'I will run the usage tests to check the fix.\n\n'
+    : 'The cache is stale, so I will clear it and start the dev server.\n\n'
+  if (!(await stream(turn, intro))) return 'cancelled'
+  const commandId = `cmd-${turn.id}`
+  const command = single
+    ? 'pnpm vitest run src/usage'
+    : 'rm -rf node_modules/.vite && pnpm dev --port 5173'
+  await turn.send({
+    sessionUpdate: 'tool_call',
+    toolCallId: commandId,
+    title: `Run ${command}`,
+    kind: 'execute',
+    status: 'pending',
+    rawInput: { command },
+  })
+  const ran = await turn.requestPermission(
+    { toolCallId: commandId, title: `Run ${command}`, kind: 'execute', rawInput: { command } },
+    single
+      ? COMMAND_OPTIONS.map((option) =>
+          option.kind === 'allow_always'
+            ? { ...option, name: 'Always allow `pnpm vitest` in this project' }
+            : option,
+        )
+      : COMMAND_OPTIONS,
+  )
+  if (ran === 'cancelled') return 'cancelled'
+  await runCommand(turn, commandId, command, ran)
+  if (single) {
+    await stream(turn, `Answer: \`${ran}\`.`)
+    return 'end_turn'
+  }
+  const editId = `edit-${turn.id}`
+  const path = filePath(turn, 'src/usage/usage-store.ts')
+  await turn.send({
+    sessionUpdate: 'tool_call',
+    toolCallId: editId,
+    title: 'Edit src/usage/usage-store.ts',
+    kind: 'edit',
+    status: 'pending',
+    locations: [{ path, line: 41 }],
+    content: [{ type: 'diff', path, oldText: DAY_KEY_BEFORE, newText: DAY_KEY_AFTER }],
+  })
+  const edited = await turn.requestPermission(
+    { toolCallId: editId, title: 'Edit src/usage/usage-store.ts', kind: 'edit' },
+    EDIT_OPTIONS,
+  )
+  if (edited === 'cancelled') return 'cancelled'
+  await turn.send({
+    sessionUpdate: 'tool_call_update',
+    toolCallId: editId,
+    status: edited.startsWith('allow') ? 'completed' : 'failed',
+  })
+  await stream(turn, `Answers: \`${ran}\`, \`${edited}\`.`)
+  return 'end_turn'
+}
+
+const cancel: Scenario = async (turn) => {
+  const deadline = Date.now() + 60_000
+  let step = 0
+  while (Date.now() < deadline) {
+    if (turn.signal.aborted) return 'cancelled'
+    const text = `Working on step ${++step}. This turn keeps going until you cancel it. `
+    await turn.send({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } })
+    await turn.sleep(250)
+    if (turn.signal.aborted) return 'cancelled'
+    if (step % 4 === 0) {
+      const toolCallId = `long-${turn.id}-${step}`
+      await turn.send({
+        sessionUpdate: 'tool_call',
+        toolCallId,
+        title: `Read ${fakeFile(step)}`,
+        kind: 'read',
+        status: 'in_progress',
+      })
+      await turn.sleep(200)
+      await turn.send({ sessionUpdate: 'tool_call_update', toolCallId, status: 'completed' })
+    }
+  }
+  return 'end_turn'
+}
+
+/**
+ * A long working turn in Claude Code's shape: each round thinks, reads a file, runs a command,
+ * edits a file and writes a note, and the context it reports grows as it goes, as Claude Code
+ * reports it after each response. It runs until it is cancelled, or for ten minutes.
+ */
+const longTurn: Scenario = async (turn) => {
+  const deadline = Date.now() + 10 * 60_000
+  const grow = async (tokens: number) => {
+    const session = turn.session
+    session.usedTokens = Math.min(200_000, session.usedTokens + tokens)
+    await turn.send({ sessionUpdate: 'usage_update', used: session.usedTokens, size: 200_000 })
+  }
+  // `target` is the command to run, or the file the call reads or edits.
+  const step = async (toolCallId: string, kind: ToolKind, target: string, ms: number) => {
+    const path = kind === 'execute' ? null : filePath(turn, target)
+    const verb = kind === 'execute' ? 'Run' : kind === 'read' ? 'Read' : 'Edit'
+    await turn.send({
+      sessionUpdate: 'tool_call',
+      toolCallId,
+      title: `${verb} ${target}`,
+      kind,
+      status: 'in_progress',
+      locations: path ? [{ path }] : [],
+      rawInput: path ? { path } : { command: target },
+    })
+    await turn.sleep(ms)
+    if (turn.signal.aborted) return false
+    await turn.send({ sessionUpdate: 'tool_call_update', toolCallId, status: 'completed' })
+    await grow(1400)
+    return true
+  }
+  for (let round = 1; Date.now() < deadline; round++) {
+    const id = `long-${turn.id}-${round}`
+    const thought = `Round ${round}: what the last command printed decides what to change next.`
+    if (!(await stream(turn, thought, { kind: 'thought', delayMs: 150 }))) return 'cancelled'
+    const file = fakeFile(round)
+    const command = COMMANDS[round % COMMANDS.length]!
+    if (!(await step(`${id}-read`, 'read', file, 1500))) return 'cancelled'
+    if (!(await step(`${id}-run`, 'execute', command, 3000))) return 'cancelled'
+    if (!(await step(`${id}-edit`, 'edit', file, 1500))) return 'cancelled'
+    const note = `Round ${round} is done: \`${command}\` passes, so I move on to the next file. `
+    if (!(await stream(turn, note, { messageId: turn.messageId(), delayMs: 80 }))) {
+      return 'cancelled'
+    }
+    await grow(600)
+  }
+  return 'end_turn'
+}
+
+// Never resolves: the process is gone before the turn could end.
+const crash: Scenario = async (turn) => {
+  if (!turn.options.silent) {
+    await stream(turn, 'Starting the build. ', { messageId: turn.messageId() })
+    await turn.send({
+      sessionUpdate: 'tool_call',
+      toolCallId: `build-${turn.id}`,
+      title: 'Run pnpm build',
+      kind: 'execute',
+      status: 'in_progress',
+    })
+  }
+  await turn.sleep(300)
+  turn.log(`fake-agent: crashing with exit code ${turn.options.exitCode}`)
+  turn.exit(turn.options.exitCode)
+  return new Promise<StopReason>(() => {})
+}
+
+const error: Scenario = async (turn) => {
+  if (!turn.options.silent)
+    await stream(turn, 'Checking the build. ', { messageId: turn.messageId() })
+  if (turn.options.holdMs > 0) await waitUnscaled(turn.options.holdMs, turn.signal)
+  throw RequestError.internalError(undefined, 'The fake agent failed this turn on purpose')
+}
+
+const authRequired: Scenario = async (turn) => {
+  // Clients send the failed prompt again after sign-in; like a real agent, that one succeeds.
+  if (turn.session.signedOut) {
+    turn.session.signedOut = false
+    await stream(turn, 'Signed in again, so the session picks up where it was.')
+    return 'end_turn'
+  }
+  turn.session.signedOut = true
+  turn.signOut()
+  throw RequestError.authRequired(undefined, 'Sign in to the fake agent to continue')
+}
+
+// A provider's reply as an adapter passes it on; sent again, as after a top-up, the turn answers.
+const outOfCredit: Scenario = async (turn) => {
+  if (turn.session.outOfCredit) {
+    turn.session.outOfCredit = false
+    await stream(turn, 'Topped up, so the turn goes through this time.')
+    return 'end_turn'
+  }
+  turn.session.outOfCredit = true
+  throw RequestError.internalError(
+    undefined,
+    'Insufficient Balance (request_id: 38feb58f-1d93-45e0-8b50-717b16b1390d). Top up at https://example.com/billing',
+  )
+}
+
+const largeHistory: Scenario = async (turn) => {
+  const entries = turn.options.entries
+  turn.session.largeHistory = entries
+  await stream(
+    turn,
+    `This session now has a **${entries.toLocaleString('en')}-entry** history for \`session/load\` to replay. Kettu replays only a session it has stored no thread of, such as an imported one: import \`history-<n>\` for one with n entries.`,
+  )
+  return 'end_turn'
+}
+
+const slowStart: Scenario = async (turn) => {
+  await stream(
+    turn,
+    'Slow start happens before any prompt, so it is chosen at launch: set `FAKE_AGENT_SCENARIO=slow-start` (or `FAKE_AGENT_SLOW_START_MS`) before starting Kettu, then start a session. `initialize` then takes 20 s and prints progress to stderr.',
+  )
+  return 'end_turn'
+}
+
+const allUpdates: Scenario = async (turn) => {
+  const id = turn.id
+  const path = filePath(turn, 'src/clock.ts')
+  const updates: SessionUpdate[] = [
+    { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'Echoed user text' } },
+    {
+      sessionUpdate: 'agent_thought_chunk',
+      content: { type: 'text', text: 'Thinking about every update.' },
+    },
+    {
+      sessionUpdate: 'agent_message_chunk',
+      messageId: `all-${id}`,
+      content: { type: 'text', text: 'Every **update** variant, once.\n\n' },
+    },
+    {
+      sessionUpdate: 'agent_message_chunk',
+      messageId: `all-${id}`,
+      content: { type: 'image', mimeType: 'image/png', data: PIXEL_PNG },
+    },
+    {
+      sessionUpdate: 'agent_message_chunk',
+      messageId: `all-${id}`,
+      content: { type: 'resource_link', uri: 'file:///README.md', name: 'README.md' },
+    },
+    {
+      sessionUpdate: 'agent_message_chunk',
+      messageId: `all-${id}`,
+      content: { type: 'audio', mimeType: 'audio/wav', data: 'UklGRiQAAABXQVZF' },
+    },
+    {
+      sessionUpdate: 'agent_message_chunk',
+      messageId: `all-${id}`,
+      content: {
+        type: 'resource',
+        resource: { uri: 'file:///notes.txt', text: 'Embedded notes', mimeType: 'text/plain' },
+      },
+    },
+    {
+      sessionUpdate: 'tool_call',
+      toolCallId: `all-tool-${id}`,
+      title: 'Read src/clock.ts',
+      kind: 'read',
+      status: 'pending',
+      locations: [{ path, line: 3 }],
+    },
+    {
+      sessionUpdate: 'tool_call_update',
+      toolCallId: `all-tool-${id}`,
+      status: 'completed',
+      content: [
+        { type: 'content', content: { type: 'text', text: 'line one\r\nline two\r\n' } },
+        { type: 'diff', path, oldText: null, newText: 'export const created = true\n' },
+      ],
+      locations: [{ path }],
+      rawOutput: { bytes: 120 },
+    },
+    {
+      sessionUpdate: 'plan',
+      entries: [
+        { content: 'Send every update', priority: 'high', status: 'completed' },
+        { content: 'Check the thread', priority: 'medium', status: 'in_progress' },
+        { content: 'Tidy up', priority: 'low', status: 'pending' },
+      ],
+    },
+    {
+      sessionUpdate: 'available_commands_update',
+      availableCommands: [{ name: 'compact', description: 'Summarize the conversation' }],
+    },
+    { sessionUpdate: 'current_mode_update', currentModeId: 'code' },
+    {
+      sessionUpdate: 'session_info_update',
+      title: 'Every update variant',
+      updatedAt: new Date().toISOString(),
+    },
+    { sessionUpdate: 'notice', severity: 'info', title: 'An info notice' },
+    {
+      sessionUpdate: 'notice',
+      severity: 'warning',
+      title: 'A warning notice',
+      description: 'With a description that links to https://example.com/docs/notices.',
+    },
+    { sessionUpdate: 'notice', severity: 'error', title: 'An error notice' },
+    { sessionUpdate: 'notice', severity: 'debug', title: 'A notice with an unknown severity' },
+    { sessionUpdate: 'compaction_update', compactionId: `all-c-${id}`, status: 'in_progress' },
+    {
+      sessionUpdate: 'compaction_summary_chunk',
+      compactionId: `all-c-${id}`,
+      content: { type: 'text', text: 'Summary of the conversation.' },
+    },
+    { sessionUpdate: 'compaction_update', compactionId: `all-c-${id}`, status: 'completed' },
+  ]
+  for (const update of updates) {
+    await turn.send(update)
+    await turn.sleep(20)
+  }
+  await sendUsage(turn, 500)
+  if (turn.supportsSubagents) {
+    const child = `${turn.session.id}-all-sub-${id}`
+    await turn.send({
+      sessionUpdate: 'subagent_update',
+      sessionId: child,
+      title: 'A quick child',
+      state: { state: 'running' },
+    })
+    await turn.send(
+      {
+        sessionUpdate: 'session_message',
+        messageId: `all-sm-${id}`,
+        senderSessionId: turn.session.id,
+        recipientSessionId: child,
+        content: [{ type: 'text', text: 'Say hello.' }],
+      },
+      child,
+    )
+    await turn.send(
+      {
+        sessionUpdate: 'session_message_chunk',
+        messageId: `all-sm-${id}`,
+        content: { type: 'text', text: ' Then stop.' },
+      },
+      child,
+    )
+    await turn.send({
+      sessionUpdate: 'subagent_update',
+      sessionId: child,
+      state: { state: 'idle', stopReason: 'end_turn' },
+    })
+  }
+  await turn.sendRaw({ sessionUpdate: 'future_update', value: 42 })
+  return 'end_turn'
+}
+
+const subagent: Scenario = async (turn) => {
+  if (
+    !(await stream(turn, 'I will ask a subagent to explore the repository first.\n\n', {
+      messageId: turn.messageId(),
+    }))
+  ) {
+    return 'cancelled'
+  }
+  const n = turn.id
+  if (!turn.supportsSubagents) {
+    await turn.send({
+      sessionUpdate: 'tool_call',
+      toolCallId: `task-${n}`,
+      title: 'Explore the repository (subagent)',
+      kind: 'think',
+      status: 'completed',
+      content: [
+        {
+          type: 'content',
+          content: {
+            type: 'text',
+            text: 'The client did not advertise subagents, so this stays a tool call.',
+          },
+        },
+      ],
+    })
+    return 'end_turn'
+  }
+  const child = `${turn.session.id}-sub-${n}`
+  let childCancelled = false
+  turn.registerChild(child, () => {
+    childCancelled = true
+  })
+  const startedAt = Date.now()
+  await turn.send({
+    sessionUpdate: 'subagent_update',
+    sessionId: child,
+    title: 'Explore the repository',
+    description: 'Find where the session token is issued and validated',
+    capabilities: { cancel: {} },
+    state: { state: 'running' },
+  })
+  await turn.send(
+    {
+      sessionUpdate: 'session_message',
+      messageId: `delegate-${n}`,
+      senderSessionId: turn.session.id,
+      recipientSessionId: child,
+      content: [
+        {
+          type: 'text',
+          text: 'Find every place that reads the clock while issuing or validating a token. Report file and line.',
+        },
+      ],
+    },
+    child,
+  )
+  await stream(turn, 'Looking for clock reads.', { sessionId: child, messageId: `child-${n}-1` })
+  for (const [index, file] of ['src/clock.ts', 'src/auth/session.ts'].entries()) {
+    const toolCallId = `child-read-${n}-${index}`
+    await turn.send(
+      {
+        sessionUpdate: 'tool_call',
+        toolCallId,
+        title: `Read ${file}`,
+        kind: 'read',
+        status: 'in_progress',
+        locations: [{ path: filePath(turn, file) }],
+      },
+      child,
+    )
+    await turn.sleep(200)
+    await turn.send({ sessionUpdate: 'tool_call_update', toolCallId, status: 'completed' }, child)
+  }
+  const grep = `child-grep-${n}`
+  await turn.send(
+    {
+      sessionUpdate: 'tool_call',
+      toolCallId: grep,
+      title: 'Run rg "Date.now" src',
+      kind: 'execute',
+      status: 'pending',
+      rawInput: { command: 'rg "Date.now" src' },
+    },
+    child,
+  )
+  await turn.send({
+    sessionUpdate: 'subagent_update',
+    sessionId: child,
+    state: { state: 'requires_action' },
+  })
+  const outcome = await turn.requestPermission(
+    {
+      toolCallId: grep,
+      title: 'Run rg "Date.now" src',
+      kind: 'execute',
+      rawInput: { command: 'rg "Date.now" src' },
+    },
+    ALL_PERMISSION_OPTIONS.slice(0, 3),
+    { sessionId: child },
+  )
+  await turn.send({
+    sessionUpdate: 'subagent_update',
+    sessionId: child,
+    state: { state: 'running' },
+  })
+  if (outcome === 'cancelled' || childCancelled) {
+    await turn.send({
+      sessionUpdate: 'subagent_update',
+      sessionId: child,
+      state: { state: 'idle', stopReason: 'cancelled' },
+    })
+    return turn.signal.aborted ? 'cancelled' : 'end_turn'
+  }
+  await runCommand(turn, grep, 'rg "Date.now" src', outcome, child)
+  await stream(turn, '\n\nFound two reads: `src/clock.ts:2` and `src/clock.ts:6`.', {
+    sessionId: child,
+    messageId: `child-${n}-2`,
+  })
+  const elapsed = Date.now() - startedAt
+  await turn.send({
+    sessionUpdate: 'subagent_update',
+    sessionId: child,
+    state: {
+      state: 'idle',
+      stopReason: 'end_turn',
+      usage: { totalTokens: 5200 + (elapsed % 100), inputTokens: 4800, outputTokens: 400 },
+    },
+  })
+  await stream(turn, 'The subagent found both clock reads, so the fix from before covers them.', {
+    messageId: turn.messageId(),
+  })
+  await sendUsage(turn)
+  return 'end_turn'
+}
+
+const plan: Scenario = async (turn) => {
+  const items = [
+    'Read the failing test',
+    'Find the second clock read',
+    'Thread one timestamp through',
+    'Add a fake-timer regression test',
+  ]
+  const entries = (done: number): PlanEntry[] =>
+    items.map((content, index) => ({
+      content,
+      priority: index === 0 ? 'high' : index === items.length - 1 ? 'low' : 'medium',
+      status: index < done ? 'completed' : index === done ? 'in_progress' : 'pending',
+    }))
+  for (let done = 0; done <= items.length; done++) {
+    if (turn.signal.aborted) return 'cancelled'
+    await turn.send({ sessionUpdate: 'plan', entries: entries(done) })
+    if (done === items.length) break
+    await stream(turn, `${items[done]}… `, { delayMs: 40 })
+    const toolCallId = `plan-${turn.id}-${done}`
+    await turn.send({
+      sessionUpdate: 'tool_call',
+      toolCallId,
+      title: `Read ${fakeFile(done)}`,
+      kind: 'read',
+      status: 'in_progress',
+    })
+    await turn.sleep(turn.options.stepMs)
+    await turn.send({ sessionUpdate: 'tool_call_update', toolCallId, status: 'completed' })
+  }
+  await stream(turn, '\n\nAll four steps are done.')
+  await sendUsage(turn)
+  return 'end_turn'
+}
+
+// Claude Code's Bash call returns as soon as the command goes to the background, and it tells a
+// client without terminals nothing of the command after that.
+const background: Scenario = async (turn) => {
+  const toolCallId = `background-${turn.id}`
+  await turn.send({
+    sessionUpdate: 'tool_call',
+    toolCallId,
+    title: 'npm run dev',
+    kind: 'execute',
+    status: 'in_progress',
+    rawInput: {
+      command: 'npm run dev',
+      description: 'Start the dev server',
+      run_in_background: true,
+    },
+  })
+  await turn.sleep(100)
+  await turn.send({
+    sessionUpdate: 'tool_call_update',
+    toolCallId,
+    status: 'completed',
+    content: [
+      {
+        type: 'content',
+        content: { type: 'text', text: 'Command running in background with ID: b1' },
+      },
+    ],
+  })
+  await stream(turn, 'The dev server runs in the background.')
+  return 'end_turn'
+}
+
+/** Waits without the delay scale, for time that has to pass; false once the turn is cancelled. */
+function waitUnscaled(ms: number, signal: AbortSignal): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (signal.aborted) return resolve(false)
+    const done = () => {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', done)
+      resolve(!signal.aborted)
+    }
+    const timer = setTimeout(done, ms)
+    signal.addEventListener('abort', done)
+  })
+}
+
+/**
+ * One of Claude Code's requests as claude-agent-acp reports it: `usage_update` as its message
+ * starts and again as it ends, the context grown each time.
+ */
+async function answerWithUsage(turn: Turn, text: string): Promise<void> {
+  const session = turn.session
+  const report = async (tokens: number) => {
+    session.usedTokens = Math.min(200_000, session.usedTokens + tokens)
+    await turn.send({ sessionUpdate: 'usage_update', used: session.usedTokens, size: 200_000 })
+  }
+  await report(900)
+  await stream(turn, text, { messageId: turn.messageId() })
+  await report(120)
+}
+
+/** The usage claude-agent-acp sends with each result: the last count again, with the cost. */
+async function resultUsage(turn: Turn): Promise<void> {
+  const used = turn.session.usedTokens
+  const amount = Math.round(used * 0.3) / 100_000
+  await turn.send({
+    sessionUpdate: 'usage_update',
+    used,
+    size: 200_000,
+    cost: { amount, currency: 'USD' },
+  })
+}
+
+/**
+ * OpenCode's one `usage_update` of a turn, sent once its run has ended, also when it was
+ * interrupted: the count of the turn's last finished step.
+ */
+async function turnEndUsage(turn: Turn): Promise<void> {
+  const session = turn.session
+  session.usedTokens = Math.min(200_000, session.usedTokens + 1_020)
+  await turn.send({ sessionUpdate: 'usage_update', used: session.usedTokens, size: 200_000 })
+}
+
+/**
+ * A request and the result's usage, as claude-agent-acp reports them for Claude Code. `--hold`
+ * keeps the turn open after the request, as the adapter does while background subagents run;
+ * a cancel then still sends the result's usage first, as the adapter does. `--then` answers
+ * again by itself that long after the turn, as Claude Code does when a background task ends.
+ * `--at-end` reports usage only as the turn ends, as OpenCode does, after a cancel too.
+ */
+const requests: Scenario = async (turn) => {
+  const text = 'One request answers this, and its usage arrives as it streams.'
+  if (turn.options.atEnd) {
+    await stream(turn, text, { messageId: turn.messageId() })
+    const held = await waitUnscaled(turn.options.holdMs, turn.signal)
+    await turnEndUsage(turn)
+    return held ? 'end_turn' : 'cancelled'
+  }
+  await answerWithUsage(turn, text)
+  const held = await waitUnscaled(turn.options.holdMs, turn.signal)
+  await resultUsage(turn)
+  if (!held) return 'cancelled'
+  const thenMs = turn.options.thenMs
+  if (thenMs !== null) {
+    setTimeout(() => {
+      // The client may have gone by then.
+      void answerWithUsage(turn, 'The background task finished, so I looked at its output.')
+        .then(() => resultUsage(turn))
+        .catch(() => {})
+    }, thenMs)
+  }
+  return 'end_turn'
+}
+
+const thinking: Scenario = async (turn) => {
+  if (
+    !(await stream(turn, THOUGHT_TEXT, {
+      kind: 'thought',
+      delayMs: 25,
+      chunks: tokenChunks(THOUGHT_TEXT),
+    }))
+  ) {
+    return 'cancelled'
+  }
+  if (!(await stream(turn, THINKING_ANSWER, { messageId: turn.messageId() }))) return 'cancelled'
+  await sendUsage(turn)
+  return 'end_turn'
+}
+
+// Long raw reasoning between runs of work, as many models send it, beside short thoughts and two
+// short messages; with --summaries, the short summaries that other models send in its place.
+const reasoning: Scenario = async (turn) => {
+  const n = turn.id
+  let calls = 0
+  const thoughts = REASONING.map((t) => (turn.options.summaries ? t.summary : t.raw))
+  // Chinese has no spaces to split tokens at, so every thought streams in short pieces.
+  const think = (text: string) =>
+    stream(turn, text, { kind: 'thought', chunks: chunkText(text, 12) })
+  const say = (text: string) => stream(turn, text, { messageId: turn.messageId() })
+  // `target` is the file the call reads or edits, the text it searches for or the command it runs.
+  const step = async (
+    kind: 'read' | 'edit' | 'search' | 'execute',
+    target: string,
+    diff?: { oldText: string | null; newText: string },
+  ) => {
+    const toolCallId = `reasoning-${n}-${calls++}`
+    const path = kind === 'read' || kind === 'edit' ? filePath(turn, target) : null
+    const verb = { read: 'Read', edit: 'Edit', search: 'Search for', execute: 'Run' }[kind]
+    await turn.send({
+      sessionUpdate: 'tool_call',
+      toolCallId,
+      title: `${verb} ${target}`,
+      kind,
+      status: 'in_progress',
+      locations: path ? [{ path }] : [],
+      rawInput: path ? { path } : kind === 'execute' ? { command: target } : { pattern: target },
+    })
+    await turn.sleep(250)
+    await turn.send({
+      sessionUpdate: 'tool_call_update',
+      toolCallId,
+      status: 'completed',
+      ...(path && diff ? { content: [{ type: 'diff', path, ...diff }] } : {}),
+    })
+    return !turn.signal.aborted
+  }
+  const done =
+    (await think(thoughts[0]!)) &&
+    (await step('read', 'src/clock.ts')) &&
+    (await step('read', 'test/login.test.ts')) &&
+    (await think(SHORT_THOUGHTS[0]!)) &&
+    (await step('search', 'validate(')) &&
+    (await think(thoughts[1]!)) &&
+    (await step('edit', 'src/clock.ts', { oldText: CLOCK_BEFORE, newText: CLOCK_AFTER })) &&
+    (await say(REASONING_MESSAGES[0]!)) &&
+    (await think(thoughts[2]!)) &&
+    (await step('edit', 'test/clock.test.ts', { oldText: null, newText: CLOCK_TEST })) &&
+    (await step('execute', 'pnpm test test/login.test.ts test/clock.test.ts')) &&
+    (await think(SHORT_THOUGHTS[1]!)) &&
+    (await say(REASONING_MESSAGES[1]!))
+  if (!done) return 'cancelled'
+  await sendUsage(turn)
+  return 'end_turn'
+}
+
+const svg: Scenario = async (turn) => {
+  if (!(await stream(turn, SVG_REPLY, { messageId: turn.messageId() }))) return 'cancelled'
+  return 'end_turn'
+}
+
+const shell: Scenario = async (turn) => {
+  if (!(await stream(turn, SHELL_REPLY, { messageId: turn.messageId() }))) return 'cancelled'
+  return 'end_turn'
+}
+
+// The plan windows of sendUsage, as fractions.
+function planWindows(turns: number): { fiveHour: number; weekly: number } {
+  return {
+    fiveHour: Math.min(0.99, 0.12 + turns * 0.07),
+    weekly: Math.min(0.99, 0.31 + turns * 0.01),
+  }
+}
+
+/** The adapter's reset format (`formatReset` in claude-agent-acp's usage-markdown.js). */
+function resetText(at: number): string {
+  return new Intl.DateTimeFormat('en', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  }).format(at)
+}
+
+function usageBar(percent: number): string {
+  const filled = percent === 0 ? 0 : Math.max(1, Math.round((percent / 100) * 20))
+  return `${'█'.repeat(filled)}${'░'.repeat(20 - filled)}`
+}
+
+/** A reset as Claude Code's own `/usage` text writes it: `Oct 22 at 2:19pm (Asia/Shanghai)`. */
+function plainResetText(at: number): string {
+  const day = new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(at)
+  const time = new Intl.DateTimeFormat('en', { hour: 'numeric', minute: '2-digit' })
+    .format(at)
+    .replace(/\s/g, '')
+    .toLowerCase()
+  return `${day} at ${time} (${Intl.DateTimeFormat().resolvedOptions().timeZone})`
+}
+
+/**
+ * Claude Code's own `/usage` text, which claude-agent-acp 0.94 forwards as it is when its
+ * structured report fails or takes more than 5 s: plain lines, some indented.
+ */
+async function plainUsage(turn: Turn): Promise<StopReason> {
+  const { fiveHour, weekly } = planWindows(turn.session.turns)
+  const now = Date.now()
+  const limit = (label: string, share: number, resetsAt: number): string =>
+    `${label}: ${Math.round(share * 100)}% used · resets ${plainResetText(resetsAt)}`
+  const report = [
+    'You are currently using your subscription to power your Claude Code usage',
+    '',
+    limit('Current session', fiveHour, now + 2 * 3600_000 + 840_000),
+    limit('Current week (all models)', weekly, now + 3 * 86_400_000 + 7_200_000),
+    limit('Current week (Fake)', 0.07, now + 3 * 86_400_000 + 7_200_000),
+    '',
+    "What's contributing to your limits usage?",
+    'Approximate, based on local sessions on this machine. Behaviors are independent characteristics, not a breakdown.',
+    '',
+    'Last 24h · 312 requests · 6 sessions',
+    '  48% of your usage was at >150k context',
+    '  21% of your usage came from subagent-heavy sessions',
+    '  Top MCP servers: fake 9%',
+  ].join('\n')
+  await stream(turn, report, { chunks: [report], delayMs: 0 })
+  return 'end_turn'
+}
+
+/** `/usage` as claude-agent-acp 0.94 formats it, with the windows sendUsage pushes. */
+const usage: Scenario = async (turn) => {
+  if (turn.options.unreadable) {
+    const reply = '/usage is only available for subscription plans.'
+    await stream(turn, reply, { chunks: [reply], delayMs: 0 })
+    return 'end_turn'
+  }
+  if (turn.options.plain) return plainUsage(turn)
+  const { fiveHour, weekly } = planWindows(turn.session.turns)
+  const now = Date.now()
+  const limit = (label: string, share: number, resetsAt: number): string[] => {
+    const percent = Math.round(share * 100)
+    return [
+      `**${label}** — **${percent}%** · Resets ${resetText(resetsAt)}`,
+      '',
+      `\`${usageBar(percent)}\``,
+      '',
+    ]
+  }
+  const report = [
+    '## Usage',
+    '',
+    '> Claude fake subscription usage',
+    '',
+    '### Limits',
+    '',
+    ...limit('5-hour limit', fiveHour, now + 2 * 3600_000 + 840_000),
+    ...limit('Weekly · all models', weekly, now + 3 * 86_400_000 + 7_200_000),
+    ...limit('Weekly · Fake', 0.07, now + 3 * 86_400_000 + 7_200_000),
+    '---',
+    '',
+    '### This session',
+  ].join('\n')
+  await stream(turn, report, { chunks: [report], delayMs: 0 })
+  return 'end_turn'
+}
+
+/** A reset as codex-acp's `formatResetTime` writes it, in this machine's locale. */
+function statusReset(at: number): string {
+  const date = new Date(at)
+  const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
+  if (date.toDateString() === new Date().toDateString()) return ` (resets ${time})`
+  return ` (resets ${time} on ${date.toLocaleDateString([], { day: 'numeric', month: 'short' })})`
+}
+
+/** `/status` as codex-acp 2.2.2 formats it (`buildStatusMessage`), with the windows of /usage. */
+const status: Scenario = async (turn) => {
+  const { fiveHour, weekly } = planWindows(turn.session.turns)
+  const now = Date.now()
+  const left = (share: number): number => Math.round(100 - share * 100)
+  const report = [
+    '**Model:** fake-model',
+    `**Directory:** ${turn.session.cwd}`,
+    '**Approval:** on-request',
+    '**Sandbox:** workspace-write',
+    '**Account:** ChatGPT plus (fake@example.com)',
+    `**Session:** \`${turn.session.id}\``,
+    '',
+    '**Token usage:** data not available yet',
+    '**Context window:** data not available yet',
+    `**codex 5h limit:** ${left(fiveHour)}% left${statusReset(now + 2 * 3600_000 + 840_000)}`,
+    `**codex Weekly limit:** ${left(weekly)}% left${statusReset(now + 3 * 86_400_000)}`,
+    '**codex Credits:** 120',
+  ].join('  \n')
+  await stream(turn, report, { chunks: [report], delayMs: 0 })
+  return 'end_turn'
+}
+
+/** `/context` as Claude Code 2.1 reports it, for the fake session's tokens. */
+const context: Scenario = async (turn) => {
+  const size = 200_000
+  const fixed = {
+    'System prompt': 3_100,
+    'System tools': 8_400,
+    'MCP tools': 640,
+    'Memory files': 900,
+  }
+  const messages = Math.max(500, turn.session.usedTokens)
+  const used = Object.values(fixed).reduce((sum, n) => sum + n, messages)
+  const buffer = 33_000
+  const k = (n: number): string => (n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(n))
+  const pct = (n: number): string => `${Math.round((n / size) * 1000) / 10}%`
+  const rows = [
+    ...Object.entries(fixed),
+    ['Messages', messages] as const,
+    ['Free space', size - used - buffer] as const,
+    ['Autocompact buffer', buffer] as const,
+  ]
+  const report = [
+    '## Context Usage',
+    '',
+    '**Model:** fake-model  ',
+    `**Tokens:** ${k(used)} / ${k(size)} (${Math.round((used / size) * 100)}%)`,
+    '',
+    '### Estimated usage by category',
+    '',
+    '| Category | Tokens | Percentage |',
+    '|----------|--------|------------|',
+    ...rows.map(([name, n]) => `| ${name} | ${k(n)} | ${pct(n)} |`),
+    '',
+    '### MCP Tools',
+    '',
+    '| Tool | Server | Tokens |',
+    '|------|--------|--------|',
+    '| mcp__fake__search | fake | 340 |',
+    '| mcp__fake__fetch | fake | 300 |',
+    '',
+    '### Memory Files',
+    '',
+    '| Type | Path | Tokens |',
+    '|------|------|--------|',
+    `| Project | ${join(turn.session.cwd, 'CLAUDE.md')} | 900 |`,
+  ].join('\n')
+  // Claude Code sends the report twice, under two message ids.
+  for (let i = 0; i < 2; i++) {
+    await stream(turn, report, { chunks: [report], delayMs: 0, messageId: turn.messageId() })
+  }
+  return 'end_turn'
+}
+
+/** What the agent remembers, so a fork can be checked against the reply it started from. */
+const recall: Scenario = async (turn) => {
+  const text =
+    turn.previousPrompt === null
+      ? 'You have not said anything before.'
+      : `Your last message was: ${turn.previousPrompt}`
+  await stream(turn, text, { chunks: [text], delayMs: 0, messageId: turn.messageId() })
+  return 'end_turn'
+}
+
+/** What the session was started with in its system prompt, as agy's session/new takes it. */
+const instructions: Scenario = async (turn) => {
+  const text = turn.session.systemPrompt ?? 'No system prompt addition.'
+  await stream(turn, text, { chunks: [text], delayMs: 0, messageId: turn.messageId() })
+  return 'end_turn'
+}
+
+/** One line for each block besides text, so a test or a person can see what was sent. */
+const attachments: Scenario = async (turn) => {
+  const lines = turn.prompt.flatMap((block) => {
+    switch (block.type) {
+      case 'image': {
+        const size = Buffer.from(block.data, 'base64').byteLength
+        return [`- image ${block.mimeType}, ${size} bytes${block.uri ? ` from ${block.uri}` : ''}`]
+      }
+      case 'resource_link': {
+        const facts = [block.mimeType, block.size != null ? `${block.size} bytes` : null]
+        const known = facts.filter(Boolean).join(', ')
+        return [`- resource_link ${block.name} ${block.uri}${known ? ` (${known})` : ''}`]
+      }
+      case 'resource': {
+        const { resource } = block
+        const text = 'text' in resource ? `, ${resource.text.length} characters` : ''
+        return [`- resource ${resource.uri} ${resource.mimeType ?? ''}${text}`]
+      }
+      case 'audio':
+        return [`- audio ${block.mimeType}`]
+      default:
+        return []
+    }
+  })
+  const text = lines.length > 0 ? lines.join('\n') : 'The prompt carried nothing but text.'
+  await stream(turn, text, { chunks: [text], delayMs: 0, messageId: turn.messageId() })
+  return 'end_turn'
+}
+
+const chinese: Scenario = async (turn) => {
+  if (!(await stream(turn, CHINESE_ANSWER, { messageId: turn.messageId() }))) return 'cancelled'
+  return 'end_turn'
+}
+
+const tables: Scenario = async (turn) => {
+  if (!(await stream(turn, TABLES_REPLY, { messageId: turn.messageId() }))) return 'cancelled'
+  return 'end_turn'
+}
+
+const report: Scenario = async (turn) => {
+  let n = 0
+  const id = () => `report-${turn.id}-${n++}`
+  const say = (text: string) =>
+    stream(turn, text, { messageId: turn.messageId(), chunks: [text], delayMs: 0 })
+  const command = async (command: string, description: string, output = 'ok\n') => {
+    const toolCallId = id()
+    await turn.send({
+      sessionUpdate: 'tool_call',
+      toolCallId,
+      title: command,
+      kind: 'execute',
+      status: 'pending',
+      rawInput: { command, description },
+    })
+    await turn.send({
+      sessionUpdate: 'tool_call_update',
+      toolCallId,
+      status: 'completed',
+      content: [{ type: 'content', content: { type: 'text', text: '```\n' + output + '```' } }],
+      rawOutput: { exitCode: 0 },
+    })
+  }
+  const read = async (relative: string) => {
+    const toolCallId = id()
+    const path = filePath(turn, relative)
+    await turn.send({
+      sessionUpdate: 'tool_call',
+      toolCallId,
+      title: `Read ${relative}`,
+      kind: 'read',
+      status: 'completed',
+      locations: [{ path }],
+      rawInput: { path },
+    })
+  }
+  const edit = async (relative: string, oldText: string, newText: string) => {
+    const toolCallId = id()
+    const path = filePath(turn, relative)
+    await turn.send({
+      sessionUpdate: 'tool_call',
+      toolCallId,
+      title: `Edit ${relative}`,
+      kind: 'edit',
+      status: 'completed',
+      locations: [{ path }],
+      rawInput: { path },
+      content: [{ type: 'diff', path, oldText, newText }],
+    })
+  }
+  const lines = (count: number, prefix: string) =>
+    Array.from({ length: count }, (_, i) => `${prefix} ${i + 1}\n`).join('')
+
+  await command('pnpm format:check', 'Check formatting')
+  await command('pnpm lint', 'Lint')
+  await command('pnpm typecheck', 'Type-check')
+  await command('pnpm test', 'Run the tests')
+  await command('pnpm build', 'Build the app')
+  await say('检查都通过了。推送分支并开一个 draft PR。')
+  await command(
+    'git push -u origin feat/login && gh pr create --draft --base main --title "fix(login): read the clock once"',
+    'Publish the branch and open a draft PR',
+    'https://github.com/acme/demo/pull/57\n',
+  )
+  await say('PR 已开：https://github.com/acme/demo/pull/57 （draft）。再补一条回归测试，然后汇报。')
+  await edit('src/clock.test.ts', '', lines(14, '// case'))
+  await command('pnpm test src/clock.test.ts', 'Run the clock test')
+  await say(
+    '测试覆盖了整秒边界（`Date.now()` 正好跨过一秒时）、时钟回拨和并发请求三种情况，都能稳定通过。现在看一下截图。',
+  )
+  await read('shots/login-light.png')
+  await read('shots/login-dark.png')
+  await say(
+    '深色主题下错误提示的图标贴着文字，需要修：在图标和文字之间留出和其余提示一样的间距，而不是让它们挤在一起。先看其余截图。',
+  )
+  await edit('src/login.tsx', lines(7, '// before'), lines(10, '// after'))
+  await command('node tools/screenshots/capture.mjs --out shots', 'Capture the login screen again')
+  await read('shots/login-narrow-light.png')
+  await read('shots/login-narrow-dark.png')
+  await say(
+    '深浅主题和窄窗口下都正常：图标和文字的间距一致，窄窗口下提示会换行而不是被截断。接下来把这些写进说明，并对照检查清单逐项核对。',
+  )
+  await say(REPORT_ANSWER)
+  return 'end_turn'
+}
+
+const content: Scenario = async (turn) => {
+  let n = 0
+  const id = () => `content-${turn.id}-${n++}`
+  const say = (text: string) =>
+    stream(turn, text, { messageId: turn.messageId(), chunks: [text], delayMs: 0 })
+  const command = async (command: string, output: string, failed: boolean) => {
+    const toolCallId = id()
+    await turn.send({
+      sessionUpdate: 'tool_call',
+      toolCallId,
+      title: command,
+      kind: 'execute',
+      status: 'pending',
+      rawInput: { command },
+    })
+    await turn.send({
+      sessionUpdate: 'tool_call_update',
+      toolCallId,
+      status: failed ? 'failed' : 'completed',
+      content: [{ type: 'content', content: { type: 'text', text: '```\n' + output + '```' } }],
+    })
+  }
+  if (!(await say(CONTENT_TEXT))) return 'cancelled'
+  await command('pnpm vitest run src/usage', CONTENT_PASSING, false)
+  await command('pnpm e2e usage', CONTENT_FAILING, true)
+  const path = filePath(turn, 'src/usage/usage-store.ts')
+  await turn.send({
+    sessionUpdate: 'tool_call',
+    toolCallId: id(),
+    title: 'Edit src/usage/usage-store.ts',
+    kind: 'edit',
+    status: 'completed',
+    locations: [{ path }],
+    rawInput: { path },
+    content: [{ type: 'diff', path, oldText: CONTENT_OLD, newText: CONTENT_NEW }],
+  })
+  if (!(await say(CONTENT_BLOCKS))) return 'cancelled'
+  return 'end_turn'
+}
+
+const media: Scenario = async (turn) => {
+  if (!(await stream(turn, MEDIA_REPLY, { messageId: turn.messageId() }))) return 'cancelled'
+  return 'end_turn'
+}
+
+/** A made-up screenshot, a window with a title bar and a few lines, as base64 SVG. */
+function screenshot(hue: number): string {
+  const tone = (saturation: number, lightness: number) => `hsl(${hue} ${saturation}% ${lightness}%)`
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400">' +
+    `<rect width="640" height="400" fill="${tone(30, 96)}"/>` +
+    `<rect width="640" height="28" fill="${tone(30, 86)}"/>` +
+    `<rect x="24" y="64" width="360" height="16" rx="4" fill="${tone(45, 60)}"/>` +
+    `<rect x="24" y="100" width="520" height="10" rx="4" fill="${tone(20, 75)}"/>` +
+    `<rect x="24" y="124" width="440" height="10" rx="4" fill="${tone(20, 75)}"/>` +
+    `<rect x="24" y="180" width="270" height="170" rx="8" fill="${tone(35, 88)}"/>` +
+    `<rect x="320" y="180" width="270" height="170" rx="8" fill="${tone(45, 78)}"/>` +
+    '</svg>'
+  return Buffer.from(svg).toString('base64')
+}
+
+const screenshots: Scenario = async (turn) => {
+  if (!(await stream(turn, 'Starting the app and looking at the screens.\n\n'))) {
+    return 'cancelled'
+  }
+  const take = async (index: number, title: string): Promise<void> => {
+    const toolCallId = `shot-${turn.id}-${index}`
+    await turn.send({
+      sessionUpdate: 'tool_call',
+      toolCallId,
+      title,
+      kind: 'execute',
+      status: 'in_progress',
+      rawInput: { command: title },
+    })
+    await turn.sleep(200)
+    await turn.send({
+      sessionUpdate: 'tool_call_update',
+      toolCallId,
+      status: 'completed',
+      content: [
+        {
+          type: 'content',
+          content: { type: 'image', mimeType: 'image/svg+xml', data: screenshot(index * 47) },
+        },
+      ],
+    })
+  }
+  await take(0, 'Take a screenshot of the home screen')
+  if (!(await stream(turn, 'One screen looks right. Now the rest.\n\n'))) return 'cancelled'
+  for (const [i, name] of ['light.png', 'dark.png'].entries()) {
+    const path = filePath(turn, `media/${name}`)
+    await turn.send({
+      sessionUpdate: 'tool_call',
+      toolCallId: `look-${turn.id}-${i}`,
+      title: `Read media/${name}`,
+      kind: 'read',
+      status: 'completed',
+      locations: [{ path }],
+      rawInput: { file_path: path },
+    })
+  }
+  for (let i = 1; i <= 5; i++) await take(i, `Take screenshot ${i} of the settings`)
+  if (!(await stream(turn, 'All of them render correctly.', { messageId: turn.messageId() }))) {
+    return 'cancelled'
+  }
+  return 'end_turn'
+}
+
+export const SCENARIO_RUNNERS: Record<ScenarioName, Scenario> = {
+  'basic-turn': basicTurn,
+  'long-stream': longStream,
+  'tool-storm': toolStorm,
+  permission,
+  'parallel-permissions': parallelPermissions,
+  cancel,
+  'long-turn': longTurn,
+  crash,
+  error,
+  'auth-required': authRequired,
+  'out-of-credit': outOfCredit,
+  'large-history': largeHistory,
+  'slow-start': slowStart,
+  'all-updates': allUpdates,
+  subagent,
+  plan,
+  background,
+  requests,
+  thinking,
+  reasoning,
+  svg,
+  shell,
+  usage,
+  status,
+  context,
+  recall,
+  instructions,
+  attachments,
+  chinese,
+  artifacts,
+  report,
+  tables,
+  'open-site': openSite,
+  browser,
+  device: deviceTool,
+  computer,
+  approvals,
+  content,
+  media,
+  screenshots,
+}
+
+export const compact: Scenario = async (turn) => {
+  const compactionId = `compact-${turn.id}`
+  await turn.send({ sessionUpdate: 'compaction_update', compactionId, status: 'in_progress' })
+  for (const chunk of groupTokens(
+    tokenChunks(
+      'We fixed the flaky login test by reading the clock once and added a regression test.',
+    ),
+    4,
+  )) {
+    await turn.send({
+      sessionUpdate: 'compaction_summary_chunk',
+      compactionId,
+      content: { type: 'text', text: chunk },
+    })
+    await turn.sleep(40)
+  }
+  await turn.send({ sessionUpdate: 'compaction_update', compactionId, status: 'completed' })
+  turn.session.usedTokens = Math.round(turn.session.usedTokens / 5)
+  await sendUsage(turn, 0)
+  return 'end_turn'
+}
+
+/** A replayed history of about `entries` thread entries, for `session/load`. */
+export function* syntheticHistory(entries: number): Generator<SessionUpdate> {
+  const turns = Math.max(1, Math.ceil(entries / 4))
+  for (let i = 0; i < turns; i++) {
+    yield {
+      sessionUpdate: 'user_message_chunk',
+      messageId: `h-u-${i}`,
+      content: text(`Question ${i + 1}: what does step ${i + 1} do?`),
+    }
+    yield {
+      sessionUpdate: 'agent_message_chunk',
+      messageId: `h-a-${i}`,
+      content: text(`Step ${i + 1} reads \`${fakeFile(i)}\` and checks the token.`),
+    }
+    yield {
+      sessionUpdate: 'tool_call',
+      toolCallId: `h-t-${i}`,
+      title: `Read ${fakeFile(i)}`,
+      kind: 'read',
+      status: 'completed',
+    }
+    yield {
+      sessionUpdate: 'agent_message_chunk',
+      messageId: `h-b-${i}`,
+      content: text(`It is correct as written (${i + 1}/${turns}).`),
+    }
+  }
+}
+
+/** A replayed user message with an embedded file and an image, as the CLI agents write them. */
+export function* syntheticAttachments(): Generator<SessionUpdate> {
+  const messageId = 'h-attachments'
+  yield {
+    sessionUpdate: 'user_message_chunk',
+    messageId,
+    content: text('Review these'),
+  }
+  yield {
+    sessionUpdate: 'user_message_chunk',
+    messageId,
+    content: text('[@notes.txt](file:///tmp/notes.txt)'),
+  }
+  yield {
+    sessionUpdate: 'user_message_chunk',
+    messageId,
+    content: text('\n<context ref="file:///tmp/notes.txt">\nProject notes\n</context>'),
+  }
+  yield {
+    sessionUpdate: 'user_message_chunk',
+    messageId,
+    content: { type: 'image', mimeType: 'image/png', data: 'AQIDBA==' },
+  }
+}
+
+function text(value: string): ContentBlock {
+  return { type: 'text', text: value }
+}

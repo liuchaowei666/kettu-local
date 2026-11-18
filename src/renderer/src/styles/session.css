@@ -1,0 +1,2309 @@
+/* session: the thread and the session header, on affectUI's AI Chat screen (features/session). */
+
+/* The session view: the thread's column, which the composer under it keeps to. */
+.ks-session {
+  --thread-column: calc(48 * var(--prose-size) + 8px);
+}
+/* The thread sets its prose, tables and code on its own size; the column keeps the composer's. */
+.ks-thread {
+  --prose-size: var(--thread-prose-size);
+  --text-prose: var(--thread-prose-size);
+}
+.ks-thread__column {
+  max-width: calc(var(--thread-column) + 64px);
+}
+
+/* A message you sent: the gray bubble at the right, and under it on hover its time and Copy, the
+   copy glyph flush with the bubble's edge. */
+.ks-user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.ks-user__bubble {
+  max-width: 80%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 8px 14px;
+  border-radius: 12px;
+  background: var(--thread-chip);
+  font-size: var(--prose-size);
+  line-height: 1.55;
+  color: var(--thread-ink);
+}
+/* A code block's run the agent was told of: one line, the command opening its terminal. */
+.ks-run-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+  border-radius: var(--radius-sm);
+  color: var(--thread-ink);
+  font: inherit;
+  text-align: left;
+  outline: none;
+  &:disabled {
+    cursor: default;
+  }
+  &:not(:disabled):hover .ks-run-chip__text {
+    text-decoration: underline var(--border-strong);
+    text-underline-offset: 4px;
+  }
+  &:focus-visible {
+    outline: 1.5px solid var(--focus-ring-color);
+    outline-offset: 2px;
+  }
+}
+.ks-run-chip__icon {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  color: var(--success);
+}
+.ks-run-chip__text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  & code {
+    padding: 0.0667em 0.3333em;
+    border-radius: var(--radius-sm);
+    background: var(--bg-code-inline);
+    color: var(--code-inline);
+    font-family: var(--font-mono);
+    font-size: 0.8667em;
+    font-variant-ligatures: none;
+  }
+}
+.ks-run-chip__more {
+  flex: none;
+  color: var(--thread-muted);
+  font-size: 12px;
+}
+.markdown-user {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+/* A message another session's agent sent: a quoted card on the agent's side, not the user's bubble.
+   Its time and Copy sit under it at the left. */
+.ks-user--agent {
+  align-items: flex-start;
+}
+.ks-from {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 88%;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  padding: 9px 14px 10px;
+  border-radius: 12px;
+  background: var(--bg-subtle);
+  font-size: var(--prose-size);
+  line-height: 1.55;
+  color: var(--thread-ink);
+}
+.ks-from__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  color: var(--thread-muted);
+}
+.ks-user--agent .ks-user__meta {
+  margin: -4px 0 0;
+}
+.ks-user--agent .ks-user__foot {
+  flex-direction: row-reverse;
+  justify-content: flex-end;
+}
+.ks-user__note {
+  max-width: 80%;
+  overflow: hidden;
+  padding-right: 2px;
+  font-size: 12px;
+  color: var(--thread-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ks-user__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin: -4px -6px 0 0;
+  font-size: 12px;
+  color: var(--thread-faint);
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+/* Message Actions is a size container, so it takes no width from its one button on its own. */
+.ks-user__meta .ui-mac {
+  flex: none;
+  width: 28px;
+}
+.ks-user:hover .ks-user__meta,
+.ks-user__meta:focus-within {
+  opacity: 1;
+}
+/* A message whose turn ended with no reply: the ending stands flush with the bubble's edge, the
+   time and Copy left of it. */
+.ks-user__foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 100%;
+  margin-top: -4px;
+}
+.ks-user__foot > .ks-user__meta {
+  margin: 0;
+}
+/* A turn's item clips 10px past its box, so a tip centered on a button at the column's edge is
+   cut off. It starts at the button's edge instead; translate cancels the tip's own -50%. */
+.ks-user__meta .ui-mac__tip {
+  right: 0;
+  left: auto;
+  translate: 50% 0;
+}
+
+/* An agent's message on AI Answer: the thread's type, its label (nine dots, "Writing") under the
+   text only while it writes, and no row of its own under it, since Stop sits in the composer and
+   the reply's actions follow. The label hangs on the card's bottom edge, so a new line pushes it
+   down. */
+.ks-answer .ui-ansc {
+  max-width: none;
+  font-family: inherit;
+  font-size: var(--prose-size);
+  --ui-ansc-ink: var(--thread-ink);
+  --ui-ansc-strong: var(--thread-ink);
+  --ui-ansc-text: var(--thread-muted);
+}
+/* A streaming reply grows at its own height: the height AI Answer writes and glides to would clip
+   its last line and lay out the thread on every frame. */
+.ks-answer .ui-ansc__body {
+  height: auto !important;
+  transition: none;
+}
+.ks-answer .ui-ansc__card {
+  position: relative;
+  padding-bottom: 30px;
+  transition: padding-bottom 300ms cubic-bezier(0.22, 1, 0.36, 1) 120ms;
+}
+.ks-answer .ui-ansc__label {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 20px;
+  margin: 0;
+  font-size: 12.5px;
+  transition: opacity 150ms ease;
+}
+.ks-answer .ui-ansc:is([data-phase='done'], [data-phase='stopped']) .ui-ansc__card {
+  padding-bottom: 0;
+}
+.ks-answer .ui-ansc:is([data-phase='done'], [data-phase='stopped']) .ui-ansc__label {
+  opacity: 0;
+}
+/* Written, the hidden dots stop instead of looping on; their loop is set inline. */
+.ks-answer .ui-ansc:is([data-phase='done'], [data-phase='stopped']) [data-turn-dots] circle {
+  animation: none !important;
+}
+.ks-answer .ui-ansc__answer {
+  font-size: inherit;
+  line-height: inherit;
+}
+.ks-answer :is(.ui-ansc__foot, .ui-ansc__reasons) {
+  display: none;
+}
+.ks-answer .markdown {
+  color: var(--thread-ink);
+}
+/* The fox's caret after the last word while the message streams. */
+.ks-answer
+  .ui-ansc[data-phase='writing']
+  .markdown-chunk:last-child
+  > :is(p, h1, h2, h3, h4, h5, h6):last-child::after,
+.ks-answer
+  .ui-ansc[data-phase='writing']
+  .markdown-chunk:last-child
+  > :is(ul, ol):last-child
+  > li:last-child::after {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 4px;
+  border-radius: 1.5px;
+  background: var(--thread-fox);
+  vertical-align: 0.1em;
+  animation: ks-caret 1s ease-in-out infinite;
+}
+@keyframes ks-caret {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* A reply's copy, fork and time show while the pointer is on its turn, as under a message you
+   sent; they keep their room, so nothing moves. */
+.ks-reply-foot {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin-left: -6px;
+  font-size: 12px;
+  color: var(--thread-faint);
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+.ks-reply-foot[data-shown],
+.ks-reply-foot:focus-within {
+  opacity: 1;
+}
+.ks-reply-foot .ui-mac {
+  flex: 1;
+}
+.ks-reply-foot .ui-mac__after {
+  color: var(--thread-faint);
+}
+.ks-reply-foot .ui-mac__tip {
+  left: 0;
+  translate: 50% 0;
+}
+
+/* The running turn's status: the nine dots or the attention dot, the clock, tokens and phase. */
+.ks-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 20px;
+  min-width: 0;
+  margin-top: 16px;
+  font-size: 12.5px;
+  color: var(--thread-muted);
+  white-space: nowrap;
+  animation: ks-fade-in 180ms ease both;
+}
+.ks-status[data-after-sent] {
+  margin-top: 22px;
+}
+.ks-status i {
+  font-style: normal;
+  color: var(--thread-faint);
+}
+.ks-status__attn {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: 2px;
+  border-radius: 50%;
+  background: var(--thread-fox);
+  box-shadow: 0 0 0 3px var(--thread-fox-halo);
+}
+@keyframes ks-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Tool calls on affectUI's Tool Call Card and Group, laid out as a timeline like its Agent
+   Checkpoints without branches: a run's line over a rail with a dot per step, and each step a
+   30 px row with no card until it opens, when it becomes the Tool Call Card's own white card with
+   its details as the card's sections. A long run summary shortens instead of pushing the failed
+   count, time and chevron to the far edge; the thumbnails at a folded row's end give way once it
+   opens, whose details show the pictures. */
+.ui-tcc[data-open] > .ui-tcc__top > .ui-tcc__trail,
+.ui-tcc-group[data-open] > .ui-tcc-group__top > .ui-tcc__trail {
+  display: none;
+}
+.ks-tool-note {
+  color: var(--thread-muted);
+}
+.ks-tool-add {
+  color: var(--thread-add);
+}
+.ks-tool-del {
+  color: var(--thread-del);
+}
+.ks-tool-target {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* The run's line: its stacked tiles stay, its words a step lighter than a reply. */
+.ks-thread .ui-tcc-group {
+  /* The rail runs under the run's chevron, and a step's tile starts under the run's first tile. */
+  --ks-rail-x: 8px;
+  --ks-gutter: 26px;
+}
+.ks-thread .ui-tcc-group__head {
+  color: var(--ui-tcc-text);
+  font-size: 13px;
+}
+.ks-thread .ui-tcc-group__head:hover {
+  color: var(--ui-tcc-ink);
+}
+.ks-thread .ui-tcc-group__label {
+  max-width: 36em;
+}
+/* Room left of the rail, so the fold's clip leaves the running dot's pulse whole. */
+.ks-thread .ui-tcc-group > .ui-tcc__body > .ui-tcc__clip {
+  margin-left: -8px;
+  padding-left: 8px;
+}
+.ks-thread .ui-tcc-group__list {
+  gap: 0;
+  padding: 2px 0 0;
+}
+
+/* A step: a row with no card. Its hover well, and its card once open, start at --ks-card-x. On its
+   own its chevron starts at the column's edge and its well 10 px before it; open, its card lies on
+   the column's edge in line with the cards around it, so the row moves 10 px in. On a run's rail
+   the tile starts under the run's tiles and the well and card 10 px before it, open or not: the
+   run's rule comes after the open one so it wins. */
+.ks-thread .ui-tcc {
+  --ks-card-x: -10px;
+  isolation: isolate;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+.ks-thread .ui-tcc[data-open] {
+  --ks-card-x: 0px;
+}
+.ks-thread .ui-tcc-group__list > .ui-tcc {
+  --ks-card-x: calc(var(--ks-gutter) - 10px);
+}
+.ks-thread .ui-tcc > .ui-tcc__top {
+  position: relative;
+  margin-left: var(--ks-card-x);
+}
+.ks-thread .ui-tcc > .ui-tcc__top,
+.ks-thread .ui-tcc > .ui-tcc__body .ui-tcc__sections {
+  transition: margin-left 260ms var(--ease-out-quint) 40ms;
+}
+.ks-thread .ui-tcc[data-open] > .ui-tcc__top,
+.ks-thread .ui-tcc[data-open] > .ui-tcc__body .ui-tcc__sections {
+  transition: margin-left 320ms var(--ease-out-quint);
+}
+.ks-thread .ui-tcc__head,
+.ks-thread .ui-tcc[data-open] > .ui-tcc__top > .ui-tcc__head {
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 10px;
+}
+.ks-thread .ui-tcc__head:hover {
+  background: var(--ui-tcc-wash);
+}
+.ks-thread .ui-tcc[data-open] > .ui-tcc__top > .ui-tcc__head,
+.ks-thread .ui-tcc__head[data-bodyless]:hover {
+  background: none;
+}
+.ks-thread .ui-tcc .ui-tcc__icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: var(--ui-tcc-card);
+  box-shadow: var(--ui-tcc-shadow);
+}
+.ks-thread .ui-tcc .ui-tcc__icon > svg {
+  width: 12px;
+  height: 12px;
+}
+.ks-thread .ui-tcc__name {
+  color: var(--ui-tcc-ink);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 400;
+}
+.ks-thread .ui-tcc__summary {
+  color: var(--ui-tcc-muted);
+}
+
+/* The state is the dot's: no check mark, and no spinner either, on the rail or on its own. A failed
+   step's time is replaced by its badge. */
+.ks-thread .ui-tcc__status {
+  gap: 8px;
+  color: var(--ui-tcc-muted);
+}
+.ks-thread .ui-tcc__status > :is(.ui-tcc__ok, .ui-tcc__err, .ui-tcc__cancel, .ui-tcc__spinner) {
+  display: none;
+}
+.ks-thread .ui-tcc[data-status='error'] .ui-tcc__time {
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--ui-tcc-red) 10%, transparent);
+  color: var(--ui-tcc-red);
+  font-size: 11px;
+  line-height: 18px;
+}
+/* A running step's words in ink, dimmed by a band that sweeps across each of them: the card's glint,
+   which moves by transforms alone, lays a copy of the words in the sheet's color over them, as
+   opaque as takes the ink to the faint color. */
+.ks-thread .ui-tcc[data-status='running'] :is(.ui-tcc__name, .ui-tcc__summary) {
+  position: relative;
+  color: var(--ui-tcc-ink);
+}
+.ks-thread .ui-tcc[data-status='running'] .ui-tcc__summary * {
+  color: inherit;
+}
+.ks-thread .ui-tcc[data-status='running'] .ui-tcc__main .ui-tcc__glint {
+  mask: linear-gradient(90deg, transparent 40%, black 50%, transparent 60%) center / 250% 100%
+    no-repeat;
+  animation-name: ks-step-glint;
+  animation-duration: 1.4s;
+}
+.ks-thread .ui-tcc[data-status='running'] .ui-tcc__main .ui-tcc__glint > span {
+  color: color-mix(in srgb, var(--bg-app) 68%, transparent);
+  animation-name: ks-step-glint-back;
+  animation-duration: 1.4s;
+}
+
+/* The chevron at a row's end shows on hover, on focus and while the row is open. */
+.ks-thread .ui-tcc__head .ui-tcc__chevron {
+  opacity: 0;
+  transition:
+    opacity var(--duration-fast) ease,
+    transform 360ms var(--ui-tcc-ease),
+    stroke 160ms ease;
+}
+.ks-thread .ui-tcc__head:is(:hover, :focus-visible) .ui-tcc__chevron,
+.ks-thread .ui-tcc[data-open] > .ui-tcc__top > .ui-tcc__head .ui-tcc__chevron {
+  opacity: 1;
+}
+
+/* A step on its own leads with its chevron, as the runs around it do: the chevron always shows,
+   even before the step has details to open, its tile starts under a run's tiles and its time
+   follows its words. */
+.ks-thread .ui-tcc__head[data-chevron='before'] {
+  & .ui-tcc__chevron {
+    margin-right: 2px;
+    opacity: 1;
+    visibility: visible;
+  }
+  & :is(.ui-tcc__main, .ui-tcc__summary) {
+    flex: 0 1 auto;
+  }
+  & .ui-tcc__name {
+    flex-shrink: 0;
+    max-width: 100%;
+  }
+}
+.ks-thread
+  .ui-tcc:not([data-status='error'])
+  > .ui-tcc__top
+  > .ui-tcc__head[data-chevron='before']
+  .ui-tcc__time {
+  color: var(--ui-tcc-faint);
+  &:not(:empty)::before {
+    content: '· ';
+  }
+}
+
+/* An open step is the Tool Call Card's own white card. Its ground lies under the row and the
+   details and starts where the row's hover well does, so the well lifts into the card as the step
+   opens and the card sinks back into the row as it closes. */
+.ks-thread .ui-tcc::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0 0 6px var(--ks-card-x);
+  border-radius: 10px;
+  background: var(--ui-tcc-card);
+  box-shadow: var(--ui-tcc-shadow);
+  opacity: 0;
+  transform: scale(0.985);
+  transform-origin: 50% 0;
+  pointer-events: none;
+  transition:
+    opacity 180ms ease 80ms,
+    transform 260ms var(--ease-out-quint),
+    left 260ms var(--ease-out-quint) 40ms;
+}
+.ks-thread .ui-tcc[data-open]::after {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 200ms ease,
+    transform 320ms var(--ease-out-quint),
+    left 320ms var(--ease-out-quint);
+}
+
+/* Its details are the card's sections under a hairline, starting at the row's tile, on the card
+   itself with no gray ground: a section's label and white buttons, then its content. */
+.ks-thread .ui-tcc__sections {
+  gap: 12px;
+  margin: 0 0 6px var(--ks-card-x);
+  padding: 10px 14px 14px 10px;
+  border-top: 0.5px solid var(--ui-tcc-line);
+}
+.ks-thread .ui-tcc__section {
+  gap: 4px;
+}
+.ks-thread .ui-tcc__section-head {
+  gap: 6px;
+  min-height: 24px;
+}
+.ks-thread .ui-tcc__copy {
+  width: 24px;
+  height: 24px;
+  & svg {
+    width: 13px;
+    height: 13px;
+  }
+}
+.ks-shell {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.ks-shell pre {
+  margin: 0;
+  overflow-x: auto;
+  color: var(--ui-tcc-text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-ligatures: none;
+  line-height: 20px;
+  white-space: pre;
+  scrollbar-width: thin;
+}
+.ks-shell .ks-shell-command {
+  color: var(--ui-tcc-ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ks-shell-exit {
+  color: var(--ui-tcc-red);
+  font-size: 11px;
+  font-weight: var(--font-weight-medium);
+  line-height: 16px;
+}
+.ks-shell-none {
+  margin: 0;
+  color: var(--ui-tcc-muted);
+  font-size: 12px;
+  line-height: 20px;
+}
+.ks-shell-earlier {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 2px;
+  border-radius: var(--radius-sm);
+  color: var(--ui-tcc-faint);
+  font-size: 11.5px;
+  font-weight: var(--font-weight-medium);
+  line-height: 20px;
+  outline: none;
+  transition: color var(--duration-fast) ease;
+  & svg {
+    width: 12px;
+    height: 12px;
+  }
+  &:hover {
+    color: var(--ui-tcc-text);
+  }
+  &:focus-visible {
+    outline: 1.5px solid var(--focus-ring-color);
+    outline-offset: 2px;
+  }
+}
+/* A compaction's divider: its two wordings share one cell, and when it ends the one that leaves
+   blurs up and out as the other rises in, as streamed words do. Its summary rises the same way. */
+.ks-compaction-words {
+  display: grid;
+  & > span {
+    grid-area: 1 / 1;
+    justify-self: center;
+    white-space: nowrap;
+    transition:
+      opacity 320ms var(--ease-out-quint),
+      filter 320ms var(--ease-out-quint),
+      translate 320ms var(--ease-out-quint);
+  }
+  & > span[aria-hidden='true'] {
+    opacity: 0;
+    filter: blur(4px);
+    translate: 0 4px;
+  }
+  & > span[aria-hidden='true']:first-child {
+    translate: 0 -4px;
+  }
+}
+.ks-compaction-summary {
+  animation: ks-rise 320ms var(--ease-out-quint) backwards;
+}
+/* Earlier lines unfold above the tail when they are asked for. */
+.ks-fold-in {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation: ks-fold-open 320ms var(--ease-out-quint) both;
+  & > * {
+    min-height: 0;
+    overflow: hidden;
+  }
+}
+@keyframes ks-fold-open {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+/* A diff runs edge to edge on the card, which is its ground. */
+.ks-thread .ui-tcc__sections [data-diff-block] {
+  margin: 0 -14px 0 -10px;
+  border: 0;
+  border-radius: 0;
+  & .diff {
+    --diffs-light-bg: var(--ui-tcc-card);
+    --diffs-dark-bg: var(--ui-tcc-card);
+  }
+}
+/* Code in a result has no frame of its own either: no ground, ring or header, the section's Copy
+   standing in for the header's, and its line numbers from the section's edge. */
+.ks-thread .ui-tcc__sections .block-frame {
+  background: none;
+  border-radius: 0;
+  &::after {
+    content: none;
+  }
+  & .block-frame-header {
+    display: none;
+  }
+  & [data-streamdown='code-block-body'] {
+    padding: 0;
+    font-size: 12px;
+    line-height: 20px;
+  }
+  & [data-streamdown='code-block-body'] code > span {
+    padding: 0 0 0 calc(14px + max(18px, var(--code-digits, 2) * 1ch));
+  }
+  & [data-streamdown='code-block-body'] code > span::before {
+    left: 0;
+    color: var(--ui-tcc-faint);
+    text-align: right;
+  }
+  & .block-frame-more {
+    width: auto;
+    height: auto;
+    margin-top: 2px;
+    border-radius: var(--radius-sm);
+    box-shadow: none;
+    color: var(--ui-tcc-faint);
+    font-size: 11.5px;
+    font-weight: var(--font-weight-medium);
+    line-height: 20px;
+    &:hover {
+      background: none;
+      color: var(--ui-tcc-text);
+    }
+  }
+}
+.ks-thread .ui-tcc__sections .markdown > [data-block-frame]:first-child {
+  margin-top: 0;
+}
+.ks-thread .ui-tcc__sections .markdown > [data-block-frame]:last-child {
+  margin-bottom: 0;
+}
+
+/* The rail: a line from each dot to the next, and the dots ringed in the sheet's color so the
+   line breaks around them. A failed step's dot is red, a cancelled one gray, and a running one
+   larger in the accent with a soft pulse. The dots hang off the row, whose rise animation makes it
+   their containing block, so they are placed from the row back across its margin. */
+.ks-thread .ui-tcc-group__list > .ui-tcc:not(:last-child)::before,
+.ks-thread .ui-tcc-group__list > .ui-tcc > .ui-tcc__top::after,
+.ks-thread .ui-tcc-group__list > .ui-tcc[data-status='running'] > .ui-tcc__top::before {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+}
+.ks-thread .ui-tcc-group__list > .ui-tcc:not(:last-child)::before {
+  z-index: 1;
+  top: 15px;
+  bottom: -15px;
+  left: calc(var(--ks-rail-x) - 0.75px);
+  width: 1.5px;
+  border-radius: 1px;
+  background: var(--thread-rail);
+  transform-origin: top;
+}
+.ks-thread .ui-tcc-group__list > .ui-tcc > .ui-tcc__top::after {
+  z-index: 2;
+  top: 11px;
+  left: calc(var(--ks-rail-x) - 4px - var(--ks-card-x));
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--thread-rail);
+  box-shadow: 0 0 0 2px var(--bg-app);
+}
+.ks-thread .ui-tcc-group__list > .ui-tcc[data-status='error'] > .ui-tcc__top::after {
+  background: var(--ui-tcc-red);
+}
+.ks-thread .ui-tcc-group__list > .ui-tcc[data-status='cancelled'] > .ui-tcc__top::after {
+  background: var(--ui-tcc-faint);
+}
+.ks-thread .ui-tcc-group__list > .ui-tcc[data-status='running'] > .ui-tcc__top::after,
+.ks-thread .ui-tcc-group__list > .ui-tcc[data-status='running'] > .ui-tcc__top::before {
+  top: 10px;
+  left: calc(var(--ks-rail-x) - 5px - var(--ks-card-x));
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--control-on);
+}
+.ks-thread .ui-tcc-group__list > .ui-tcc[data-status='running'] > .ui-tcc__top::before {
+  z-index: 1;
+  animation: ks-step-pulse 1.6s var(--ease-out-quint) infinite;
+}
+
+/* A step that arrives while shown: the rail draws down to it, its dot pops and its row rises. */
+.ks-thread .ui-tcc-group__list > .ui-tcc:has(+ .ks-step-new)::before {
+  animation: ks-step-draw var(--duration-slow) var(--ease-out-quint) both;
+}
+.ks-thread .ui-tcc-group__list > .ks-step-new > .ui-tcc__top::after {
+  animation: ks-step-pop var(--duration-slow) var(--ease-out-quint) both;
+}
+.ks-thread .ui-tcc-group__list > .ks-step-new > .ui-tcc__top {
+  animation: ks-step-rise var(--duration-slow) var(--ease-out-quint) both;
+}
+
+/* Opening a step or a run: the fold opens in 320 ms while what it holds rises out of a soft blur
+   one after another, as the thread's entrance does (thread-entrance.ts). Closing fades the
+   details first, then folds them. The opening classes are set only when someone opens it. */
+.ks-thread :is(.ui-tcc, .ui-tcc-group) > .ui-tcc__body {
+  transition:
+    grid-template-rows 260ms var(--ease-out-quint) 40ms,
+    opacity 120ms ease;
+}
+.ks-thread :is(.ui-tcc, .ui-tcc-group)[data-open] > .ui-tcc__body {
+  transition: grid-template-rows 320ms var(--ease-out-quint);
+}
+.ks-thread .ks-step-opening > .ui-tcc__body .ui-tcc__sections > *,
+.ks-thread .ks-run-opening > .ui-tcc__body .ui-tcc-group__list > :not(.ks-step-late) {
+  animation: ks-rise 320ms var(--ease-out-quint) backwards;
+}
+.ks-thread .ks-step-opening > .ui-tcc__body .ui-tcc__sections > * {
+  animation-delay: 40ms;
+  &:nth-child(2) {
+    animation-delay: 60ms;
+  }
+  &:nth-child(3) {
+    animation-delay: 80ms;
+  }
+  &:nth-child(n + 4) {
+    animation-delay: 100ms;
+  }
+}
+/* Steps start 20 ms apart, the last within 160 ms however many there are. */
+.ks-thread .ks-run-opening > .ui-tcc__body .ui-tcc-group__list > * {
+  &:nth-child(2) {
+    animation-delay: 20ms;
+  }
+  &:nth-child(3) {
+    animation-delay: 40ms;
+  }
+  &:nth-child(4) {
+    animation-delay: 60ms;
+  }
+  &:nth-child(5) {
+    animation-delay: 80ms;
+  }
+  &:nth-child(6) {
+    animation-delay: 100ms;
+  }
+  &:nth-child(7) {
+    animation-delay: 120ms;
+  }
+  &:nth-child(8) {
+    animation-delay: 140ms;
+  }
+  &:nth-child(n + 9) {
+    animation-delay: 160ms;
+  }
+}
+@keyframes ks-rise {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+    transform: translateY(4px);
+  }
+}
+/* The message Search went to, marked for a moment; the item's top spacing stays unmarked. */
+.ks-thread__column > [data-message-id][data-found] {
+  border-radius: var(--radius-md);
+  background-clip: content-box;
+  background-color: var(--match);
+  animation: ks-found 1.8s var(--ease-standard) both;
+}
+@keyframes ks-found {
+  0%,
+  40% {
+    background-color: var(--match);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ks-thread__column > [data-message-id][data-found] {
+    animation: none;
+  }
+}
+/* The find bar over the thread's top right, and the words it marks in the messages. */
+.ks-find {
+  position: absolute;
+  top: 12px;
+  right: 24px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  animation: ks-find-in var(--duration-fast) var(--ease-standard) both;
+}
+.ks-find__bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 36px;
+  padding: 0 6px 0 11px;
+  border-radius: var(--radius-xl);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: var(--menu-ring);
+}
+.ks-find__bar > svg:first-child {
+  margin-right: 6px;
+}
+.ks-find__input {
+  width: 200px;
+  min-width: 0;
+  background: transparent;
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  outline: none;
+}
+.ks-find__input::placeholder {
+  color: var(--text-placeholder);
+}
+.ks-find__count {
+  display: inline-flex;
+  min-width: 3.5rem;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 4px;
+  color: var(--muted-foreground);
+  font-size: var(--text-hint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ks-find__count[data-state='none'],
+.ks-find__count[data-state='failed'] {
+  color: var(--danger);
+}
+.ks-find__note {
+  max-width: 280px;
+  padding: 0 4px;
+  color: var(--muted-foreground);
+  font-size: var(--text-hint);
+  line-height: var(--text-hint--line-height);
+  text-align: right;
+}
+@keyframes ks-find-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ks-find {
+    animation: none;
+  }
+}
+::highlight(find-match) {
+  background-color: var(--mark);
+}
+::highlight(find-current) {
+  background-color: color-mix(in srgb, var(--attention-dot) 45%, transparent);
+}
+@keyframes ks-step-draw {
+  from {
+    transform: scaleY(0);
+  }
+}
+@keyframes ks-step-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+@keyframes ks-step-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+/* Grows to 18 px across, clear of the row's hover well. */
+@keyframes ks-step-pulse {
+  from {
+    opacity: 0.4;
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.8);
+  }
+}
+@keyframes ks-step-glint {
+  from {
+    transform: translateX(-75%);
+  }
+  to {
+    transform: translateX(75%);
+  }
+}
+@keyframes ks-step-glint-back {
+  from {
+    transform: translateX(75%);
+  }
+  to {
+    transform: translateX(-75%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ks-thread .ui-tcc-group__list > .ui-tcc::before,
+  .ks-thread .ui-tcc-group__list > .ui-tcc > .ui-tcc__top,
+  .ks-thread .ui-tcc-group__list > .ui-tcc > .ui-tcc__top::before,
+  .ks-thread .ui-tcc-group__list > .ui-tcc > .ui-tcc__top::after,
+  .ks-thread .ks-step-opening > .ui-tcc__body .ui-tcc__sections > *,
+  .ks-thread .ks-run-opening > .ui-tcc__body .ui-tcc-group__list > *,
+  .ks-fold-in,
+  .ks-compaction-summary {
+    animation: none;
+  }
+  .ks-compaction-words > span {
+    transition: none;
+  }
+  .ks-thread .ui-tcc::after,
+  .ks-thread .ui-tcc > .ui-tcc__top,
+  .ks-thread .ui-tcc > .ui-tcc__body .ui-tcc__sections,
+  .ks-thread .ui-tcc[data-open] > .ui-tcc__top,
+  .ks-thread .ui-tcc[data-open] > .ui-tcc__body .ui-tcc__sections,
+  .ks-thread :is(.ui-tcc, .ui-tcc-group) > .ui-tcc__body {
+    transition: none;
+  }
+}
+:root[data-reduce-motion='always'] {
+  & .ui-tcc__glint {
+    display: none;
+  }
+  & .ks-thread .ks-step-opening > .ui-tcc__body .ui-tcc__sections > *,
+  & .ks-thread .ks-run-opening > .ui-tcc__body .ui-tcc-group__list > *,
+  & .ks-fold-in,
+  & .ks-compaction-summary {
+    animation: none;
+  }
+  & .ks-compaction-words > span {
+    transition: none;
+  }
+  & .ks-thread .ui-tcc::after,
+  & .ks-thread .ui-tcc > .ui-tcc__top,
+  & .ks-thread .ui-tcc > .ui-tcc__body .ui-tcc__sections,
+  & .ks-thread :is(.ui-tcc, .ui-tcc-group) > .ui-tcc__body {
+    transition: none;
+  }
+}
+
+/* Marks stand on their own in a card's head, with no tile around them, as the screen sets them. */
+.ks-thread :is(.ui-prc__avatar, .ui-apc__icon) {
+  width: 16px;
+  height: 16px;
+  overflow: visible;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+/* A request for permission on Permission Request, across the column as the screen sets it: the
+   target in mono, what it touches two to a row and the answers as buttons at the right, which
+   wrap when the agent offers more of them. */
+.ks-thread .ui-prc.ks-permission {
+  max-width: none;
+  --ui-prc-text: var(--thread-prose);
+  --ui-prc-muted: var(--thread-quiet);
+  --ui-prc-icon: var(--thread-quiet);
+}
+.ks-permission .ui-prc__head {
+  padding: 12px 12px 0 14px;
+}
+.ks-permission .ui-prc__sub {
+  margin-top: 2px;
+  font: 12px/18px var(--font-mono);
+  color: var(--ui-prc-ink);
+}
+.ks-permission .ui-prc__why {
+  margin: 6px 14px 0 52px !important;
+}
+.ks-permission .ui-prc__preview {
+  margin-top: 10px;
+  padding: 8px 8px 6px;
+}
+.ks-permission .ui-prc__list {
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  column-gap: 8px;
+}
+.ks-permission .ui-prc__item {
+  min-height: 26px;
+}
+.ks-permission .ui-prc__item-label {
+  flex: 0 1 auto;
+  font: 12px/18px var(--font-mono);
+}
+.ks-permission .ui-prc__answer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 6px 10px 6px 14px;
+}
+.ks-permission .ui-prc__buttons {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-left: auto;
+}
+/* The answers: white buttons with a line, told apart by an icon and its color. Deny is the
+   danger red, a lasting allow the success green; any other answer is plain words. */
+.ks-permission .ui-prc__btn {
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px 0 11px;
+  border-radius: 8px;
+}
+.ks-permission .ui-prc__btn:not(.ui-prc__btn--primary, .ks-permission__other) {
+  box-shadow: inset 0 0 0 1px var(--border-default);
+}
+.ks-permission .ui-prc__btn-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ks-permission .ui-prc__btn--deny {
+  color: var(--ui-prc-danger-fg);
+}
+.ks-permission .ks-permission__always {
+  padding-right: 12px;
+  color: var(--ui-prc-ok-fg);
+}
+.ks-permission .ks-permission__other {
+  box-shadow: none;
+  background: transparent;
+  color: var(--ui-prc-text);
+}
+.ks-permission .ks-permission__other:hover {
+  background: var(--ui-prc-wash);
+}
+.ks-permission .ui-prc__more-body {
+  padding: 10px 14px 0;
+}
+.ks-permission__command {
+  min-width: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--bg-code-block);
+  font: 12px/18px var(--font-mono);
+  color: var(--thread-ink);
+}
+.ks-permission__command pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ks-permission__command pre > span {
+  color: var(--thread-faint);
+}
+.ks-permission__cwd {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  color: var(--thread-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ks-permission__note {
+  font-size: 12px;
+  color: var(--thread-muted);
+}
+.ks-card-error {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--danger);
+}
+.ks-add {
+  color: var(--thread-add);
+}
+.ks-del {
+  color: var(--thread-del);
+}
+
+/* An agent's questions on Experiment Card as a question, across the column. */
+.ks-thread .ui-xcc.ks-question {
+  max-width: none;
+}
+
+/* An ask once answered, in the folded permission card's look: what it came to, then each
+   question in gray over its answer. */
+.ks-answered {
+  min-width: 0;
+  border-radius: 10px;
+  background: var(--thread-card);
+  box-shadow: var(--thread-card-shadow);
+  font-size: 13px;
+  line-height: 20px;
+}
+.ks-answered__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 10px 10px 0 16px;
+  color: var(--thread-muted);
+}
+.ks-answered[data-kind='done'] .ks-answered__head {
+  color: var(--thread-add);
+}
+.ks-answered__title {
+  flex: none;
+  font-weight: 500;
+  color: var(--thread-ink);
+}
+.ks-answered__device {
+  margin-left: -4px;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--thread-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ks-answered__list {
+  display: grid;
+  gap: 8px;
+  padding: 2px 16px 12px 42px;
+}
+.ks-answered__list li {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.ks-answered__question {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--thread-muted);
+}
+.ks-answered__answer {
+  color: var(--thread-ink);
+  overflow-wrap: anywhere;
+}
+.ks-answered__answer--quiet {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--thread-muted);
+}
+.ks-answered__toggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  margin-left: auto;
+  padding: 0 8px 0 10px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--thread-text);
+  transition: background-color 140ms ease;
+}
+.ks-answered__toggle:hover {
+  background: var(--thread-hover);
+}
+.ks-answered__toggle[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+.ks-answered__toggle svg {
+  transition: transform 160ms ease;
+}
+.ks-answered__quote {
+  margin: 2px 16px 12px 42px;
+  padding-left: 10px;
+  border-left: 2px solid var(--thread-line-strong);
+  font-size: 12.5px;
+  color: var(--thread-text);
+}
+.ks-answered__plan {
+  padding: 8px 12px 12px;
+}
+.ks-answered__end {
+  height: 10px;
+}
+
+/* A plan on Approval Card: its text, the mode it builds in and a note for keeping on planning. */
+.ks-thread .ui-apc.ks-plan {
+  max-width: none;
+}
+/* The plan clamps itself, so the card's own scroller would hide the mode and the note under it. */
+.ks-plan .ui-apc__preview {
+  max-height: none;
+  overflow: visible;
+}
+/* A suggestion to run the work as a workflow, its steps' rows open under it. */
+.ks-thread .ui-apc.ks-suggest {
+  max-width: none;
+}
+.ks-suggest .ui-apc__preview {
+  max-height: none;
+  overflow: visible;
+}
+.ks-plan__preview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--thread-ink);
+}
+.ks-plan__label {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--thread-muted);
+}
+.ks-plan__body {
+  position: relative;
+  min-width: 0;
+  padding-right: 28px;
+}
+.ks-plan__copy {
+  position: absolute;
+  top: -4px;
+  right: -6px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--thread-faint);
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+.ks-plan__copy:hover {
+  background: var(--thread-hover);
+  color: var(--thread-text);
+}
+.ks-plan__changes ul {
+  display: grid;
+  gap: 2px;
+  margin-top: 8px;
+}
+.ks-plan__changes li {
+  display: flex;
+  gap: 8px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+.ks-plan__changes li[data-kind='same'] {
+  font-size: 12px;
+  color: var(--thread-muted);
+}
+.ks-plan__changes li[data-kind='added'] {
+  background: var(--success-tint);
+}
+.ks-plan__changes li[data-kind='removed'] {
+  background: var(--danger-tint);
+  color: var(--thread-text);
+  text-decoration: line-through;
+}
+.ks-plan__changes li > span:first-child {
+  flex: none;
+  width: 10px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  text-decoration: none;
+}
+.ks-plan__changes li[data-kind='added'] > span:first-child {
+  color: var(--thread-add);
+}
+.ks-plan__changes li[data-kind='removed'] > span:first-child {
+  color: var(--thread-del);
+}
+.ks-plan__note {
+  height: 34px;
+  min-width: 0;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--thread-line-strong);
+  font-size: 13px;
+  color: var(--thread-ink);
+  outline: none;
+  transition: box-shadow 140ms ease;
+}
+.ks-plan__note::placeholder {
+  color: var(--thread-muted);
+}
+.ks-plan__note:focus {
+  box-shadow: inset 0 0 0 1px var(--thread-muted);
+}
+.ks-plan__moved {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 22px;
+  font-size: 12.5px;
+  color: var(--thread-muted);
+}
+.ks-plan__moved b {
+  font-weight: 500;
+  color: var(--thread-text);
+}
+.ks-answered__head--alone {
+  padding-bottom: 10px;
+}
+
+/* Computer use's setup on Approval Card: a picture of the switch, the step and its dots; only
+   this computer's window can take a step, so elsewhere the card offers Not now alone. */
+.ks-thread .ui-apc.ks-setup {
+  max-width: none;
+}
+[data-elsewhere] .ks-setup .ui-apc__approve {
+  display: none;
+}
+.ks-setup__body {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.ks-setup__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ks-setup__dots {
+  display: flex;
+  gap: 6px;
+}
+.ks-setup__dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--thread-line-strong);
+  transition:
+    width 200ms ease,
+    background-color 200ms ease;
+}
+.ks-setup__dots span[data-state='current'] {
+  width: 16px;
+  background: var(--thread-ink);
+}
+.ks-setup__dots span[data-state='done'] {
+  background: var(--thread-add);
+}
+.ks-thread .ui-apc__desc {
+  overflow: visible;
+  white-space: normal;
+}
+
+/* An MCP server's form or page on Approval Card. */
+.ks-form__message {
+  font-size: 14px;
+  font-weight: 500;
+  white-space: pre-wrap;
+  color: var(--thread-ink);
+}
+.ks-form {
+  display: grid;
+  grid-template-columns: 8.25rem minmax(0, 1fr);
+  align-items: start;
+  gap: 12px 16px;
+}
+.ks-form__label {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 34px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--thread-text);
+}
+.ks-form__label > span {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--thread-muted);
+}
+.ks-form__field {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 34px;
+}
+.ks-form__hint {
+  font-size: 12px;
+  color: var(--thread-muted);
+}
+.ks-form__error {
+  font-size: 12px;
+  color: var(--danger);
+}
+.ks-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg-code-block);
+  color: var(--thread-text);
+}
+.ks-link__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ks-link__text b {
+  font-weight: 600;
+  color: var(--thread-ink);
+}
+.ks-link__text span {
+  overflow: hidden;
+  font: 12px/18px var(--font-mono);
+  color: var(--thread-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ks-answered__values {
+  display: grid;
+  grid-template-columns: 8.25rem minmax(0, 1fr);
+  gap: 6px 16px;
+  padding: 0 16px 12px 42px;
+  font-size: 12.5px;
+}
+.ks-answered__values dt {
+  color: var(--thread-muted);
+}
+.ks-answered__values dd {
+  overflow-wrap: anywhere;
+  color: var(--thread-ink);
+}
+
+/* The session's top bar: its pull request and plan chips, and the plan's steps on hover. */
+.ks-crumb-sep {
+  display: inline-flex;
+  flex: none;
+  color: var(--shell-faint);
+}
+.ks-chip {
+  display: inline-flex;
+  flex: none;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 7px;
+  background: var(--shell-chip);
+  font-size: 12px;
+  color: var(--shell-muted);
+  white-space: nowrap;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+.ks-chip:hover,
+.ks-chip[data-popup-open] {
+  background: var(--shell-hover);
+  color: var(--shell-ink);
+}
+.ks-chip:focus-visible {
+  outline: 1.5px solid var(--focus);
+  outline-offset: 1px;
+}
+.ks-chip__text {
+  min-width: 0;
+  max-width: 160px;
+  overflow: hidden;
+  color: var(--shell-ink);
+}
+.ks-chip__dim {
+  color: var(--shell-faint);
+}
+.ks-plan-chip {
+  flex: 0 1 auto;
+}
+.ks-plan-ring {
+  flex: none;
+}
+.ks-plan-ring :is(path, circle) {
+  fill: none;
+  stroke: var(--shell-line-strong);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+.ks-plan-ring [data-status='completed'] {
+  stroke: var(--thread-done);
+}
+.ks-plan-ring [data-status='in_progress'] {
+  stroke: var(--thread-fox);
+}
+/* The card's inline-size containment would size the popover to nothing; drop it so the popover
+   hugs its steps. The time column exists only while some step shows a time, at a fixed width so a
+   ticking clock never resizes the popover. */
+.ks-plan-pop .ui-stc {
+  width: auto;
+  max-width: none;
+  container-type: normal;
+}
+.ks-plan-pop .ui-stc__plan:not(:has(.ui-stc__step-time:not(:empty))) .ui-stc__step-time {
+  display: none;
+}
+.ks-plan-pop .ui-stc__step-time {
+  min-width: 6ch;
+  text-align: end;
+}
+.ks-plan-pop .ui-stc__card {
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+/* App Shell's buttons inherit their color, which outranks a color utility. */
+.ks-crumb {
+  color: var(--shell-muted);
+}
+.ks-title,
+.ks-crumb:hover {
+  color: var(--shell-ink);
+}
+.ks-title[data-unfocused] {
+  color: var(--shell-text);
+}
+.ks-title[data-unfocused]:hover {
+  color: var(--shell-ink);
+}
+
+/* Jump to latest: an ink chevron at rest; the turn's nine dots in the fox orange only while there
+   is a state to show, so rest never reads as a running turn. A running turn moves the dots as the
+   status line does; a turn waiting for the user beats the centre. The chevron and the dots share
+   one grid cell and cross-fade. */
+.ks-jump {
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: var(--thread-card);
+  box-shadow: var(--thread-float-shadow);
+  color: var(--thread-ink);
+}
+.ks-jump:hover {
+  background: var(--bg-app);
+}
+.ks-jump > * {
+  grid-area: 1 / 1;
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+.ks-jump__dots {
+  overflow: visible;
+}
+.ks-jump__dots circle {
+  fill: var(--thread-fox);
+  opacity: 0.22;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: opacity 200ms ease;
+}
+.ks-jump:is([data-mark='idle'], [data-mark='ended'], :hover, :focus-visible) .ks-jump__dots,
+.ks-jump:not([data-mark='idle'], [data-mark='ended'], :hover, :focus-visible) .ks-jump__arrow {
+  opacity: 0;
+  transform: scale(0.8);
+}
+.ks-jump:is(:hover, :focus-visible) circle[data-cell] {
+  animation: none !important;
+}
+/* Out of view at the thread's end, the button's dots hold still instead of animating unseen; the
+   inline animation sets its own play state, so this one must outrank it. */
+.ks-jump[data-active='false'] circle[data-cell] {
+  animation-play-state: paused !important;
+}
+.ks-jump[data-mark='ended'] {
+  color: var(--thread-fox);
+}
+.ks-jump[data-mark='running'] circle[data-still] {
+  opacity: 1;
+}
+.ks-jump[data-mark='waiting'] circle[data-cell='4'] {
+  opacity: 1;
+  animation: ks-jump-beat 1.4s ease-in-out infinite;
+}
+.ks-jump[data-mark='failed'] circle {
+  fill: var(--danger);
+}
+.ks-jump[data-mark='failed'] circle[data-cell='4'] {
+  opacity: 1;
+}
+.ks-jump[data-mark='ended'] .ks-jump__arrow {
+  animation: ks-jump-nudge 420ms cubic-bezier(0.3, 0, 0.3, 1) 600ms both;
+}
+.ks-jump[data-mark='failed'] {
+  animation: ks-jump-shake 420ms cubic-bezier(0.36, 0.07, 0.19, 0.97) 340ms both;
+}
+@keyframes ks-jump-beat {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.45);
+  }
+}
+@keyframes ks-jump-nudge {
+  0%,
+  100% {
+    transform: none;
+  }
+  45% {
+    transform: translateY(2.5px);
+  }
+}
+@keyframes ks-jump-shake {
+  0%,
+  100% {
+    transform: none;
+  }
+  20% {
+    transform: translateX(-3px);
+  }
+  40% {
+    transform: translateX(3px);
+  }
+  60% {
+    transform: translateX(-2px);
+  }
+  80% {
+    transform: translateX(1.5px);
+  }
+}
+
+/* The message outline: a dash per message at the thread's left, packed at rest. The pointer spreads
+   it into rows of 10 px, each dash lengthening as the pointer nears it, and the message under the
+   pointer shows beside it. Only transform and color move. */
+.ks-outline {
+  width: 36px;
+  height: 0;
+}
+.ks-outline__row {
+  position: absolute;
+  top: -5px;
+  left: 0;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 10px;
+  padding-left: 14px;
+  cursor: pointer;
+  transition: transform 260ms var(--ease-out-quint);
+}
+.ks-outline__dash {
+  width: 20px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--thread-line-strong);
+  transform-origin: left center;
+  transition:
+    transform var(--duration-base) var(--ease-out-quint),
+    background-color var(--duration-fast) var(--ease-standard);
+}
+.ks-outline__row[data-near] > .ks-outline__dash {
+  background: var(--thread-faint);
+}
+.ks-outline__row[data-current] > .ks-outline__dash {
+  background: var(--thread-muted);
+}
+/* While a find is open: the turns with matches in the find color, the current one deepest. */
+.ks-outline__row[data-quiet] > .ks-outline__dash {
+  background: color-mix(in srgb, var(--thread-line-strong) 60%, transparent);
+}
+.ks-outline__row[data-hits] > .ks-outline__dash {
+  background: color-mix(in srgb, var(--attention-dot) 60%, transparent);
+}
+.ks-outline__row[data-found] > .ks-outline__dash {
+  background: var(--attention-dot);
+}
+.ks-outline__row[data-pointed] > .ks-outline__dash {
+  background: var(--thread-ink);
+}
+.ks-outline__row[data-hits][data-pointed] > .ks-outline__dash {
+  background: var(--attention-dot);
+}
+.ks-outline__keys {
+  position: absolute;
+  left: 8px;
+  width: 26px;
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+}
+/* The ring is drawn around the packed rail, so the pointer spreading it hides the ring. */
+.ks-outline[data-open] > .ks-outline__keys {
+  outline-color: transparent;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ks-outline__row,
+  .ks-outline__dash {
+    transition: none;
+  }
+}
+:root[data-reduce-motion='always'] :is(.ks-outline__row, .ks-outline__dash) {
+  transition: none;
+}
+.ks-outline__item {
+  padding: 6px 8px;
+  font-size: 12.5px;
+  color: var(--thread-muted);
+}
+.ks-outline__item[data-highlighted],
+.ks-outline__item[data-reading] {
+  color: var(--thread-ink);
+}
+.ks-outline__item[data-reading] {
+  font-weight: 500;
+}
+/* A row with matches in the find's color, as its dash; the current match's turn in bold. */
+.ks-outline__item[data-hits] {
+  color: var(--attention);
+}
+.ks-outline__item[data-quiet]:not([data-highlighted]) {
+  color: color-mix(in srgb, var(--thread-faint) 70%, transparent);
+}
+.ks-outline__hits {
+  flex-shrink: 0;
+  opacity: 0.7;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Reply to a selected passage, or ask about it in the side chat: one ink capsule above it. */
+.ks-reply-pills {
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--thread-ink);
+  box-shadow: var(--thread-pill-shadow);
+}
+.ks-reply-pop {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+.ks-reply-pill {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--bg-app);
+}
+.ks-reply-pill:hover {
+  background: color-mix(in srgb, var(--bg-app) 16%, transparent);
+  color: var(--bg-app);
+}
+.ks-reply-pill + .ks-reply-pill {
+  position: relative;
+  margin-left: 1px;
+}
+.ks-reply-pill + .ks-reply-pill::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 6px;
+  bottom: 6px;
+  width: 1px;
+  background: color-mix(in srgb, var(--bg-app) 28%, transparent);
+}
+
+/* A turn's changes: the count and the repository's actions, then a row per file. */
+.ks-changes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 14px 0 6px;
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--thread-card);
+  box-shadow:
+    inset 0 0 0 0.5px var(--thread-line-strong),
+    var(--thread-card-shadow);
+}
+.ks-changes__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+  padding: 2px 4px 6px;
+  font-size: 13px;
+  color: var(--thread-ink);
+  container-type: inline-size;
+}
+.ks-changes__head b {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.ks-changes__counts {
+  display: inline-flex;
+  gap: 4px;
+}
+.ks-changes__actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.ks-changes__actions .ks-btn svg {
+  display: none;
+}
+/* In a narrow column the actions keep only their icons, so the head stays on one line. */
+@container (inline-size < 440px) {
+  .ks-changes__actions .ks-btn {
+    width: 26px;
+    padding: 0;
+    justify-content: center;
+  }
+  .ks-changes__actions .ks-btn svg {
+    display: block;
+  }
+  .ks-changes__actions .ks-btn__label {
+    display: none;
+  }
+}
+.ks-btn {
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--thread-card);
+  box-shadow:
+    inset 0 0 0 0.5px var(--thread-line-strong),
+    var(--thread-card-shadow);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--thread-ink);
+}
+.ks-btn:hover {
+  background: var(--thread-hover);
+  color: var(--thread-ink);
+}
+.ks-btn--solid,
+.ks-btn--solid:hover {
+  background: var(--thread-ink);
+  box-shadow: none;
+  color: var(--bg-app);
+}
+.ks-btn--solid:hover {
+  opacity: 0.88;
+}
+.ks-btn--stop,
+.ks-btn--stop:hover {
+  background: var(--danger-tint);
+  box-shadow: inset 0 0 0 var(--hairline) var(--danger-border);
+  color: var(--danger);
+}
+.ks-btn--stop:hover {
+  background: var(--destructive-tint-hover);
+}
+.ks-file {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  height: 30px;
+  padding: 0 6px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  color: var(--thread-muted);
+  text-align: left;
+}
+.ks-file:hover,
+.ks-file[data-panel-open] {
+  background: var(--thread-hover);
+}
+.ks-file__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--thread-ink);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ks-file__dir {
+  color: var(--thread-faint);
+}
+.ks-changes__more[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+.ks-changes__more:hover {
+  color: var(--thread-ink);
+}
+
+/* A subagent's card, on Tool Call Card's measures; it opens the subagent's session. */
+.ks-subagent {
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--thread-card);
+  box-shadow: var(--thread-card-shadow);
+  font-size: 13px;
+  color: var(--thread-ink);
+}
+.ks-subagent[data-waiting] {
+  box-shadow: var(--attention-ring-shadow);
+}
+.ks-subagent__head {
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+  height: auto;
+  min-height: 44px;
+  padding: 0 12px 0 14px;
+  border-radius: 10px;
+  font-weight: 400;
+  text-align: left;
+}
+.ks-subagent__head:hover {
+  background: var(--thread-hover);
+}
+.ks-subagent__icon {
+  color: var(--thread-muted);
+}
+.ks-subagent__name {
+  flex: none;
+  max-width: 50%;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 500;
+  color: var(--thread-ink);
+  text-overflow: ellipsis;
+}
+.ks-subagent__desc {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--thread-muted);
+  text-overflow: ellipsis;
+}
+.ks-subagent__meta {
+  flex: none;
+  font-size: 12px;
+  color: var(--thread-muted);
+  white-space: nowrap;
+}
+.ks-subagent__chevron {
+  color: var(--thread-faint);
+}
+.ks-subagent__head:hover .ks-subagent__chevron {
+  color: var(--thread-ink);
+}
+
+/* A bar in the composer's place: a subagent's session, or computer use in progress. */
+.ks-bar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-height: var(--composer-min);
+  padding: 10px 10px 10px 14px;
+  border-radius: 16px;
+  background: var(--thread-card);
+  box-shadow: var(--thread-card-shadow);
+  font-size: 13px;
+  color: var(--thread-text);
+}
+.ks-bar > p {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ks-bar b {
+  font-weight: 500;
+  color: var(--thread-ink);
+}
+.ks-bar__icon {
+  color: var(--thread-muted);
+}
+
+/* Notices in the thread, on Tool Call Card's corners and type. */
+.ks-thread .ks-notice {
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* A publish to the Kettu Marketplace on Approval Card: the listing's line, who sees it, a table of
+   what it adds, runs and uploads with the checks, a new version's notes and a first publish's
+   publisher name. */
+.ks-thread .ui-apc.ks-pub {
+  max-width: none;
+}
+.ks-pub .ui-apc__desc {
+  white-space: normal;
+}
+/* The card holds fields and a file list of its own, which the card's scroller would cut. */
+.ks-pub .ui-apc__preview {
+  max-height: none;
+  overflow: visible;
+}
+.ks-pub__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--thread-ink);
+}
+.ks-pub-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--thread-card);
+  box-shadow: inset 0 0 0 0.5px var(--thread-line-strong);
+}
+.ks-pub-tile {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--tile, var(--tile-slate));
+  color: var(--tile-ink);
+}
+.ks-pub-line__text {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+.ks-pub-line__top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.ks-pub-line__top b {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ks-pub-line__version {
+  flex: none;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.ks-pub-line small {
+  overflow: hidden;
+  font-size: 12.5px;
+  color: var(--thread-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ks-pub-kind {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--chip);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--thread-muted);
+}
+.ks-pub-faint {
+  color: var(--thread-faint);
+}
+.ks-pub-mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.ks-pub-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+.ks-pub-label {
+  font-size: 12px;
+  color: var(--thread-muted);
+}
+.ks-pub-row > .ks-pub-label {
+  width: 96px;
+}
+.ks-pub-hint {
+  font-size: 12px;
+  color: var(--thread-faint);
+}
+.ks-pub-dl {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 7px 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--thread-card);
+  box-shadow: inset 0 0 0 0.5px var(--thread-line-strong);
+  font-size: 12.5px;
+}
+.ks-pub-dl > div {
+  display: contents;
+}
+.ks-pub-dl dt {
+  color: var(--thread-muted);
+}
+.ks-pub-dl dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.ks-pub-adds,
+.ks-pub-runs,
+.ks-pub-files {
+  display: grid !important;
+  gap: 3px !important;
+}
+.ks-pub-files > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ks-pub-agents {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ks-pub-checks {
+  gap: 4px 14px !important;
+}
+.ks-pub-ok,
+.ks-pub-vis {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ks-pub-ok svg {
+  color: var(--thread-add);
+}
+.ks-pub-vis svg {
+  color: var(--thread-muted);
+}
+.ks-pub-uploads {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+.ks-pub-link {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--thread-text);
+}
+.ks-pub-link:hover {
+  text-decoration: underline;
+}
+.ks-pub-filelist {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  max-height: 180px;
+  margin-top: 4px;
+  overflow-y: auto;
+}
+.ks-pub-filelist li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ks-pub-notes {
+  display: grid;
+  gap: 4px;
+}
+.ks-pub-notes textarea,
+.ks-pub-input {
+  border-radius: 8px;
+  background: var(--thread-card);
+  box-shadow: inset 0 0 0 1px var(--thread-line-strong);
+  color: var(--thread-ink);
+  transition: box-shadow 140ms ease;
+}
+.ks-pub-notes textarea {
+  min-height: 64px;
+  padding: 8px 11px;
+  font-size: 13px;
+  line-height: 1.55;
+  outline: none;
+  resize: vertical;
+}
+.ks-pub-notes textarea::placeholder {
+  color: var(--thread-muted);
+}
+.ks-pub-notes textarea:focus,
+.ks-pub-input:focus-within {
+  box-shadow: inset 0 0 0 1px var(--thread-muted);
+}
+.ks-pub-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  height: 30px;
+  padding: 0 10px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.ks-pub-input:has(input[aria-invalid='true']) {
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+.ks-pub-input input {
+  width: 22ch;
+  min-width: 0;
+  background: transparent;
+  outline: none;
+}
+.ks-pub-handle .ks-pub-hint {
+  flex-basis: 100%;
+}

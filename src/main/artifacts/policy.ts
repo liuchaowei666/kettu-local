@@ -1,0 +1,63 @@
+// What an artifact's page may load: its own origin, `data:`, `blob:` and a fixed list of CDNs. The
+// policy goes out as a header, and main's request filter holds the same line on its own.
+
+import type { ProxyConfig } from 'electron'
+import {
+  ARTIFACT_CDNS,
+  ARTIFACT_CSP,
+  ARTIFACT_PERMISSIONS_POLICY,
+  ARTIFACT_STRICT_CSP,
+  artifactCsp,
+} from '@shared/artifact-policy'
+import { ARTIFACT_SCHEME, artifactHost } from './origins'
+
+export { ARTIFACT_CDNS, ARTIFACT_CSP, ARTIFACT_STRICT_CSP }
+
+const CDN_HOSTS: ReadonlySet<string> = new Set(ARTIFACT_CDNS.map((origin) => new URL(origin).host))
+
+/**
+ * The proxy of the session the windows use. Main's request filter stops a page's requests to other
+ * hosts, but WebRTC's connections never pass it: with WebRTC kept off UDP, they all come here, to a
+ * port nothing listens on, which refuses them. The CDNs, loopback and the spellchecker's
+ * dictionaries, which Linux downloads, go direct.
+ */
+export const WINDOW_PROXY: ProxyConfig = {
+  mode: 'fixed_servers',
+  proxyRules: 'http://127.0.0.1:9',
+  proxyBypassRules: [...CDN_HOSTS, 'localhost', '127.0.0.1', '[::1]', '*.gvt1.com'].join(','),
+}
+
+/** The headers of every response on an artifact origin; `strict` keeps the CDNs out. */
+export function artifactHeaders(strict = false): Record<string, string> {
+  return {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Content-Security-Policy': artifactCsp(strict),
+    'Permissions-Policy': ARTIFACT_PERMISSIONS_POLICY,
+    'Cross-Origin-Resource-Policy': 'same-origin',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'no-referrer',
+    'Cache-Control': 'no-store',
+  }
+}
+
+/**
+ * Whether a page on the artifact origin `host` may request `url`, whatever its policy says; a
+ * `strict` one only its own origin, `data:` and `blob:`.
+ */
+export function mayRequest(host: string, url: string, strict = false): boolean {
+  const parsed = URL.parse(url)
+  if (!parsed) return false
+  switch (parsed.protocol) {
+    case 'data:':
+    case 'blob:':
+      return true
+    case `${ARTIFACT_SCHEME}:`:
+      return artifactHost(url) === host
+    case 'https:':
+      if (strict) return false
+      // URL drops the default port, so a CDN on any other port has a host of its own.
+      return CDN_HOSTS.has(parsed.host) && parsed.username === '' && parsed.password === ''
+    default:
+      return false
+  }
+}

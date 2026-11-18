@@ -1,0 +1,120 @@
+// The notice a session shows when it could not keep values it was meant to have, such as a fork
+// whose agent refused its source's mode, or a session whose agent would not take its own back.
+
+import type { ConfigOption } from '@shared/thread'
+import { isValueOf } from './agent-options'
+import { t } from './i18n'
+
+/** A value a session could not keep: `actual` is null when it has no such option. */
+export type LostValue =
+  | {
+      type: 'select'
+      /** The option's name, such as "Mode". */
+      option: string
+      /** The names of the value meant to be kept and of the one the session runs with. */
+      wanted: string
+      actual: string | null
+    }
+  | { type: 'boolean'; option: string; wanted: boolean; actual: boolean | null }
+
+// The mode matters most, since a looser one runs commands the source would have refused.
+const RANK: Record<ConfigOption['category'], number> = {
+  mode: 0,
+  model: 1,
+  model_config: 2,
+  thought_level: 3,
+  other: 4,
+}
+
+/** What a user reads for a choice of `option`: its name, or the raw value for an unknown one. */
+export function valueName(option: ConfigOption, value: string): string {
+  return option.choices?.find((choice) => choice.value === value)?.name ?? value
+}
+
+function lostValue(option: ConfigOption, now: ConfigOption | undefined): LostValue {
+  if (option.type === 'boolean' && typeof option.value === 'boolean') {
+    return {
+      type: 'boolean',
+      option: option.name,
+      wanted: option.value,
+      actual: typeof now?.value === 'boolean' ? now.value : null,
+    }
+  }
+  return {
+    type: 'select',
+    option: option.name,
+    wanted: valueName(option, String(option.value)),
+    actual: now && typeof now.value === 'string' ? valueName(now, now.value) : null,
+  }
+}
+
+/** The values of `wanted` that `actual` does not hold, mode first. */
+export function lostValues(
+  wanted: readonly ConfigOption[],
+  actual: readonly ConfigOption[],
+): LostValue[] {
+  const lost: { rank: number; value: LostValue }[] = []
+  for (const option of wanted) {
+    // 'default' keeps whatever the agent inherits, so there is nothing to lose.
+    if (option.type === 'boolean' && option.value === 'default') continue
+    const same = actual.find((o) => o.id === option.id && o.type === option.type)
+    if (same?.value === option.value) continue
+    lost.push({ rank: RANK[option.category], value: lostValue(option, same) })
+  }
+  return lost.sort((a, b) => a.rank - b.rank).map(({ value }) => value)
+}
+
+/**
+ * `own` with its stored mode set on the one mode option the agent offers now, when the stored
+ * option's id is gone, exactly one mode option is offered, and it takes the stored value; `own`
+ * itself otherwise. An agent that moves between `configOptions` and the legacy `modes` does this.
+ */
+export function carryMode(own: ConfigOption[], offered: ConfigOption[]): ConfigOption[] {
+  const stored = own.find((option) => option.category === 'mode')
+  if (!stored || offered.some((option) => option.id === stored.id)) return own
+  const modes = offered.filter((option) => option.category === 'mode')
+  const [mode] = modes
+  if (modes.length !== 1 || !mode || !isValueOf(mode, stored.value)) return own
+  return own.map((option) => (option === stored ? { ...mode, value: stored.value } : option))
+}
+
+/**
+ * What the notice speaks of: a new fork, a session that attached to its agent again, or a new
+ * session that could not start with the values chosen for it.
+ */
+export type NoticeSubject = 'fork' | 'session' | 'start'
+
+// A switch has a sentence for each case, not its value in a slot: "on" and "off" would be
+// translated words glued into the sentence. A switch that was off and is missing lost nothing.
+function line(lost: LostValue, subject: NoticeSubject): string | null {
+  const { option } = lost
+  if (lost.type === 'boolean') {
+    if (lost.actual === null)
+      return lost.wanted ? t(`notice.lostValues.${subject}.cannotTurnOn`, { option }) : null
+    return t(lost.wanted ? 'notice.lostValues.isOff' : 'notice.lostValues.isOn', { option })
+  }
+  return lost.actual === null
+    ? t(`notice.lostValues.${subject}.missing`, { option, wanted: lost.wanted })
+    : t('notice.lostValues.differs', { option, wanted: lost.wanted, actual: lost.actual })
+}
+
+/**
+ * The notice entry's text for the values a session could not keep; null when it kept them all.
+ * With `held`, it also says that the message the session was to send waits in its queue.
+ */
+export function lostValuesNotice(
+  lost: readonly LostValue[],
+  { subject = 'fork', held = false }: { subject?: NoticeSubject; held?: boolean } = {},
+): { severity: 'warning'; title: string; description: string } | null {
+  const lines = lost.map((value) => line(value, subject)).filter((text) => text !== null)
+  if (lines.length === 0) return null
+  return {
+    severity: 'warning',
+    title: t(`notice.lostValues.${subject}.title`),
+    description: [
+      ...lines,
+      t('notice.lostValues.next'),
+      ...(held ? [t('notice.lostValues.held')] : []),
+    ].join('\n'),
+  }
+}
