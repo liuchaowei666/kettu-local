@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 concurrency:
   group: build-on-upstream-release
@@ -70,6 +71,21 @@ jobs:
           git init -q
           cp -R ../overlay/. .
           echo "local changes in place for v$BASE"
+
+      - name: Notice upstream edits to the files this build replaces
+        if: steps.pick.outputs.skip == '0'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node -e "const fs=require('fs'),c=require('crypto');const map=JSON.parse(fs.readFileSync('overlay/upstream-hashes.json','utf8'));const bad=[];for(const [p,h] of Object.entries(map)){if(h==='missing')continue;try{if(c.createHash('sha256').update(fs.readFileSync('app/'+p)).digest('hex')!==h)bad.push(p)}catch{bad.push(p)}}fs.writeFileSync('drift.txt',bad.join('\n'))"
+          if [ -s drift.txt ]; then
+            echo "## 上游改动了这些被本地覆盖的文件" >> "$GITHUB_STEP_SUMMARY"
+            cat drift.txt >> "$GITHUB_STEP_SUMMARY"
+            gh issue create \
+              --title "上游改动了被本地覆盖的文件（需人工合并）v${{ steps.pick.outputs.base }}" \
+              --body "$(printf '上游 v%s 改动了:\n%s\n\n本次构建仍用本地 overlay 覆盖了这些文件。请确认上游是否已自带同样功能：若已有，删掉对应的 overlay 文件并更新 upstream-hashes.json；否则把上游的新改动合并进 overlay。' '${{ steps.pick.outputs.base }}' "$(cat drift.txt)")" || true
+          fi
 
       - name: Choose the version to publish
         if: steps.pick.outputs.skip == '0'
