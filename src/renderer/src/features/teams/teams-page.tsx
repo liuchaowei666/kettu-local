@@ -202,6 +202,19 @@ export default function TeamsPage() {
                       </option>
                     ))}
                   </select>
+                  <input
+                    value={bot.model ?? ''}
+                    onChange={(event) =>
+                      patch((team) => {
+                        const target = team.bots.find((entry) => entry.id === bot.id)
+                        if (target) target.model = event.target.value === '' ? undefined : event.target.value
+                      })
+                    }
+                    onBlur={() => void commit()}
+                    placeholder={t('modelHint')}
+                    className="w-44 rounded-md border border-line bg-transparent px-2 py-1 text-sm"
+                    aria-label={t('model')}
+                  />
                   <button
                     type="button"
                     onClick={() =>

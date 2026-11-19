@@ -21,5 +21,7 @@
   "copied": "Copied",
   "needChief": "This team has no chief",
   "startsWith": "Opens from “{{name}}” ({{agent}})",
-  "startHint": "Opens New session with the chief’s opening message in the box; nothing starts until you send it."
+  "startHint": "Opens New session with the chief’s opening message in the box; nothing starts until you send it.",
+  "model": "Model",
+  "modelHint": "agent default"
 }

@@ -9,6 +9,7 @@
   "src/agent-host/session-updates.ts": "509d1d8fd0d4daca0c673826ee622fd28937fbf3ebd91d7fdab613e5194e3ebc",
   "src/agent-host/sessions.ts": "41e83c09e473453e0d0efe1b87ab99979e59bcef9cdbc3932f0390fe49e14065",
   "src/main/ipc.ts": "9e06f41aa24c58d83fa5785e00a6aaa156ec9c2c207f8ecec44a3ea1955c02b6",
+  "src/main/teams.ts": "missing",
   "src/main/updater.ts": "d929983e71f4c7fd31b73c1d44a7edf0a07d7044949db37a97ac3d16abb27cdc",
   "src/preload/index.ts": "8f2002f7c14a134b43418167be598c720506644ee7026064857ba8a6f3f143ea",
   "src/renderer/src/features/session/composer/composer.tsx": "c94a46777f6e4af79a4908e12d7856b7a6062bbc2723353819085908b529bc03",
@@ -17,8 +18,10 @@
   "src/renderer/src/features/shell/place-title.ts": "872222dc98fe474c99e172300de5a237a6b06352516d6cbc3a3cf246d1b064ba",
   "src/renderer/src/features/shell/place.tsx": "7401c716638a7183ce1f7de98a196892862acd443eeaa22be2f3256a46925304",
   "src/renderer/src/features/sidebar/sidebar-nav.tsx": "0f5f93cad73a9f8539d24e70300e65627125bd20ac0a3a86ebd919412abf6338",
+  "src/renderer/src/features/teams/teams-page.tsx": "missing",
   "src/renderer/src/features/usage/plan-limits.tsx": "af02d6e8952ddb61e1486a3e2ce3337e34ad9207412aa3c390030059dab15775",
   "src/renderer/src/features/usage/usage.css": "d1884790cf91eaacf9f0320d4295b9cabba1f2d82168af59d0d5b69f2e320fb8",
+  "src/renderer/src/stores/teams.ts": "missing",
   "src/renderer/src/stores/view.ts": "451d15633231439ddfa6ad0f4247743fe64ccb526947570bead0dd3fe28c05da",
   "src/renderer/src/styles/affect.css": "7b39575126f6a5ad1c64124616b67e0a527fe25bb66deadc21711ad7f8d1981d",
   "src/renderer/src/web/api.ts": "8907ae1dfe17942dd7fcd8b64a7993a52d3db137cc21e392ed5528c7b95c0fc9",
@@ -26,6 +29,7 @@
   "src/shared/ipc.ts": "9060519c93a77f7016d612f1b8e52872776db85e115da6ead0617a63ec52b192",
   "src/shared/locales/en/shell.json": "9e68d89238c6dfae9579a657cc9fa7d35ea1edb24074da1990e64ec860daafb6",
   "src/shared/locales/en/sidebar.json": "de1624143ec4f2bc2200a608c13da7e10b5068d5675819db4dd5db74783594ed",
+  "src/shared/locales/en/teams.json": "missing",
   "src/shared/locales/en/usage.json": "fadce3989d0171a581f172245a69b0a7c62ed2092ba963fdf09ff1ed94c51621",
   "src/shared/locales/zh-CN/artifacts.json": "b0b97fdb2ec0e082f0178e03812e613bf53f7013bfb5fb719557a0f05d8bbb25",
   "src/shared/locales/zh-CN/board.json": "ce7a240b5ab18bc2d2fe067c778cd47e2f1c4046c7f356c45d5cd6650b83a055",
@@ -41,5 +45,7 @@
   "src/shared/locales/zh-CN/sidebar.json": "c5d6ad7c2edcebaafedf8ee5888405a687ee0b6125ff9724eadf0aaa4b8b9f9a",
   "src/shared/locales/zh-CN/star.json": "3f337f5420713da9e72c26173f28799cfc15afdc39816e12c1f14b9be9579be4",
   "src/shared/locales/zh-CN/tasks.json": "4874addc2960a7771337a7354595fd52e6b1cede2a74a00ee04af2e4cabd9301",
-  "src/shared/locales/zh-CN/usage.json": "1fa96d9cdd8414f42b74cbfd3bb5c994173b3cb77bddacf3520c4ed1e3825408"
+  "src/shared/locales/zh-CN/teams.json": "missing",
+  "src/shared/locales/zh-CN/usage.json": "1fa96d9cdd8414f42b74cbfd3bb5c994173b3cb77bddacf3520c4ed1e3825408",
+  "src/shared/teams.ts": "missing"
 }

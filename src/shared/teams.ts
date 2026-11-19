@@ -9,6 +9,8 @@ export interface TeamBot {
   name: string
   role: 'chief' | 'member'
   agentId: AgentId
+  /** The model its agent should use; empty leaves the agent's own default. */
+  model?: string
   /** What this bot is for, handed to it when the chief starts it. */
   prompt: string
 }
@@ -83,7 +85,7 @@ export function membersOf(team: Team): TeamBot[] {
 export function chiefPrompt(team: Team, task: string): string {
   const members = membersOf(team)
   const list = members
-    .map((bot) => `- ${bot.name}（agent: ${bot.agentId}）：${bot.prompt}`)
+    .map((bot) => `- ${bot.name}（agent: ${bot.agentId}${bot.model ? `, model: ${bot.model}` : ''}）：${bot.prompt}\n  记忆文件：.team/bots/${bot.id}.md`)
     .join('\n')
   return [
     `你是团队主管${chiefOf(team)?.name ? `「${chiefOf(team)!.name}」` : ''}，团队名称：${team.name}。`,
@@ -97,10 +99,13 @@ export function chiefPrompt(team: Team, task: string): string {
     '',
     '做法：',
     '1. 先拆解任务，写清范围、验收标准、给每个成员的具体分工；',
-    '2. 用 kettu 的 start_session 为每个成员各开一个会话（agent 用上面写的那个），开场消息里要包含：任务原文、整体简报、这个成员的职责、要交付什么；',
+    '2. 用 kettu 的 start_session 为每个成员各开一个会话（agent 和 model 用上面写的），开场消息里要包含：任务原文、整体简报、这个成员的职责、要交付什么；',
+    '   并让它在开工前先读自己的记忆文件（不存在就跳过），结束前把自己的总结追加进去；',
     '3. 等每个会话结束时 Kettu 会通知你，再用 get_session 取回它的成果；',
     '4. 对照验收标准检查成员成果，必要时把它发回给同一个会话让它改（send_message）；',
     '5. 最后给用户一份简短交付说明：做了什么、改了哪些文件、怎么验证、已知问题与建议。',
+    '',
+    '你自己的记忆文件是 .team/bots/chief.md：开工前读它，收尾时把你的判断与经验追加进去。',
     '',
     '注意：不要代替成员做完所有事；你的价值是拆解、调度、验收和汇总。',
   ].join('\n')
@@ -128,6 +133,7 @@ export function validateTeams(value: unknown): Team[] {
         name: text(bot.name, bot.role === 'chief' ? '主管' : '成员'),
         role: bot.role,
         agentId: bot.agentId as AgentId,
+        ...(typeof bot.model === 'string' && bot.model.trim() !== '' ? { model: bot.model.trim() } : {}),
         prompt: typeof bot.prompt === 'string' ? bot.prompt : '',
       })
     }
