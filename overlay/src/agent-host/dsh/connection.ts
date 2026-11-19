@@ -60,7 +60,7 @@ import type {
   SubagentStartedNotification,
 } from './protocol'
 import { readProvider } from './credentials'
-import { providerOf } from './local-models'
+import { providerOf, syncProvidersProfile } from './local-models'
 
 const PENDING_EVENTS = 2_000
 const INITIALIZE_TIMEOUT_MS = 60_000
@@ -663,6 +663,8 @@ export class DshConnection implements AgentConnection {
   }
 
   private async spawn(session: Session): Promise<Proc> {
+    // Providers this machine added in local-models.json that the profile does not declare yet.
+    syncProvidersProfile()
     const { spec, env } = this.context
     const servers = session.options.mcpServers ?? []
     const patch = mcpPatch(servers)
