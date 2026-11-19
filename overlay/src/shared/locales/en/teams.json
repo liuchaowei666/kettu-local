@@ -20,8 +20,8 @@
   "copyPrompt": "Copy opening message",
   "copied": "Copied",
   "needChief": "This team has no chief",
-  "startsWith": "Opens from “{{name}}” ({{agent}})",
-  "startHint": "Opens New session with the chief’s opening message in the box; nothing starts until you send it.",
+  "startsWith": "Assistant: {{name}} ({{agent}})",
+  "startHint": "The first Start creates the team’s assistant session; later ones send a message into it. You only ever talk to that one chat, and it arranges the members.",
   "model": "Model",
   "modelHint": "agent default"
 }

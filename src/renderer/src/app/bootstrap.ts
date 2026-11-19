@@ -60,6 +60,7 @@ import { marketConnectionChanged, marketKeysChanged } from '@renderer/stores/mar
 import { marketPublishedChanged } from '@renderer/stores/market-published'
 import { memoryChanged } from '@renderer/stores/memory'
 import { useProjectsStore } from '@renderer/stores/projects'
+import { useTeamsStore } from '@renderer/stores/teams'
 import { routinesHostClosed, routinesHostOpened, useRoutinesStore } from '@renderer/stores/routines'
 import { useIdleReleaseStore } from '@renderer/stores/idle-release'
 import { useWorkflowsStore } from '@renderer/stores/workflows'
@@ -440,6 +441,11 @@ export function bootstrap(): Promise<unknown> {
   void removeEmptySessions()
   const sessionState = loadSessionState()
   void loadAgents()
+  // The team's assistant session exists from the first launch, not from a button.
+  void useTeamsStore
+    .getState()
+    .ensureAssistant()
+    .catch((error: unknown) => console.warn(`No assistant session: ${errorMessage(error)}`))
   void loadGitTools()
   void loadGitHubStar()
   // Leaving the launch view waits for the session list, not for the agents or git tools, whose

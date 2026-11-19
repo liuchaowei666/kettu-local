@@ -1,0 +1,458 @@
+import type { HostEvent } from '@shared/agent-host'
+import type { AgentId } from '@shared/agents'
+import {
+  closeUnlistedPanes,
+  followShownSession,
+  removeEmptySessions,
+  sessionRemoved,
+  takeReturnedMessages,
+  usePendingSession,
+} from '@renderer/app/actions'
+import { onAppEvent } from '@renderer/app/events'
+import { launchTarget } from '@renderer/app/restore'
+import { restoreDraftAttachments } from '@renderer/features/session/composer/attachments'
+import { allPanes } from '@renderer/features/split/layout'
+import {
+  errorMessage,
+  forgetSessionHost,
+  host,
+  hostAt,
+  learnSessionHosts,
+  sessionHost,
+} from '@renderer/lib/host'
+import { whenHostHas } from '@renderer/lib/host-features'
+import { hostOfPath } from '@renderer/lib/host-paths'
+import { isHosted, isWeb, platform } from '@renderer/lib/platform'
+import { initAccount } from '@renderer/stores/account'
+import { loadAgentOptions, receiveAgentOptions } from '@renderer/stores/agent-options'
+import { initDevices } from '@renderer/stores/devices'
+import { initBrowser } from '@renderer/stores/browser'
+import {
+  hostRestarted,
+  preparedRemoved,
+  receivePrepared,
+} from '@renderer/features/session/new-session/prepared'
+import {
+  hostAgentChanged,
+  hostAgentRemoved,
+  receiveSignInLink,
+  useAgentsStore,
+} from '@renderer/stores/agents'
+import {
+  artifactsChanged,
+  artifactsHostClosed,
+  artifactsHostOpened,
+  receiveArtifactEvent,
+} from '@renderer/stores/artifacts'
+import { useConnectionStore } from '@renderer/stores/connection'
+import {
+  loadGitTools,
+  receiveCurrentPr,
+  receiveGitStatus,
+  receiveReference,
+  refreshShownProject,
+  rewatchGit,
+  syncReferences,
+  useGitStore,
+} from '@renderer/stores/git'
+import { loadGitHubStar, receiveGitHubStar } from '@renderer/stores/github-star'
+import { marketConnectionChanged, marketKeysChanged } from '@renderer/stores/marketplace'
+import { marketPublishedChanged } from '@renderer/stores/market-published'
+import { memoryChanged } from '@renderer/stores/memory'
+import { useProjectsStore } from '@renderer/stores/projects'
+import { useTeamsStore } from '@renderer/stores/teams'
+import { routinesHostClosed, routinesHostOpened, useRoutinesStore } from '@renderer/stores/routines'
+import { useIdleReleaseStore } from '@renderer/stores/idle-release'
+import { useWorkflowsStore } from '@renderer/stores/workflows'
+import { tasksHostClosed, tasksHostOpened, useTasksStore } from '@renderer/stores/tasks'
+import { useSessionsStore } from '@renderer/stores/sessions'
+import { initSettings, useSettingsStore } from '@renderer/stores/settings'
+import { hostScopeEvent, hostScopeOpened } from '@renderer/stores/host-scope'
+import { initHosts, loadHosts, useHostsStore } from '@renderer/stores/hosts'
+import { initRemote } from '@renderer/stores/remote'
+import { initSharing } from '@renderer/stores/sharing'
+import { initTerminals } from '@renderer/stores/terminals'
+import { initThemes } from '@renderer/stores/themes'
+import { keepWatched, receiveBatch, rewatchAll } from '@renderer/stores/threads'
+import { forgetViewers, receiveViewers } from '@renderer/stores/viewers'
+import { initUpdates } from '@renderer/stores/updates'
+import { initDebug } from '@renderer/stores/debug'
+import {
+  followUsageHosts,
+  loadToday,
+  loadUsageStatus,
+  receiveUsageStatus,
+  usageChanged,
+} from '@renderer/stores/usage'
+import {
+  lastSessionId,
+  layoutSessions,
+  openArtifact,
+  openSession,
+  resetLayout,
+  restoreLayout,
+  savedLayout,
+  shownLayoutSessions,
+  useViewStore,
+} from '@renderer/stores/view'
+import { goneHosts, hostListed, initHostSessions } from './host-sessions'
+import { followWindowTitle } from './window-title'
+
+/** An event of this computer's agent host, or with `hostId` of another host's. */
+function onHostEvent(event: HostEvent, hostId: string | null = null): void {
+  switch (event.type) {
+    case 'session.patches':
+      receiveBatch(event.batch)
+      return
+    case 'session.summary':
+      // A prepared session is New session's alone until its first message.
+      if (event.summary.prepared) receivePrepared(event.summary, hostId)
+      else useSessionsStore.getState().upsert(event.summary)
+      return
+    case 'session.removed':
+      forgetViewers(event.sessionId)
+      if (!preparedRemoved(event.sessionId)) sessionRemoved(event.sessionId)
+      if (hostId !== null) forgetSessionHost(event.sessionId)
+      return
+    case 'session.returned':
+      void takeReturnedMessages(event.sessionId, hostId)
+      return
+    case 'session.viewers':
+      receiveViewers(event.sessionId, event.viewers)
+      return
+    case 'projects.changed':
+      useProjectsStore.getState().setAll(event.projects, hostId)
+      return
+    case 'git.changed':
+      receiveGitStatus(event.status)
+      return
+    case 'git.pr':
+      receiveCurrentPr(event.projectPath, event.pr)
+      return
+    case 'git.reference':
+      receiveReference(event.url, event.found)
+      return
+    case 'agent.status':
+      if (hostId === null) useAgentsStore.getState().setOne(event.status)
+      else {
+        hostAgentChanged(hostId, event.status)
+        hostScopeEvent(hostId, event)
+      }
+      return
+    case 'agent.removed':
+      if (hostId === null) useAgentsStore.getState().remove(event.agentId)
+      else {
+        hostAgentRemoved(hostId, event.agentId)
+        hostScopeEvent(hostId, event)
+      }
+      return
+    case 'agent.options':
+      receiveAgentOptions(event.options, hostId)
+      return
+    case 'agents.signInLink':
+      receiveSignInLink(hostId, event.agentId, event.url)
+      return
+    case 'routine.changed':
+      useRoutinesStore.getState().receive(event.routine, hostId)
+      return
+    case 'routine.removed':
+      useRoutinesStore.getState().removed(event.routineId, hostId)
+      return
+    case 'routine.run':
+      useRoutinesStore.getState().receiveRun(event.run, hostId)
+      return
+    case 'task.changed':
+      useTasksStore.getState().receive(event.task, hostId)
+      return
+    case 'task.removed':
+      useTasksStore.getState().removed(event.taskId)
+      return
+    case 'workflows.changed':
+      useWorkflowsStore.getState().changed(hostId)
+      return
+    case 'idleRelease.changed':
+      useIdleReleaseStore.getState().receive(hostId, event.state)
+      return
+  }
+  receiveArtifactEvent(event, hostId)
+  if (event.type === 'artifacts.changed') artifactsChanged(hostId)
+  if (event.type === 'memory.changed') memoryChanged(hostId)
+  // The rest is each host's own: another host's goes to its Settings, if they have shown it.
+  if (hostId !== null && event.type === 'usage.changed') usageChanged(hostId)
+  // Only this window's own host is asked to star, as the prompts show its record.
+  if (event.type === 'star.changed') {
+    if (hostId === null) receiveGitHubStar(event.state)
+    return
+  }
+  if (hostId !== null) return hostScopeEvent(hostId, event)
+  switch (event.type) {
+    case 'environment.changed':
+      useAgentsStore.setState({ environment: event.info })
+      break
+    case 'git.tools':
+      useGitStore.setState({ tools: event.tools })
+      break
+    case 'usage.changed':
+      usageChanged()
+      break
+    case 'usage.status':
+      receiveUsageStatus(event.status)
+      break
+    case 'market.keysChanged':
+      marketKeysChanged()
+      break
+    case 'market.connectionChanged':
+      marketConnectionChanged(event)
+      break
+    case 'market.publishedChanged':
+      marketPublishedChanged(null)
+      break
+  }
+}
+
+/** What the shell needs before it can show a session. */
+function loadSessionState(): Promise<unknown> {
+  return Promise.allSettled([
+    useProjectsStore.getState().refresh(),
+    useSessionsStore.getState().refresh(),
+    useRoutinesStore.getState().load(),
+    useTasksStore.getState().load(),
+    loadAgentOptions(),
+  ])
+}
+
+/**
+ * This computer's agents. The host answers once it has detected them, after the login shell and
+ * each harness's `--version`, so launch does not wait for them.
+ */
+function loadAgents(): Promise<void> {
+  return useAgentsStore
+    .getState()
+    .refresh()
+    .catch((error: unknown) => console.warn(`Could not read the agents: ${errorMessage(error)}`))
+}
+
+/** Loads everything the shell shows; also runs after the agent host comes back. */
+export async function loadHostState(): Promise<void> {
+  useIdleReleaseStore.getState().reload(null)
+  await Promise.allSettled([
+    loadSessionState(),
+    loadAgents(),
+    loadGitTools(),
+    loadGitHubStar(),
+    loadUsageStatus(),
+    loadToday(),
+  ])
+}
+
+/**
+ * Loads it all again after it failed. A host that stopped for good refuses every request until it
+ * is restarted, and its return reads it all again.
+ */
+export async function retryHostState(): Promise<void> {
+  if (useConnectionStore.getState().agentHost !== 'failed') return loadHostState()
+  try {
+    await window.kettu.agents.restart()
+  } catch (error) {
+    useProjectsStore.setState({ error: errorMessage(error) })
+  }
+}
+
+let launched = false
+// The sessions of the panes a launch kept for hosts not listed yet.
+const waitingSessions = new Set<string>()
+
+/**
+ * Leaves the launch view for the session shown when the app last closed, as Settings › General
+ * allows, else for New session.
+ */
+function finishLaunch(): void {
+  launched = true
+  if (usePendingSession.getState().pending) return
+  const { main } = useViewStore.getState()
+  // A viewer opened while launch was restoring would go back to the launch view, which nothing
+  // leaves again: what launch shows goes beneath it, and the viewer opens over that.
+  const over = main.kind === 'artifact' && main.back.kind === 'launch' ? main : null
+  const { byId } = useSessionsStore.getState()
+  const target = launchTarget({
+    enabled: useSettingsStore.getState().settings.general.restoreLastSession,
+    layout: savedLayout,
+    lastSessionId,
+    main: over ? over.back : main,
+    byId,
+    // A pane of another host not read since launch waits for it, until its lists say otherwise.
+    waiting: ({ projectPath }) => {
+      const hostId = hostOfPath(projectPath)
+      return (
+        !isWeb &&
+        hostId !== null &&
+        !hostListed(hostId) &&
+        goneHosts([hostId], useHostsStore.getState().status?.hosts ?? null).length === 0
+      )
+    },
+  })
+  if (target?.kind === 'layout') {
+    for (const pane of allPanes(target.layout)) {
+      const view = pane.view
+      const hostId = view.kind === 'session' ? hostOfPath(view.projectPath) : null
+      if (view.kind === 'session' && hostId !== null && !byId[view.sessionId]) {
+        learnSessionHosts(hostId, [view.sessionId])
+        waitingSessions.add(view.sessionId)
+      }
+    }
+    restoreLayout(target.layout)
+  } else if (target?.kind === 'session') {
+    resetLayout(target.summary.projectPath, null)
+    openSession(target.summary.id, target.summary.projectPath)
+  } else if (target) {
+    // New session alone, with the default agent, in the selected project.
+    resetLayout(
+      useViewStore.getState().projectPath,
+      useSettingsStore.getState().settings.general.defaultAgent,
+    )
+  }
+  if (over) openArtifact(over.id, over.history ? { history: true } : {})
+}
+
+let shownSessions = ''
+// macOS hid the window on close, keeping the page: it shows no session until it comes back.
+let windowHidden = false
+
+/** The window was hidden on close, or shows again. */
+export function setWindowHidden(hidden: boolean): void {
+  if (windowHidden === hidden) return
+  windowHidden = hidden
+  showFront(true)
+}
+
+/**
+ * Tells the host the sessions the panes in view show; a turn that ends anywhere else leaves it
+ * unread. Every session of the split stays watched, folded panes included.
+ */
+function showFront(again = false): void {
+  const state = useViewStore.getState()
+  const sessionIds = windowHidden ? [] : shownLayoutSessions(state)
+  keepWatched(layoutSessions(state.layout))
+  const key = sessionIds.join('\n')
+  if (key === shownSessions && !again) return
+  shownSessions = key
+  void host('sessions.show', { sessionIds }).catch(() => {})
+}
+
+let wasDisconnected = false
+
+/**
+ * Starts loading what the shell shows; resolves once the settings and the themes are in, or
+ * failed to load.
+ */
+export function bootstrap(): Promise<unknown> {
+  // Platform styles, such as the Windows scrollbars, key off these.
+  document.documentElement.dataset.platform = platform
+  document.documentElement.dataset.client = window.kettu.client
+  const agents = window.kettu.agents
+  agents.onEvent((event) => onHostEvent(event))
+  agents.onConnection((state) => {
+    useConnectionStore.setState({ agentHost: state })
+    // The host keeps the session through the drop: nothing is read again.
+    if (state === 'resuming') return
+    if (state !== 'connected') {
+      wasDisconnected = true
+      return
+    }
+    if (!wasDisconnected) return
+    wasDisconnected = false
+    // A host that stopped before it recorded the removal runs it now; one that did does nothing.
+    void removeEmptySessions()
+    void loadHostState()
+    artifactsChanged()
+    hostRestarted(null)
+    rewatchAll((sessionId) => sessionHost(sessionId) === null)
+    showFront(true)
+    rewatchGit(null)
+  })
+  useViewStore.subscribe(() => showFront())
+  followShownSession()
+  followUsageHosts()
+  // A project list that fills after launch, as after a failed first read, leaves the launch view.
+  useProjectsStore.subscribe((state, previous) => {
+    if (launched && state.projects !== previous.projects) finishLaunch()
+  })
+
+  const settingsReady = initSettings()
+  const themesReady = initThemes()
+  void initRemote()
+  // A host without them, as the daemon, is never asked.
+  whenHostHas('sharing', () => void initSharing())
+  whenHostHas('updates', () => {
+    initUpdates().catch((error: unknown) => console.error('Could not read the updates', error))
+  })
+  // What the desktop app's main does for its windows; the web client has none of it.
+  if (!isWeb) {
+    initDebug().catch((error: unknown) => console.error('Could not read debug mode', error))
+    initHosts()
+    void loadHosts()
+    initHostSessions({
+      event: (hostId, event) => onHostEvent(event, hostId),
+      opened: (hostId) => {
+        artifactsHostOpened(hostId)
+        routinesHostOpened(hostId)
+        tasksHostOpened(hostId)
+        hostScopeOpened(hostId)
+        hostRestarted(hostId)
+        rewatchAll((sessionId) => sessionHost(sessionId) === hostId)
+        showFront(true)
+        rewatchGit(hostId)
+        if (waitingSessions.size > 0) closeUnlistedPanes(waitingSessions)
+      },
+      closed: (hostId) => {
+        artifactsHostClosed(hostId)
+        routinesHostClosed(hostId)
+        tasksHostClosed(hostId)
+      },
+      resync: (hostId) => rewatchAll((sessionId) => sessionHost(sessionId) === hostId),
+    })
+    useHostsStore.subscribe((state, previous) => {
+      if (waitingSessions.size > 0 && state.status !== previous.status) {
+        closeUnlistedPanes(waitingSessions)
+      }
+    })
+    initBrowser()
+    initDevices()
+    void initAccount()
+    followWindowTitle()
+  }
+  if (isHosted) void initAccount()
+  initTerminals()
+  // The terminal command exiting is the only signal a sign-in finished. Read the account again,
+  // including when the last attempt had marked it required.
+  onAppEvent((event) => {
+    if (event.kind !== 'sign-in-finished') return
+    void hostAt(event.hostId, 'agents.refreshAccount', {
+      agentId: event.agentId as AgentId,
+      force: true,
+    }).catch((error: unknown) =>
+      console.warn(`Could not read the account after sign-in: ${errorMessage(error)}`),
+    )
+  })
+  // Before any composer shows, so each finds its draft's attachments.
+  void restoreDraftAttachments()
+  void takeReturnedMessages()
+  // Asked first, so the host reads the threads before the ones the launch opens.
+  void removeEmptySessions()
+  const sessionState = loadSessionState()
+  void loadAgents()
+  // The team's assistant session exists from the first launch, not from a button.
+  void useTeamsStore
+    .getState()
+    .ensureAssistant()
+    .catch((error: unknown) => console.warn(`No assistant session: ${errorMessage(error)}`))
+  void loadGitTools()
+  void loadGitHubStar()
+  // Leaving the launch view waits for the session list, not for the agents or git tools, whose
+  // detection and `gh auth status` can take seconds.
+  void Promise.allSettled([settingsReady, sessionState]).then(finishLaunch)
+
+  window.addEventListener('focus', refreshShownProject)
+  document.addEventListener('visibilitychange', () => syncReferences(true))
+  return Promise.allSettled([settingsReady, themesReady])
+}

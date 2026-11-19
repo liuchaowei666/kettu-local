@@ -12,6 +12,7 @@
   "src/main/teams.ts": "missing",
   "src/main/updater.ts": "d929983e71f4c7fd31b73c1d44a7edf0a07d7044949db37a97ac3d16abb27cdc",
   "src/preload/index.ts": "8f2002f7c14a134b43418167be598c720506644ee7026064857ba8a6f3f143ea",
+  "src/renderer/src/app/bootstrap.ts": "8905a81781481bb5093b6b24c1a01a2a0047398e47d76925180ea47bfce08b86",
   "src/renderer/src/features/session/composer/composer.tsx": "c94a46777f6e4af79a4908e12d7856b7a6062bbc2723353819085908b529bc03",
   "src/renderer/src/features/session/turn-phase.ts": "f5e4ee935d9e46808af695d2c24181bd811379254923dc5256953be1868563ca",
   "src/renderer/src/features/shell/main-area.tsx": "fceb6c19c4713af096d033bf65fee9308f878eda4f9d02f31bf24b31f9c09af7",

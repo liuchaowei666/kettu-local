@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react'
 import { PlusSignIcon, Delete02Icon, Copy01Icon, ArrowRight01Icon } from '@hugeicons/core-free-icons'
 import { useTranslation } from 'react-i18next'
 import { chiefPrompt, newBotId, newTeamId, type Team, type TeamBot } from '@shared/teams'
-import { NEW_SESSION_DRAFT, writeDraft } from '@renderer/features/session/composer/drafts'
-import { openNewSession, useViewStore } from '@renderer/stores/view'
+import { host } from '@renderer/lib/host'
+import { openSession, useViewStore } from '@renderer/stores/view'
 import { useAgentsStore } from '@renderer/stores/agents'
+import { useSessionsStore } from '@renderer/stores/sessions'
 import { useTeamsStore } from '@renderer/stores/teams'
 import { Glyph } from '@renderer/features/shell/glyph'
 
@@ -27,6 +28,8 @@ export default function TeamsPage() {
   const [draft, setDraft] = useState<Team | null>(null)
   const [task, setTask] = useState('')
   const [copied, setCopied] = useState(false)
+  const [starting, setStarting] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
 
   useEffect(() => {
     void load()
@@ -87,10 +90,50 @@ export default function TeamsPage() {
   const chief = draft?.bots.find((bot) => bot.role === 'chief') ?? null
   const projectPath = useViewStore((s) => s.projectPath)
 
-  const start = (): void => {
-    if (!draft || !chief || task.trim() === '') return
-    writeDraft(NEW_SESSION_DRAFT, chiefPrompt(draft, task))
-    openNewSession(projectPath ?? null, chief.agentId)
+  /**
+   * Talks to the team's one assistant session, which does the delegating. The first task creates
+   * that session; later ones are messages into it, so the user only ever writes to one chat.
+   */
+  const start = async (): Promise<void> => {
+    if (!draft || !chief || task.trim() === '' || starting) return
+    setStarting(true)
+    setProblem(null)
+    try {
+      const text = chiefPrompt(draft, task)
+      if (draft.assistantId) {
+        await host('sessions.prompt', {
+          sessionId: draft.assistantId,
+          content: [{ type: 'text', text }],
+        })
+        const known = useSessionsStore.getState().byId[draft.assistantId]
+        if (known) openSession(known.id, known.projectPath)
+        return
+      }
+      let summary
+      try {
+        summary = await host('sessions.create', {
+          agentId: chief.agentId,
+          projectPath: projectPath ?? null,
+          options: { mode: 'workspace-write' },
+          prompt: [{ type: 'text', text }],
+        })
+      } catch {
+        summary = await host('sessions.create', {
+          agentId: chief.agentId,
+          projectPath: projectPath ?? null,
+          prompt: [{ type: 'text', text }],
+        })
+      }
+      useSessionsStore.getState().upsert(summary)
+      const next: Team = { ...draft, assistantId: summary.id }
+      setDraft(next)
+      await save(teams.map((team) => (team.id === next.id ? next : team)))
+      openSession(summary.id, summary.projectPath)
+    } catch (error) {
+      setProblem(String((error as { message?: string } | null)?.message ?? error))
+    } finally {
+      setStarting(false)
+    }
   }
 
   const copy = async (): Promise<void> => {
@@ -278,8 +321,8 @@ export default function TeamsPage() {
               <div className="mt-2 flex items-center gap-2">
                 <button
                   type="button"
-                  disabled={!chief || task.trim() === ''}
-                  onClick={start}
+                  disabled={!chief || task.trim() === '' || starting}
+                  onClick={() => void start()}
                   className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm text-white disabled:opacity-40"
                 >
                   {t('start')}
@@ -301,6 +344,7 @@ export default function TeamsPage() {
                 )}
               </div>
               <p className="mt-2 text-xs text-soft">{t('startHint')}</p>
+              {problem && <p className="mt-1 text-xs text-danger">{problem}</p>}
             </div>
           </div>
         )}
