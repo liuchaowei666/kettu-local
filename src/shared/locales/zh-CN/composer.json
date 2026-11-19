@@ -98,7 +98,7 @@
       "cacheRead": "缓存读取",
       "cacheWrite": "缓存写入",
       "ofUsed": "上下文已用",
-      "tokens": "{{tokens}} tokens",
+      "tokens": "{{tokens}} 个 token",
       "cacheHit": "缓存命中",
       "cached": "缓存命中 {{percent}}"
     },

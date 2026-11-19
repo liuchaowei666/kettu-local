@@ -74,8 +74,8 @@
   "page": {
     "more": "更多操作",
     "view": "视图",
-    "timeline": "Timeline",
-    "flowchart": "Flowchart",
+    "timeline": "时间线",
+    "flowchart": "流程图",
     "needsYou": "需要你",
     "stuck": "卡住了",
     "unavailable": "打不开这条需求",
@@ -165,7 +165,7 @@
     "onlySteps": "只有 Claude Code 和 Codex 的 Agent 能做步骤。"
   },
   "flow": {
-    "auto": "Auto",
+    "auto": "自动",
     "you": "你",
     "yourCall": "由你选结果",
     "youSendBack": "你退回",
@@ -178,9 +178,9 @@
       "dropped": "不值得做"
     },
     "kind": {
-      "agent": "Agent",
+      "agent": "智能体",
       "review": "审查",
-      "auto": "Auto",
+      "auto": "自动",
       "you": "你"
     },
     "reported": "上报了 {{outcome}}",

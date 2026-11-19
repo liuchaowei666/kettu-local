@@ -1,4 +1,5 @@
 import { homedir } from 'node:os'
+import { readTeams, writeTeams } from './teams'
 import { isAbsolute, join } from 'node:path'
 import {
   app,
@@ -480,6 +481,8 @@ export function registerIpcHandlers({
   quit,
   reports,
 }: IpcDeps): void {
+  handle('teams:read', 0, () => readTeams())
+  handle('teams:write', 1, (_, teams) => writeTeams(teams))
   handle('app:get-info', 0, () => appInfo())
   handle('app:default-browser', 0, () => defaultBrowser(app))
   handle('app:capture-rect', 1, async ({ window, event }, value) => {

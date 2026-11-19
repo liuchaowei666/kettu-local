@@ -12,9 +12,9 @@
   "subSessions_other": "{{count}} 个子会话",
   "views": {
     "label": "视图",
-    "inbox": "Inbox",
-    "flow": "Flow",
-    "timeline": "Timeline"
+    "inbox": "收件箱",
+    "flow": "流程",
+    "timeline": "时间线"
   },
   "groupBy": {
     "label": "分组",
@@ -60,8 +60,8 @@
   },
   "detail": {
     "outputs": "可以收的",
-    "pullRequest": "Pull request",
-    "artifact": "Artifact",
+    "pullRequest": "合并请求",
+    "artifact": "产出物",
     "subSessions": "子会话",
     "openTask": "打开任务",
     "openSession": "打开会话"

@@ -1,0 +1,119 @@
+import type { ReactNode } from 'react'
+import {
+  Analytics01Icon,
+  DashboardSquare02Icon,
+  PencilEdit02Icon,
+  RepeatIcon,
+  Store01Icon,
+  UserGroupIcon,
+  ViewIcon,
+} from '@hugeicons/core-free-icons'
+import { useTranslation } from 'react-i18next'
+import { newSession } from '@renderer/app/actions'
+import type { AppShellProps, ShellNavItem } from '@renderer/components/affect/app-shell'
+import { useOverviewCount } from '@renderer/features/overview/use-overview'
+import { strongestSignal, signalText } from '@renderer/features/routines/model'
+import { useShownRoutines } from '@renderer/features/routines/window-routines'
+import { useSessionsStore } from '@renderer/stores/sessions'
+import { useSettingsStore } from '@renderer/stores/settings'
+import {
+  openArtifacts,
+  openMarketplace,
+  openTeams,
+  openOverview,
+  openRoutines,
+  openUsage,
+  useViewStore,
+} from '@renderer/stores/view'
+import { RoutineSignalMark, TightestLimit, TodayCost, TodayTokens } from './nav-ends'
+
+/**
+ * The sidebar's menu for App Shell: New session, Overview, Artifacts, Routines, Marketplace and
+ * Usage, with the row the main area shows marked, Overview's count of what is for the user, and
+ * the Routines and Usage rows' marks at their ends.
+ */
+export function useSidebarNav(): Pick<AppShellProps, 'nav' | 'active' | 'onNavigate'> {
+  const { t } = useTranslation('sidebar')
+  const { t: tu } = useTranslation('usage')
+  const labels = {
+    newSession: t('nav.newSession'),
+    overview: t('nav.overview'),
+    artifacts: t('nav.artifacts'),
+    routines: t('nav.routines'),
+    marketplace: t('nav.marketplace'),
+    teams: t('nav.teams'),
+    usage: tu('nav.usage'),
+  }
+  const routines = useRoutinesRow()
+  const usageEnd = useUsageEnd()
+  const forYou = useOverviewCount()
+  const current = useViewStore((s) => {
+    if (s.settings.open) return null
+    const main = s.main
+    if (main.kind === 'new') return 'newSession'
+    if (main.kind === 'overview') return 'overview'
+    if (main.kind === 'artifacts' || (main.kind === 'artifact' && main.back.kind === 'artifacts'))
+      return 'artifacts'
+    if (main.kind === 'routines' || main.kind === 'routine') return 'routines'
+    if (main.kind === 'marketplace') return 'marketplace'
+    if (main.kind === 'teams') return 'teams'
+    if (main.kind === 'usage') return 'usage'
+    return null
+  })
+  const routineRun = useRoutineRunShown()
+  const active = current ?? (routineRun ? 'routines' : null)
+  const nav: ShellNavItem[] = [
+    { label: labels.newSession, icon: PencilEdit02Icon },
+    { label: labels.overview, icon: ViewIcon, count: forYou || undefined },
+    { label: labels.artifacts, icon: DashboardSquare02Icon },
+    { label: labels.routines, icon: RepeatIcon, end: routines.end, ariaLabel: routines.name },
+    { label: labels.teams, icon: UserGroupIcon },
+    { label: labels.marketplace, icon: Store01Icon },
+    { label: labels.usage, icon: Analytics01Icon, end: usageEnd },
+  ]
+  return {
+    nav,
+    active: active ? labels[active] : undefined,
+    onNavigate: (label) => {
+      if (label === labels.newSession) newSession()
+      else if (label === labels.overview) openOverview()
+      else if (label === labels.artifacts) openArtifacts()
+      else if (label === labels.routines) openRoutines()
+      else if (label === labels.marketplace) openMarketplace()
+      else if (label === labels.teams) openTeams()
+      else if (label === labels.usage) openUsage()
+    },
+  }
+}
+
+/** Whether the main area shows a session a routine ran, which the Routines row stands for. */
+function useRoutineRunShown(): boolean {
+  const id = useViewStore((s) =>
+    s.main.kind === 'session' && !s.settings.open ? s.main.sessionId : null,
+  )
+  return useSessionsStore((s) => (id ? s.byId[id]?.origin === 'routine' : false))
+}
+
+/** The Routines row's end: the strongest signal of the shown hosts' routines, and its name. */
+function useRoutinesRow(): { end: ReactNode; name: string | undefined } {
+  const { t: tr } = useTranslation('routines')
+  const routines = useShownRoutines()
+  const signal = strongestSignal(routines)
+  if (!signal) return { end: undefined, name: undefined }
+  return {
+    end: <RoutineSignalMark signal={signal} />,
+    name: tr('signal.name', { signal: signalText(signal) }),
+  }
+}
+
+/** The Usage row's end: today's tokens, cost or plan limit, as Settings chooses. */
+function useUsageEnd(): ReactNode {
+  const end = useSettingsStore((s) => s.settings.usage.sidebar)
+  return end === 'today' ? (
+    <TodayTokens />
+  ) : end === 'cost' ? (
+    <TodayCost />
+  ) : end === 'limit' ? (
+    <TightestLimit />
+  ) : undefined
+}

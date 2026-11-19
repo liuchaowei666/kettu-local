@@ -1,0 +1,1052 @@
+import { homedir } from 'node:os'
+import { readTeams, writeTeams } from './teams'
+import { isAbsolute, join } from 'node:path'
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  ipcMain,
+  type IpcMainEvent,
+  type IpcMainInvokeEvent,
+  shell,
+  type WebContents,
+} from 'electron'
+import { ATTACHMENT_LIMIT } from '@shared/attachments'
+import { addressKey, parseDirectAddress } from '@shared/remote/address'
+import { DEVICE_ID } from '@shared/remote/device'
+import {
+  MAX_HOST_ADDRESSES,
+  parseIdentityFile,
+  parseSshAddress,
+  type HostPairStart,
+  type HostsStatus,
+  type SshManageAction,
+  type SshManageResult,
+} from '@shared/remote/hosts'
+import { parsePairingLink } from '@shared/remote/pairing'
+import { isRelayHostId } from '@shared/remote/relay'
+import type { DirectAddress } from '@shared/remote/protocol'
+import type { RemoteStatus } from '@shared/remote/status'
+import type { BrowserBounds, BrowserOriginDecision } from '@shared/browser'
+import { isAgentId } from '@shared/agents'
+import { isControlOutcome, type ControlAgent } from '@shared/control'
+import { isAgentColor } from '@shared/settings'
+import { isComputerPermissionKind } from '@shared/computer-use'
+import type {
+  AppInfo,
+  IpcInvokeChannel,
+  IpcInvokeResult,
+  IpcSendContract,
+  PageRect,
+  ReportPrepareResult,
+  UnsavedFile,
+} from '@shared/ipc'
+import { parseReportRequest, type PreparedReport } from '@shared/report'
+import { isHarnessId, type HarnessId } from '@shared/thread'
+import { isTrayTarget } from '@shared/tray'
+import type { Account } from './account'
+import type { AgentFolders } from './agent-folders'
+import type { AgentHost } from './agent-host'
+import { grantClipboardFiles, grantPaths } from './attachments'
+import type { Artifacts } from './artifacts'
+import type { Avatars } from './avatars'
+import { ReportError, type Reports } from './report'
+import type { BrowserViews } from './browser/views'
+import type { SiteIcons } from './browser/site-icons'
+import { originOf } from './browser/origins'
+import type { SignIns } from './browser/signins/service'
+import { offerUrl, signInChoice, signInRequest, signInSite } from './browser/signins/validate'
+import { defaultBrowser } from './default-browser'
+import { debugStatus, prepareRelaunch } from './debug-mode'
+import { Editors } from './editors'
+import { sendEvent } from './events'
+import { deviceIdArg, deviceName, pairingCode, runnableProgram } from './host-admin'
+import { t } from './i18n'
+import { loginItemStatus } from './login-item'
+import { createLogger } from './log'
+import { parseActionBatch } from './action-records'
+import { clearVerboseRecords, dismissUnexpectedExit, unexpectedExitNotice } from './app-log'
+import { grantedPath, type MediaGrants } from './media'
+import { copyImage, ON_HOST, revealMedia, saveMediaAs } from './media-actions'
+import { notifyTest } from './notifications'
+import type { QuitFlow } from './quit'
+import type { HostMedia } from './host-media'
+import type { HostSessions } from './host-sessions'
+import type { HostPairingListener, RemoteHost } from './remote-host'
+import { isRendererUrl, rendererPage } from './renderer'
+import type { TrayPanel } from './tray-panel'
+import type { SettingsStore } from './settings'
+import type { Sharing } from './sharing'
+import { listSshConfigHosts } from './ssh-config'
+import type { MarketKeys } from './market-keys'
+import { computerAppIcon, computerUseStatus, requestComputerPermission } from './computer-use'
+import { framesSettled, isRevoked } from './subframes'
+import { systemNameForRun } from './system-name'
+import type { TerminalHost } from './terminal-host'
+import { saveCapture } from './device-captures'
+import type { DeviceHost } from './device-host'
+import { exportThemeFile, installThemeFile, revealThemeFile } from './theme-dialogs'
+import type { ThemeStore } from './themes'
+import type { Updater } from './updater'
+import { isComputerOverlay, isOverlay, isPanel } from './window'
+
+const log = createLogger('ipc')
+const actionLog = createLogger('action')
+
+export interface IpcDeps {
+  settings: SettingsStore
+  account: Account
+  agentFolders: AgentFolders
+  themes: ThemeStore
+  avatars: Avatars
+  agentHost: AgentHost
+  terminalHost: TerminalHost
+  deviceHost: DeviceHost
+  artifacts: Artifacts
+  browserViews: BrowserViews
+  siteIcons: SiteIcons
+  mediaGrants: MediaGrants
+  sharing: Sharing
+  marketKeys: MarketKeys
+  remoteHost: RemoteHost
+  hostSessions: HostSessions
+  hostMedia: HostMedia
+  remoteStatus(): RemoteStatus
+  /** Settings › Hosts; it reads the computer's model the first time, then says it changed. */
+  hostsStatus(): HostsStatus
+  /** The computer's model, read once per run. */
+  computerModel(): Promise<string>
+  updater: Updater
+  quit: QuitFlow
+  reports: Reports
+}
+
+interface Caller {
+  window: BrowserWindow | null
+  event: IpcMainInvokeEvent | IpcMainEvent
+}
+
+/**
+ * Only the app's own pages, in its own windows and with no frame the frame guard refused, may call
+ * main.
+ */
+export function isTrusted(event: IpcMainInvokeEvent | IpcMainEvent): boolean {
+  const frame = event.senderFrame
+  return (
+    frame !== null &&
+    frame === event.sender.mainFrame &&
+    !isOverlay(event.sender) &&
+    !isComputerOverlay(event.sender) &&
+    isRendererUrl(frame.url) &&
+    !isRevoked(event.sender) &&
+    BrowserWindow.fromWebContents(event.sender) !== null
+  )
+}
+
+/**
+ * Runs `run` with `isTrusted`, at once, or while a frame of the page is pending, once every frame
+ * has committed. Held calls and messages start in the order they came, before any that come after.
+ */
+export function whenSettled<T>(
+  event: IpcMainInvokeEvent | IpcMainEvent,
+  run: (trusted: boolean) => T,
+): T | Promise<T> {
+  const settling = framesSettled(event.sender)
+  return settling ? settling.then<T>(() => run(isTrusted(event))) : run(isTrusted(event))
+}
+
+// What the menu bar panel's page may call: the reads it shares with the window, its host port and
+// its own calls. Its preload exposes no other, and main refuses the rest from it all the same.
+const PANEL_CHANNELS = new Set<string>([
+  'settings:get',
+  'themes:get',
+  'remote:status',
+  'agent-host:connect',
+  'tray:open',
+  'tray:quit',
+  'tray:hide',
+  'tray:resize',
+])
+
+/**
+ * Whether the sender may use `channel`: any for the window's page, the panel's few for its own.
+ * The panel is told by its window, since a page can change its URL with history.pushState.
+ */
+export function mayUse(event: IpcMainInvokeEvent | IpcMainEvent, channel: string): boolean {
+  // The overlays' pages talk only to their own channels, which each checks itself.
+  const page = rendererPage(event.senderFrame?.url)
+  if (isOverlay(event.sender) || isComputerOverlay(event.sender)) return false
+  if (page === 'overlay' || page === 'computer-overlay') return false
+  const panel = isPanel(event.sender) || page === 'tray'
+  return !panel || PANEL_CHANNELS.has(channel)
+}
+
+function handle<C extends IpcInvokeChannel>(
+  channel: C,
+  arity: number,
+  handler: (caller: Caller, ...args: unknown[]) => IpcInvokeResult<C> | Promise<IpcInvokeResult<C>>,
+): void {
+  ipcMain.handle(channel, async (event, ...args: unknown[]) =>
+    whenSettled(event, (trusted) => {
+      if (!trusted || !mayUse(event, channel)) {
+        throw new Error(`Rejected "${channel}" call from untrusted sender`)
+      }
+      if (args.length !== arity) {
+        throw new Error(`"${channel}" takes ${arity} argument(s), got ${args.length}`)
+      }
+      log.debug(channel)
+      return handler({ window: BrowserWindow.fromWebContents(event.sender), event }, ...args)
+    }),
+  )
+}
+
+function on<C extends keyof IpcSendContract>(
+  channel: C,
+  handler: (event: IpcMainEvent, ...args: unknown[]) => void,
+): void {
+  ipcMain.on(channel, (event, ...args: unknown[]) => {
+    void whenSettled(event, (trusted) => {
+      if (trusted && mayUse(event, channel)) handler(event, ...args)
+      else log.warn(`Rejected "${channel}" message from untrusted sender`)
+    })
+  })
+}
+
+function harnessId(value: unknown): HarnessId {
+  if (!isHarnessId(value)) throw new Error(`Unknown harness "${String(value)}"`)
+  return value
+}
+
+const SESSION_ID_MAX_CHARS = 256
+const URL_MAX_CHARS = 8_192
+const BOUNDS_MAX = 100_000
+
+/** A session a browser call is for: untrusted input from the renderer. */
+function sessionId(value: unknown): string {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > SESSION_ID_MAX_CHARS ||
+    value.includes('\0')
+  ) {
+    throw new Error(`A session id must be a string of 1 to ${SESSION_ID_MAX_CHARS} characters`)
+  }
+  return value
+}
+
+/** A browser tab's id, as main named it: untrusted input from the renderer. */
+export function browserTabId(value: unknown): string {
+  if (typeof value !== 'string' || !/^t[0-9]{1,15}$/.test(value)) {
+    throw new Error('A browser tab id must be a tab main named')
+  }
+  return value
+}
+
+const AGENT_NAME_MAX_CHARS = 200
+
+/** The agent a page's pill names: untrusted input from the renderer. */
+function controlAgent(value: unknown): ControlAgent | null {
+  if (value === null) return null
+  const { id, name, dot } = (value ?? {}) as Record<string, unknown>
+  if (
+    typeof id !== 'string' ||
+    id.length === 0 ||
+    id.length > SESSION_ID_MAX_CHARS ||
+    !isAgentId(id) ||
+    typeof name !== 'string' ||
+    name.length > AGENT_NAME_MAX_CHARS ||
+    (dot !== null && !isAgentColor(dot))
+  ) {
+    throw new Error('A page agent must name an agent')
+  }
+  return { id, name, dot }
+}
+
+/** An address the browser may open, and nothing else. */
+function browserUrl(value: unknown): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > URL_MAX_CHARS) {
+    throw new Error(`A browser URL must be a string of 1 to ${URL_MAX_CHARS} characters`)
+  }
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    throw new Error('A browser URL must be absolute')
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error('A browser URL must be http or https')
+  }
+  return url.href
+}
+
+function browserBounds(value: unknown): BrowserBounds {
+  if (typeof value !== 'object' || value === null)
+    throw new Error('Browser bounds must be an object')
+  const { x, y, width, height, radius } = value as Record<string, unknown>
+  const numbers = [x, y, width, height, radius]
+  if (
+    numbers.some(
+      (number) =>
+        typeof number !== 'number' || !Number.isFinite(number) || number < 0 || number > BOUNDS_MAX,
+    )
+  ) {
+    throw new Error('Browser bounds take five numbers from 0 to 100000')
+  }
+  return {
+    x: Math.round(x as number),
+    y: Math.round(y as number),
+    width: Math.round(width as number),
+    height: Math.round(height as number),
+    radius: Math.round(radius as number),
+  }
+}
+
+/** A rectangle of the caller's page: four finite numbers from 0, at least a pixel in size. */
+function pageRect(value: unknown): PageRect {
+  if (typeof value !== 'object' || value === null) throw new Error('A rectangle must be an object')
+  const { x, y, width, height } = value as Record<string, unknown>
+  const numbers = [x, y, width, height]
+  if (
+    numbers.some(
+      (number) =>
+        typeof number !== 'number' || !Number.isFinite(number) || number < 0 || number > BOUNDS_MAX,
+    ) ||
+    (width as number) < 1 ||
+    (height as number) < 1
+  ) {
+    throw new Error('A rectangle takes four numbers from 0 to 100000, and a size of at least 1')
+  }
+  return { x: x as number, y: y as number, width: width as number, height: height as number }
+}
+
+const SHOW_ITEM_MAX_CHARS = 4_096
+
+/** An origin Settings lists: scheme, host and port, as it was stored. */
+function browserOrigin(value: unknown): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > URL_MAX_CHARS) {
+    throw new Error(`An origin must be a string of 1 to ${URL_MAX_CHARS} characters`)
+  }
+  if (originOf(value) !== value) throw new Error('An origin is a scheme, a host and a port')
+  return value
+}
+
+/** A known host's id: untrusted input from the renderer. */
+function hostIdArg(value: unknown): string {
+  if (typeof value !== 'string' || !DEVICE_ID.test(value)) throw new Error('Not a host id')
+  return value
+}
+
+/** The addresses a host is tried at, as the owner edited them: each one once, one at least. */
+function hostAddresses(value: unknown): DirectAddress[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_HOST_ADDRESSES) {
+    throw new Error(`A host takes 1 to ${MAX_HOST_ADDRESSES} addresses`)
+  }
+  const addresses = value.map(parseDirectAddress)
+  if (addresses.some((address) => address === null)) throw new Error('Not an address')
+  const kept = addresses as DirectAddress[]
+  if (new Set(kept.map(addressKey)).size !== kept.length) throw new Error('An address is repeated')
+  return kept
+}
+
+/** The longest text a pairing link may be: its version, keys and every address it may carry. */
+const MAX_PAIRING_LINK = 4096
+
+/** A request id main handed out for a new origin. */
+function originRequestId(value: unknown): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 1) {
+    throw new Error('A browser origin request id must be a positive integer')
+  }
+  return value as number
+}
+
+/** The user's answer to a new origin, as the pane or the card gives it. */
+function originDecision(value: unknown): BrowserOriginDecision {
+  if (value !== 'session' && value !== 'project' && value !== 'deny') {
+    throw new Error('A browser origin answer must be session, project or deny')
+  }
+  return value
+}
+
+/** A path to reveal in the file manager: untrusted input from the renderer. */
+function absolutePath(value: unknown): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > SHOW_ITEM_MAX_CHARS) {
+    throw new Error(`A path must be a string of 1 to ${SHOW_ITEM_MAX_CHARS} characters`)
+  }
+  if (value.includes('\0')) throw new Error('A path must not contain a NUL character')
+  if (!isAbsolute(value)) throw new Error('A path must be absolute')
+  return value
+}
+
+/** A project's path as the window names it: this computer's, absolute, or another host's. */
+function projectPathArg(value: unknown): string {
+  if (typeof value === 'string' && /^kettu-host:[0-9a-f]{32}:./.test(value)) {
+    if (value.length > SHOW_ITEM_MAX_CHARS || value.includes('\0')) {
+      throw new Error('A path must be a string without NUL characters')
+    }
+    return value
+  }
+  return absolutePath(value)
+}
+
+/** The `text/uri-list` the clipboard holds, as the file manager writes copied files. */
+async function clipboardUriList(): Promise<string | null> {
+  const [item] = await clipboard.read()
+  if (!item?.types.includes('text/uri-list')) return null
+  return (await item.getType('text/uri-list')).text()
+}
+
+/** Dropped or pasted paths: the renderer passes no more than fit in one message. */
+function attachmentPaths(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length > ATTACHMENT_LIMIT) {
+    throw new Error(`Attachments take a list of at most ${ATTACHMENT_LIMIT} paths`)
+  }
+  return value.map(absolutePath)
+}
+
+// A few open files per project, so more than this many is not what the renderer sends.
+const UNSAVED_MAX_FILES = 1_000
+
+/** The renderer's files with unsaved edits, or null when they are not that shape. */
+function unsavedFiles(value: unknown): UnsavedFile[] | null {
+  if (!Array.isArray(value) || value.length > UNSAVED_MAX_FILES) return null
+  const files: UnsavedFile[] = []
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null) return null
+    const { projectPath, path } = item as Record<string, unknown>
+    if (typeof projectPath !== 'string' || projectPath.length > SHOW_ITEM_MAX_CHARS) return null
+    if (typeof path !== 'string' || path.length > SHOW_ITEM_MAX_CHARS) return null
+    files.push({ projectPath, path })
+  }
+  return files
+}
+
+async function chooseProgram(window: BrowserWindow | null, title: string): Promise<string | null> {
+  const options: Electron.OpenDialogOptions = {
+    title,
+    properties: ['openFile', 'dontAddToRecent'],
+    ...(process.platform === 'win32'
+      ? { filters: [{ name: t('dialogs.programs'), extensions: ['exe', 'cmd', 'bat', 'com'] }] }
+      : {}),
+  }
+  const result = window
+    ? await dialog.showOpenDialog(window, options)
+    : await dialog.showOpenDialog(options)
+  const [path] = result.filePaths
+  if (result.canceled || !path) return null
+  return runnableProgram(path, process.platform)
+}
+
+/** `app:get-info`, which a device's `host.info` carries too. */
+export async function appInfo(): Promise<AppInfo> {
+  return {
+    name: app.getName(),
+    version: app.getVersion(),
+    system: await systemNameForRun(),
+    userDataPath: app.getPath('userData'),
+    logsPath: app.getPath('logs'),
+    isPackaged: app.isPackaged,
+  }
+}
+
+let launchToInteractiveMs: number | null = null
+
+/** How long the first window took to become interactive in this run, once it did. */
+export function launchToInteractive(): number | null {
+  return launchToInteractiveMs
+}
+
+export function registerIpcHandlers({
+  settings,
+  account,
+  agentFolders,
+  themes,
+  avatars,
+  agentHost,
+  terminalHost,
+  deviceHost,
+  artifacts,
+  browserViews,
+  siteIcons,
+  mediaGrants,
+  sharing,
+  marketKeys,
+  remoteHost,
+  hostSessions,
+  hostMedia,
+  remoteStatus,
+  hostsStatus,
+  computerModel,
+  updater,
+  quit,
+  reports,
+}: IpcDeps): void {
+  handle('teams:read', 0, () => readTeams())
+  handle('teams:write', 1, (_, teams) => writeTeams(teams))
+  handle('app:get-info', 0, () => appInfo())
+  handle('app:default-browser', 0, () => defaultBrowser(app))
+  handle('app:capture-rect', 1, async ({ window, event }, value) => {
+    const rect = pageRect(value)
+    if (!window) return null
+    // The page lays out in CSS pixels, which the zoom factor scales into the window's.
+    const zoom = event.sender.getZoomFactor()
+    const [width, height] = window.getContentSize()
+    const x = Math.floor(rect.x * zoom)
+    const y = Math.floor(rect.y * zoom)
+    const right = Math.min(width, Math.ceil((rect.x + rect.width) * zoom))
+    const bottom = Math.min(height, Math.ceil((rect.y + rect.height) * zoom))
+    if (right <= x || bottom <= y) return null
+    const image = await event.sender.capturePage({ x, y, width: right - x, height: bottom - y })
+    if (image.isEmpty()) return null
+    return new Uint8Array(image.toPNG({ scaleFactor: Math.max(1, ...image.getScaleFactors()) }))
+  })
+
+  handle('app:respond-quit', 2, (_, id, answer) => {
+    if (!Number.isSafeInteger(id) || (typeof answer !== 'boolean' && answer !== 'background')) {
+      throw new Error('"app:respond-quit" takes a request id and a boolean or "background"')
+    }
+    quit.respond(id as number, answer)
+  })
+
+  handle('settings:get', 0, () => settings.get())
+  handle('settings:update', 1, (_, patch) => {
+    const next = settings.update(patch)
+    actionLog.info('settings.update', { patch })
+    return next
+  })
+  handle('settings:add-agent', 3, (_, harness, name, folder) =>
+    agentFolders.add(harness, name, folder),
+  )
+  handle('settings:rename-agent', 2, (_, id, name) => agentFolders.rename(id, name))
+  handle('settings:set-agent-color', 2, (_, id, color) => {
+    settings.colorAgent(id, color)
+  })
+  handle('settings:remove-agent', 2, (_, id, trash) => agentFolders.remove(id, trash))
+  handle('login-item:status', 0, () => loginItemStatus())
+
+  handle('themes:get', 0, () => themes.refresh())
+  handle('themes:install', 0, ({ window }) => installThemeFile(themes, window))
+  handle('themes:replace', 1, (_, token) => themes.replace(token))
+  handle('themes:remove', 1, (_, id) => themes.remove(id))
+  handle('themes:export', 1, ({ window }, text) => exportThemeFile(themes, window, text))
+  handle('themes:reveal', 1, (_, id) => revealThemeFile(themes, id))
+  handle('themes:catalog', 1, (_, refresh) => themes.catalog(refresh))
+  handle('themes:install-catalog', 1, (_, id) => themes.installCatalog(id))
+  handle('avatars:load', 1, (_, url) => {
+    if (typeof url !== 'string' || url.length > URL_MAX_CHARS) {
+      throw new Error(`An avatar URL must be a string of at most ${URL_MAX_CHARS} characters`)
+    }
+    return avatars.load(url)
+  })
+
+  handle('dialog:open-project', 0, async ({ window }) => {
+    const options: Electron.OpenDialogOptions = {
+      title: t('dialogs.openProject'),
+      properties: ['openDirectory', 'createDirectory', 'dontAddToRecent'],
+    }
+    const result = window
+      ? await dialog.showOpenDialog(window, options)
+      : await dialog.showOpenDialog(options)
+    return result.canceled ? null : (result.filePaths[0] ?? null)
+  })
+
+  handle('dialog:choose-agent-binary', 1, async ({ window }, id) => {
+    const harness = harnessId(id)
+    const path = await chooseProgram(window, t('dialogs.chooseAgentProgram'))
+    if (path) settings.setAgentBinary(harness, path)
+    return path
+  })
+
+  handle('dialog:choose-agent-folder', 0, async ({ window }) => {
+    const options: Electron.OpenDialogOptions = {
+      title: t('dialogs.chooseAgentFolder'),
+      properties: ['openDirectory', 'createDirectory', 'showHiddenFiles', 'dontAddToRecent'],
+    }
+    const result = window
+      ? await dialog.showOpenDialog(window, options)
+      : await dialog.showOpenDialog(options)
+    const path = result.canceled ? null : (result.filePaths[0] ?? null)
+    if (path) agentFolders.remember(path)
+    return path
+  })
+
+  handle('dialog:choose-shell', 0, async ({ window }) => {
+    const path = await chooseProgram(window, t('dialogs.chooseShell'))
+    if (path) settings.setShellPath(path)
+    return path
+  })
+
+  handle('dialog:add-attachments', 2, async ({ window }, kind, defaultPath) => {
+    if (kind !== 'files' && kind !== 'folder') throw new Error('kind must be files or folder')
+    const options: Electron.OpenDialogOptions = {
+      title: t(kind === 'files' ? 'dialogs.addFiles' : 'dialogs.addFolder'),
+      properties: [
+        kind === 'files' ? 'openFile' : 'openDirectory',
+        'multiSelections',
+        'dontAddToRecent',
+      ],
+      ...(defaultPath === null ? {} : { defaultPath: absolutePath(defaultPath) }),
+    }
+    const result = window
+      ? await dialog.showOpenDialog(window, options)
+      : await dialog.showOpenDialog(options)
+    if (result.canceled) return []
+    const granted = await grantPaths(result.filePaths, (grants) => agentHost.grant(grants))
+    return granted.flatMap((item) => (item ? [item] : []))
+  })
+
+  handle('attachments:grant', 1, (_, paths) =>
+    grantPaths(attachmentPaths(paths), (grants) => agentHost.grant(grants)),
+  )
+
+  handle('attachments:clipboard-files', 1, async (_, pastedPath) =>
+    grantClipboardFiles(absolutePath(pastedPath), await clipboardUriList(), (grants) =>
+      agentHost.grant(grants),
+    ),
+  )
+
+  const prepared = async (run: () => Promise<PreparedReport>): Promise<ReportPrepareResult> => {
+    try {
+      return { ok: true, report: await run() }
+    } catch (error) {
+      log.warn(`No problem report: ${(error as Error).message}`)
+      const tooLarge = error instanceof ReportError && error.code === 'too_large'
+      return { ok: false, reason: tooLarge ? 'too_large' : 'failed' }
+    }
+  }
+  handle('report:capture', 0, async ({ window }) => {
+    if (window) await reports.capture(window)
+  })
+  handle('report:prepare', 1, ({ window }, request) => {
+    const checked = parseReportRequest(request)
+    actionLog.info('report.prepare', {
+      range: checked.range.kind,
+      extras: checked.extras.join(','),
+    })
+    return prepared(() => reports.prepare(window, checked))
+  })
+  handle('report:adopt', 1, (_, zip) => prepared(() => reports.adopt(zip)))
+  handle('report:view', 2, (_, id, path) => reports.view(id, path))
+  handle('report:save', 1, ({ window }, id) => reports.save(window, id))
+  handle('report:discard', 1, (_, id) => reports.discard(id))
+  handle('report:submit', 1, async (_, id) => {
+    actionLog.info('report.submit')
+    return reports.submit(id)
+  })
+  handle('report:recording', 0, () => reports.recordingState())
+  handle('report:record', 1, (_, on) => {
+    if (typeof on !== 'boolean') throw new Error('"report:record" takes a boolean')
+    if (on) return reports.startRecording()
+    reports.stopRecording()
+    return null
+  })
+  handle('report:crash-notice', 0, () => unexpectedExitNotice())
+  handle('report:dismiss-crash-notice', 0, () => dismissUnexpectedExit())
+
+  handle('diagnostics:clear-verbose', 0, async () => {
+    const until = settings.get().diagnostics.verboseUntil
+    if (until !== null && until > Date.now()) {
+      throw new Error('Turn detailed records off before deleting them')
+    }
+    await clearVerboseRecords()
+  })
+
+  handle('debug:get', 0, () => debugStatus())
+
+  handle('debug:restart', 1, (_, debug) => {
+    if (typeof debug !== 'boolean') throw new Error('"debug" must be a boolean')
+    quit.restart(() => prepareRelaunch(debug))
+  })
+
+  handle('shell:show-data-folder', 0, async () => {
+    const error = await shell.openPath(app.getPath('userData'))
+    if (error) throw new Error(error)
+  })
+
+  // Revealing selects the item in the file manager and never runs it, unlike shell.openPath.
+  handle('shell:show-item', 1, (_, target) => {
+    shell.showItemInFolder(absolutePath(target))
+  })
+
+  const editors = new Editors({ file: join(app.getPath('userData'), 'editors.json') })
+  handle('editors:list', 0, () => editors.list())
+  handle('editors:open', 2, (_, editorId, target) => editors.open(editorId, target))
+  handle('editors:choose', 1, ({ window }, target) => editors.choose(window, target))
+
+  handle('media:copy-image', 1, (_, source) => copyImage(source, mediaGrants, hostMedia))
+  handle('media:save-as', 1, ({ window }, source) =>
+    saveMediaAs(window, source, mediaGrants, hostMedia),
+  )
+  handle('media:reveal', 1, (_, url) => revealMedia(url, mediaGrants, hostMedia))
+
+  handle('media:open-external', 1, async (_, url) => {
+    if (hostMedia.byUrl(url)) throw new Error(ON_HOST)
+    const error = await shell.openPath(await grantedPath(url, mediaGrants))
+    if (error) throw new Error(error)
+  })
+
+  handle('notifications:test', 0, () => notifyTest(settings.get()))
+
+  handle('update:get-status', 0, () => updater.getStatus())
+  handle('update:check', 0, () => updater.check())
+  handle('update:download', 0, () => updater.download())
+  handle('update:cancel', 0, () => updater.cancel())
+  handle('update:restart', 0, () => updater.restart())
+  handle('update:dismiss', 0, () => updater.dismiss())
+
+  handle('agent-host:restart', 0, () => {
+    agentHost.restart()
+  })
+  handle('terminal-host:restart', 0, () => {
+    terminalHost.restart()
+  })
+  handle('terminal-host:running', 0, () => terminalHost.running)
+  handle('device-host:restart', 0, () => {
+    deviceHost.restart()
+  })
+  handle('devices:save-capture', 3, (_, device, kind, data) =>
+    saveCapture(app.getPath('downloads'), device, kind, data),
+  )
+
+  handle('artifact:open', 1, ({ event }, id) => artifacts.open(event.sender, id))
+  handle('artifact:close', 1, ({ event }, url) => artifacts.close(event.sender, url))
+  handle('artifact:thumbnail', 3, (_, id, version, layout) =>
+    artifacts.thumbnail(id, version, layout),
+  )
+  handle('artifact:open-external', 2, (_, id, version) => artifacts.openExternal(id, version))
+  handle('artifact:export', 2, ({ window }, id, version) => artifacts.export(window, id, version))
+  handle('artifact:page-image', 4, async (_, id, version, page, size) => {
+    const image = await artifacts.png(id, version, page, size)
+    return image ? image.toString('base64') : null
+  })
+  handle('artifact:png', 5, ({ window }, id, version, page, size, name) =>
+    artifacts.savePng(window, id, version, page, size, name),
+  )
+  handle('artifact:export-as', 3, ({ window }, id, version, format) =>
+    artifacts.exportAs(window, id, version, format),
+  )
+  handle('artifact:import', 2, ({ window }, project, kind) =>
+    artifacts.import(window, project, kind),
+  )
+
+  handle('account:status', 0, () => account.status())
+  handle('account:check', 0, () => account.check())
+  handle('account:sign-in', 0, () => account.signIn())
+  handle('account:cancel-sign-in', 0, () => {
+    account.cancelSignIn()
+    return account.status()
+  })
+  handle('account:sign-out', 0, () => account.signOut())
+
+  handle('sharing:status', 0, () => sharing.status())
+  handle('sharing:refresh', 0, () => sharing.refresh())
+  handle('sharing:connect', 2, (_, token, accountId) => sharing.connect(token, accountId))
+  handle('sharing:remove', 0, () => sharing.remove())
+  handle('sharing:publish', 4, (_, id, version, target, access) =>
+    sharing.publish(id, version, target, access),
+  )
+  handle('sharing:update', 2, (_, id, version) => sharing.update(id, version))
+  handle('sharing:set-access', 2, (_, id, access) => sharing.setAccess(id, access))
+  handle('sharing:new-code', 1, (_, id) => sharing.newCode(id))
+  handle('sharing:open-link', 1, (_, id) => sharing.openLink(id))
+  handle('sharing:visitors', 1, (_, id) => sharing.visitors(id))
+  handle('sharing:unpublish', 1, (_, id) => sharing.unpublish(id))
+  handle('sharing:set-auto', 1, (_, enabled) => sharing.setAuto(enabled))
+  // The store checks the patch against the server's spec in the settings.
+  handle('marketplace:set-keys', 1, (_, patch) => marketKeys.set(patch))
+  handle('marketplace:set-agent-env', 3, (_, agentId, variable, value) => {
+    if (typeof agentId !== 'string' || typeof variable !== 'string') {
+      throw new TypeError('The agent and environment variable must be named')
+    }
+    if (value !== null && typeof value !== 'string') {
+      throw new TypeError('The environment value must be text or null')
+    }
+    return marketKeys.setAgentEnv(agentId, variable, value)
+  })
+
+  handle('remote:status', 0, () => remoteStatus())
+  // Each code belongs to the page that opened it, which alone hears it and answers it.
+  const codeOwners = new Map<number, WebContents>()
+  handle('remote:pair', 0, ({ event }) => {
+    const page = event.sender
+    const codeId = remoteHost.pair((pairing) => {
+      if (pairing.state === 'added' || pairing.state === 'void') codeOwners.delete(codeId!)
+      sendEvent(page, 'remote:pairing', { codeId: codeId!, pairing })
+    })
+    if (codeId === null) return null
+    codeOwners.set(codeId, page)
+    page.once('destroyed', () => {
+      if (codeOwners.get(codeId) !== page) return
+      codeOwners.delete(codeId)
+      remoteHost.closePairing(codeId)
+    })
+    return codeId
+  })
+  const ownCode = (sender: WebContents, value: unknown): number | null => {
+    const codeId = pairingCode(value)
+    return codeOwners.get(codeId) === sender ? codeId : null
+  }
+  handle('remote:pair-close', 1, ({ event }, codeId) => {
+    const owned = ownCode(event.sender, codeId)
+    if (owned === null) return
+    codeOwners.delete(owned)
+    remoteHost.closePairing(owned)
+  })
+  handle('remote:pair-answer', 3, ({ event }, codeId, add, name) => {
+    if (typeof add !== 'boolean') throw new Error('"remote:pair-answer" takes whether to add')
+    const owned = ownCode(event.sender, codeId)
+    if (owned !== null) remoteHost.answerPairing(owned, add, add ? deviceName(name) : '')
+  })
+  handle('remote:discovery-pending', 0, () => remoteHost.pendingDiscovery)
+  handle('remote:discovery-answer', 3, (_, requestId, add, name) => {
+    if (typeof add !== 'boolean') throw new Error('"remote:discovery-answer" takes whether to add')
+    remoteHost.answerDiscovery(pairingCode(requestId), add, add ? deviceName(name) : '')
+  })
+  handle('remote:rename-device', 2, async (_, id, name) =>
+    (await remoteHost.renameDevice(deviceIdArg(id), deviceName(name))) ? null : 'not_renamed',
+  )
+  handle('remote:remove-device', 1, async (_, id) =>
+    (await remoteHost.removeDevice(deviceIdArg(id))) ? null : 'not_removed',
+  )
+  handle('remote:activity', 1, (_, id) => remoteHost.activity(deviceIdArg(id)))
+  handle('remote:reset', 0, () => remoteHost.reset())
+  handle('remote:retry-direct', 0, () => remoteHost.retryDirect())
+  handle('remote:retry-relay', 0, () => remoteHost.retryRelay())
+
+  handle('hosts:status', 0, () => hostsStatus())
+  // Each pairing belongs to the page that pasted its link or typed the SSH address, which alone
+  // hears it.
+  const pairOwners = new Map<number, WebContents>()
+  const pairFor = async (
+    page: WebContents,
+    start: (listener: HostPairingListener) => Promise<number | null>,
+  ): Promise<HostPairStart> => {
+    const pairId = await start((id, pairing) => {
+      if (pairing.state === 'added' || pairing.state === 'failed') pairOwners.delete(id)
+      sendEvent(page, 'hosts:pairing', { pairId: id, pairing })
+    })
+    if (pairId === null) return { kind: 'unavailable' }
+    pairOwners.set(pairId, page)
+    page.once('destroyed', () => {
+      if (pairOwners.get(pairId) !== page) return
+      pairOwners.delete(pairId)
+      remoteHost.closeHostPairing(pairId)
+    })
+    return { kind: 'pairing', pairId }
+  }
+  handle('hosts:pair', 1, async ({ event }, value): Promise<HostPairStart> => {
+    const link = typeof value === 'string' && value.length <= MAX_PAIRING_LINK ? value.trim() : ''
+    const payload = parsePairingLink(link)
+    if (!payload) return { kind: 'invalid' }
+    if (Buffer.from(payload.hostKey).toString('base64') === remoteHost.publicKey) {
+      return { kind: 'self' }
+    }
+    const model = await computerModel()
+    return pairFor(event.sender, (listener) => remoteHost.pairHost(link, model, listener))
+  })
+  handle('hosts:ssh-config', 0, () => listSshConfigHosts({ known: remoteHost.hosts ?? [] }))
+  handle('hosts:add-ssh', 1, async ({ event }, value): Promise<HostPairStart> => {
+    const address = parseSshAddress(value)
+    if (!address) return { kind: 'invalid' }
+    const model = await computerModel()
+    return pairFor(event.sender, (listener) => remoteHost.addSshHost(address, model, listener))
+  })
+  handle('hosts:choose-key-file', 0, async ({ window }) => {
+    const options: Electron.OpenDialogOptions = {
+      title: t('dialogs.chooseSshKey'),
+      defaultPath: join(homedir(), '.ssh'),
+      properties: ['openFile', 'showHiddenFiles', 'dontAddToRecent'],
+    }
+    const result = window
+      ? await dialog.showOpenDialog(window, options)
+      : await dialog.showOpenDialog(options)
+    return result.canceled ? null : parseIdentityFile(result.filePaths[0])
+  })
+  // With Kettu's services off there is no relay to list the account's hosts.
+  handle('hosts:discover', 0, () =>
+    settings.get().cloud.enabled ? remoteHost.discover() : { state: 'signed_out' as const },
+  )
+  handle('hosts:pair-discovered', 1, async ({ event }, relayId): Promise<HostPairStart> => {
+    if (!isRelayHostId(relayId)) return { kind: 'invalid' }
+    const model = await computerModel()
+    return pairFor(event.sender, (listener) => remoteHost.pairDiscovered(relayId, model, listener))
+  })
+  handle('hosts:pair-match', 2, ({ event }, value, match) => {
+    if (typeof match !== 'boolean') throw new Error('"hosts:pair-match" takes whether they match')
+    const pairId = pairingCode(value)
+    if (pairOwners.get(pairId) === event.sender) remoteHost.matchHostPairing(pairId, match)
+  })
+  handle('hosts:pair-close', 1, ({ event }, value) => {
+    const pairId = pairingCode(value)
+    if (pairOwners.get(pairId) !== event.sender) return
+    pairOwners.delete(pairId)
+    remoteHost.closeHostPairing(pairId)
+  })
+  handle('hosts:rename', 2, (_, id, name) =>
+    remoteHost.renameOnHost(hostIdArg(id), deviceName(name)) ? null : 'not_connected',
+  )
+  handle('hosts:set-addresses', 2, (_, id, addresses) =>
+    remoteHost.setHostAddresses(hostIdArg(id), hostAddresses(addresses)) ? null : 'unknown_host',
+  )
+  handle('hosts:remove', 1, (_, id) =>
+    remoteHost.removeHost(hostIdArg(id)) ? null : 'unknown_host',
+  )
+  handle('hosts:retry', 0, () => remoteHost.resume())
+  const manageSsh = (id: unknown, action: SshManageAction): Promise<SshManageResult> =>
+    remoteHost.manageSshHost(hostIdArg(id), action)
+  handle('hosts:update-ssh', 1, (_, id) => manageSsh(id, { kind: 'update' }))
+  handle('hosts:change-ssh', 2, (_, id, value) => {
+    const address = parseSshAddress(value)
+    if (!address) throw new Error('"hosts:change-ssh" takes an SSH address')
+    return manageSsh(id, { kind: 'address', address })
+  })
+  handle('hosts:reconnect', 1, (_, id) => manageSsh(id, { kind: 'reconnect' }))
+  handle('hosts:uninstall', 2, (_, id, data) => {
+    if (typeof data !== 'boolean') throw new Error('"hosts:uninstall" takes whether to delete data')
+    return manageSsh(id, { kind: 'uninstall', data })
+  })
+
+  handle('browser:show', 2, (_, id, agent) => browserViews.show(sessionId(id), controlAgent(agent)))
+  handle('browser:hide', 1, (_, id) => browserViews.hide(sessionId(id)))
+  handle('browser:close', 1, (_, id) => browserViews.close(sessionId(id)))
+  handle('browser:new-tab', 1, (_, id) => browserViews.newTab(sessionId(id)))
+  handle('browser:select-tab', 2, (_, id, tab) =>
+    browserViews.selectTab(sessionId(id), browserTabId(tab)),
+  )
+  handle('browser:close-tab', 2, (_, id, tab) =>
+    browserViews.closeTab(sessionId(id), browserTabId(tab)),
+  )
+  handle('browser:bounds', 2, (_, id, bounds) =>
+    browserViews.setBounds(sessionId(id), browserBounds(bounds)),
+  )
+  // The pane's own controls act for the user, except while the agent has the page: they are held
+  // back as a click on it is, and only Take over takes it.
+  handle('browser:navigate', 2, (_, id, url) => {
+    const page = sessionId(id)
+    const address = browserUrl(url)
+    if (browserViews.paneControl(page)) browserViews.navigate(page, address)
+  })
+  handle('browser:back', 1, (_, id) => {
+    if (browserViews.paneControl(sessionId(id))) browserViews.back(sessionId(id))
+  })
+  handle('browser:forward', 1, (_, id) => {
+    if (browserViews.paneControl(sessionId(id))) browserViews.forward(sessionId(id))
+  })
+  handle('browser:reload', 1, (_, id) => {
+    if (browserViews.paneControl(sessionId(id))) browserViews.reload(sessionId(id))
+  })
+  handle('browser:stop', 1, (_, id) => browserViews.stop(sessionId(id)))
+  handle('browser:open-external', 1, (_, id) => browserViews.openExternal(sessionId(id)))
+  handle('browser:freeze', 1, (_, id) => browserViews.freeze(sessionId(id)))
+  handle('browser:thaw', 1, (_, id) => browserViews.thaw(sessionId(id)))
+  handle('browser:capture', 1, (_, id) => browserViews.capture(sessionId(id)))
+  handle('browser:take-over', 1, (_, id) =>
+    browserViews.controlRequest(sessionId(id), { type: 'take-over' }),
+  )
+  handle('browser:hand-back', 1, (_, id) =>
+    browserViews.controlRequest(sessionId(id), { type: 'hand-back' }),
+  )
+  handle('browser:answer-ask', 2, (_, id, outcome) => {
+    if (!isControlOutcome(outcome)) throw new Error('An answer to a step must be done or skipped')
+    browserViews.controlRequest(sessionId(id), { type: 'answer', outcome })
+  })
+  // The pane's bar and the thread's card both answer through main, so the page and the thread agree.
+  handle('browser:answer-origin', 3, (_, id, requestId, decision) => {
+    browserViews.answerOrigin(sessionId(id), originRequestId(requestId), originDecision(decision))
+  })
+  handle('computer:status', 0, () => computerUseStatus())
+  handle('computer:request-permission', 1, (_, kind) => {
+    if (!isComputerPermissionKind(kind)) {
+      throw new Error('The permission must be accessibility or screen-recording')
+    }
+    return requestComputerPermission(kind)
+  })
+  handle('computer:app-icon', 1, (_, path) => computerAppIcon(absolutePath(path)))
+  handle('browser:allowed-sites', 0, () => browserViews.allowedSites())
+  handle('browser:remove-allowed-site', 2, (_, projectPath, origin) => {
+    browserViews.removeAllowedSite(projectPathArg(projectPath), browserOrigin(origin))
+  })
+  handle('browser:clear-data', 0, async () => {
+    await siteIcons.clear()
+    await browserViews.clearData()
+  })
+  handle('browser:site-icons', 0, () => siteIcons.all())
+  handle('browser:load-site-icon', 1, (_, url) => siteIcons.link(browserUrl(url)))
+  // Records only the site, never an icon: those come from the browser's own pages.
+  handle('browser:site-opened', 1, (_, url) => siteIcons.visited(browserUrl(url)))
+
+  on('agent-host:connect', (event) => agentHost.connect(event.sender))
+  on('terminal-host:connect', (event) => terminalHost.connect(event.sender))
+  on('device-host:connect', (event) => deviceHost.connect(event.sender))
+  on('host-sessions:connect', (event) => hostSessions.connect(event.sender))
+
+  on('app:confirm-quit-unhandled', (event, id) => {
+    if (Number.isSafeInteger(id)) quit.unhandled(id as number, event.sender)
+  })
+
+  on('app:set-unsaved', (event, files) => {
+    const valid = unsavedFiles(files)
+    if (valid) quit.setUnsaved(event.sender, valid)
+    else log.warn('Rejected "app:set-unsaved" with malformed files')
+  })
+
+  on('app:close-window', (event) => BrowserWindow.fromWebContents(event.sender)?.close())
+
+  on('browser:sessions', (_event, ids) => {
+    if (
+      !Array.isArray(ids) ||
+      ids.length > 100_000 ||
+      !ids.every((id) => typeof id === 'string' && id.length <= SESSION_ID_MAX_CHARS)
+    ) {
+      log.warn('Rejected "browser:sessions" with malformed ids')
+      return
+    }
+    browserViews.setSessions(ids as string[])
+  })
+
+  on('diagnostics:actions', (event, actions) => {
+    const { records, rejected } = parseActionBatch(actions, Date.now())
+    const window = BrowserWindow.fromWebContents(event.sender)?.id ?? null
+    for (const record of records) {
+      actionLog.info(record.name, { ...record.data, window, at: new Date(record.at).toISOString() })
+    }
+    if (rejected > 0) log.warn(`Rejected ${rejected} action record(s) from a window`)
+  })
+
+  on('perf:interactive', () => {
+    const ms = Math.round(process.uptime() * 1000)
+    if (launchToInteractiveMs === null) {
+      launchToInteractiveMs = ms
+      log.info(`perf:interactive ${ms} ms after launch`)
+    } else {
+      log.info(`perf:interactive again (a reload) at ${ms} ms`)
+    }
+  })
+}
+
+/** The menu bar panel's calls, taken from the panel's own page alone. */
+export function registerTrayIpc(panel: TrayPanel): void {
+  on('tray:open', (event, target) => {
+    if (panel.owns(event.sender) && isTrayTarget(target)) panel.open(target)
+  })
+  on('tray:quit', (event) => {
+    if (panel.owns(event.sender)) panel.quit()
+  })
+  on('tray:hide', (event) => {
+    if (panel.owns(event.sender)) panel.hide()
+  })
+  on('tray:resize', (event, height) => {
+    if (panel.owns(event.sender)) panel.resize(height)
+  })
+}
+
+/** Bringing sign-ins from the user's own browsers; nothing these answer holds a cookie's value. */
+export function registerSignInIpc(signIns: SignIns): void {
+  handle('sign-ins:sources', 0, () => signIns.sources())
+  handle('sign-ins:sites', 1, (_, choice) => signIns.sites(signInChoice(choice)))
+  handle('sign-ins:bring', 1, (_, request) => signIns.bring(signInRequest(request)))
+  handle('sign-ins:cancel', 0, () => signIns.cancel())
+  handle('sign-ins:brought', 0, () => signIns.brought())
+  handle('sign-ins:remove', 1, (_, site) => signIns.remove(signInSite(site)))
+  handle('sign-ins:offer', 1, (_, url) => signIns.offer(offerUrl(url)))
+}

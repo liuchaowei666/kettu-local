@@ -169,7 +169,8 @@
     },
     "showMore_other": "再显示 {{count}} 个",
     "showFewer": "收起",
-    "near_other": "· {{count}} 个接近上限"
+    "near_other": "· {{count}} 个接近上限",
+    "balance": "余额"
   },
   "activity": {
     "title": "活动",
@@ -207,7 +208,7 @@
     "groups": {
       "model": "模型",
       "project": "项目",
-      "agent": "Agent"
+      "agent": "智能体"
     },
     "others": {
       "model_other": "其他 {{count}} 个模型",

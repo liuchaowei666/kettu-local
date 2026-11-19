@@ -226,6 +226,10 @@ const api: KettuApi = {
     setAgentEnv: (agentId, variable, value) =>
       invoke('marketplace:set-agent-env', agentId, variable, value),
   },
+  teams: {
+    read: () => invoke('teams:read'),
+    write: (teams) => invoke('teams:write', teams),
+  },
   settings: {
     get: () => invoke('settings:get'),
     update: (patch) => invoke('settings:update', patch),

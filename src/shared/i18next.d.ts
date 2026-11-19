@@ -26,6 +26,7 @@ import type shell from './locales/en/shell.json'
 import type sidebar from './locales/en/sidebar.json'
 import type star from './locales/en/star.json'
 import type tasks from './locales/en/tasks.json'
+import type teams from './locales/en/teams.json'
 import type terminal from './locales/en/terminal.json'
 import type tray from './locales/en/tray.json'
 import type updates from './locales/en/updates.json'
@@ -63,6 +64,7 @@ declare module 'i18next' {
       sidebar: typeof sidebar
       star: typeof star
       tasks: typeof tasks
+      teams: typeof teams
       terminal: typeof terminal
       tray: typeof tray
       updates: typeof updates

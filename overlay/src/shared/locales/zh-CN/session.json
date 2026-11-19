@@ -1,0 +1,1317 @@
+{
+  "clamp": {
+    "more": "展开",
+    "less": "收起"
+  },
+  "status": {
+    "needsApproval": "需要授权",
+    "pending": "等待中",
+    "running": "运行中",
+    "done": "已完成",
+    "failed": "失败",
+    "cancelled": "已取消"
+  },
+  "summary": {
+    "separator": " · ",
+    "nameSeparator": "、",
+    "thought": "思考",
+    "thoughtFor": "思考了 {{duration}}",
+    "plan": "更新了计划",
+    "memory_other": "更新了 {{count}} 次记忆",
+    "execute_other": "运行了 {{count}} 条命令",
+    "search_other": "搜索了 {{count}} 次",
+    "fetch_other": "获取了 {{count}} 个网页",
+    "tool_other": "使用了 {{count}} 个工具",
+    "read_other": "读取了 {{count}} 个文件",
+    "readNamed": "读取了 {{names}}",
+    "readMore": "读取了 {{names}} 及另外 {{more}} 个文件",
+    "create_other": "创建了 {{count}} 个文件",
+    "createNamed": "创建了 {{names}}",
+    "createMore": "创建了 {{names}} 及另外 {{more}} 个文件",
+    "edit_other": "编辑了 {{count}} 个文件",
+    "editNamed": "编辑了 {{names}}",
+    "editMore": "编辑了 {{names}} 及另外 {{more}} 个文件",
+    "delete_other": "删除了 {{count}} 个文件",
+    "deleteNamed": "删除了 {{names}}",
+    "deleteMore": "删除了 {{names}} 及另外 {{more}} 个文件",
+    "move_other": "移动了 {{count}} 个文件",
+    "moveNamed": "移动了 {{names}}",
+    "moveMore": "移动了 {{names}} 及另外 {{more}} 个文件",
+    "failed": "{{failed}} 项失败"
+  },
+  "stopReason": {
+    "endTurn": "用时 {{duration}}",
+    "cancelled": "已取消",
+    "maxTokens": "已达到 token 上限而停止",
+    "maxTurnRequests": "已达到请求次数上限而停止",
+    "refusal": "Agent 拒绝了请求",
+    "withTime": "{{reason}} · {{time}}"
+  },
+  "tool": {
+    "verb": {
+      "read": "读取",
+      "edit": "编辑",
+      "delete": "删除",
+      "move": "移动",
+      "run": "运行"
+    },
+    "verbDone": {
+      "read": "读取了",
+      "edit": "编辑了",
+      "delete": "删除了",
+      "move": "移动了",
+      "run": "运行了"
+    },
+    "runInTerminal": "在终端中运行",
+    "copyCommand": "复制命令",
+    "showAll": "显示全部",
+    "showFullDiff": "显示完整差异"
+  },
+  "permission": {
+    "outsideScope": "超出此例程的权限：{{level}}。",
+    "answer": {
+      "allowOnce": "已允许一次",
+      "allowAlways": "已始终允许",
+      "rejectOnce": "已拒绝",
+      "rejectAlways": "已始终拒绝",
+      "allowedByRoutine": "由例程允许",
+      "cancelled": "已取消",
+      "withdrawn": "已不再需要",
+      "onDevice": "{{answer}} · {{device}}"
+    },
+    "answeredOn": "已在 {{device}} 上回答过。",
+    "answeredInWindow": "已在另一个窗口中回答过。",
+    "card": {
+      "title": "<b>{{agent}}</b> 想要<b>{{action}}</b>",
+      "action": {
+        "read": "读取文件",
+        "edit": "编辑文件",
+        "delete": "删除文件",
+        "move": "移动文件",
+        "search": "搜索项目",
+        "execute": "运行命令",
+        "fetch": "获取网页",
+        "switchMode": "切换模式",
+        "other": "使用工具"
+      },
+      "risky": "有风险",
+      "destructive": "破坏性",
+      "allowOnce": "允许一次",
+      "allowAlways": "始终允许",
+      "deny": "拒绝",
+      "touches": "涉及的内容",
+      "more": "还有 {{count}} 项",
+      "showLess": "收起",
+      "note": {
+        "allowOnce": "仅此一次，不会延续到下次",
+        "allowAlways": "{{agent}} 不会再为此询问",
+        "rejectOnce": "已告知 {{agent}}，它不会执行",
+        "rejectAlways": "{{agent}} 不会再为此询问",
+        "cancelled": "回合在回答前已结束",
+        "withdrawn": "{{agent}} 已不再需要"
+      }
+    }
+  },
+  "browserOrigin": {
+    "decision": {
+      "session": "本会话内允许",
+      "project": "在本项目中始终允许 {{site}}",
+      "deny": "不允许"
+    },
+    "answer": {
+      "session": "本次会话已允许",
+      "project": "此项目已始终允许",
+      "deny": "已拒绝",
+      "timeout": "未在限定时间内得到答复"
+    },
+    "where": "在本会话的浏览器里打开 · 带着你的登录状态"
+  },
+  "deviceAccess": {
+    "decision": {
+      "session": "本次会话允许",
+      "always": "始终允许这台设备",
+      "deny": "拒绝"
+    },
+    "answer": {
+      "session": "本次会话已允许",
+      "always": "已始终允许",
+      "deny": "已拒绝",
+      "timeout": "没有及时回答",
+      "revoked": "本次会话已允许，后来撤回"
+    },
+    "where": "点按、输入和截图，截图会交给这个 Agent 的模型服务商"
+  },
+  "computerApp": {
+    "decision": {
+      "session": "本会话内允许",
+      "always": "始终允许 {{app}}",
+      "deny": "不允许"
+    },
+    "answer": {
+      "session": "本次会话已允许",
+      "always": "已始终允许",
+      "deny": "已拒绝",
+      "timeout": "未在限定时间内得到答复"
+    },
+    "where": "读取它的窗口，在后台点击和输入"
+  },
+  "projectMcp": {
+    "where": "来自项目的 .mcp.json；使用后它们在这台电脑上以你的权限运行。",
+    "servers": "服务器",
+    "decision": {
+      "use": "使用",
+      "all": "全部使用",
+      "skip": "不使用"
+    },
+    "answer": {
+      "use": "已使用",
+      "all": "已使用这个项目的全部",
+      "skip": "未使用",
+      "timeout": "未回答"
+    }
+  },
+  "projectHooks": {
+    "where": "这个项目的 .claude 设置会在特定时刻自动执行这些命令，比如会话开始时，以你的权限在这台电脑上运行。允许之前，这个会话不会自动执行任何命令，包括你自己设置的。",
+    "hooks": "命令",
+    "decision": {
+      "use": "运行",
+      "all": "总是运行",
+      "skip": "不运行"
+    },
+    "answer": {
+      "use": "已允许",
+      "all": "已允许这个项目的全部",
+      "skip": "未运行",
+      "timeout": "未回答"
+    }
+  },
+  "problemReport": {
+    "action": "把问题报告发给 Kettu",
+    "send": "提交给 Kettu",
+    "save": "存到本地",
+    "skip": "不提交",
+    "edit": "修改…",
+    "attached": {
+      "title": "一起带上",
+      "about": "Kettu 的版本和你的系统",
+      "logs": "最近 1 小时的日志和操作记录",
+      "ids": "这个会话和 Agent"
+    },
+    "answer": {
+      "sent": "已提交 · 报告 {{id}}",
+      "saved": "已存到本地",
+      "skipped": "未提交"
+    }
+  },
+  "memory": {
+    "action": {
+      "remember": "记住了",
+      "update": "改了记忆",
+      "forget": "忘掉了"
+    },
+    "undo": "撤销",
+    "undoLabel": "撤销“{{title}}”",
+    "undone": "已撤销",
+    "proposal": {
+      "remember": {
+        "action": "记住一件关于你的事",
+        "allow": "记住",
+        "deny": "不记",
+        "accepted": "已记进全局记忆",
+        "declined": "没有记"
+      },
+      "update": {
+        "action": "改一条关于你的记忆",
+        "allow": "改",
+        "deny": "不改",
+        "accepted": "已改好全局记忆",
+        "declined": "没有改"
+      },
+      "forget": {
+        "action": "忘掉一条关于你的记忆",
+        "allow": "忘掉",
+        "deny": "留着",
+        "accepted": "已从全局记忆里忘掉",
+        "declined": "留着了"
+      }
+    }
+  },
+  "computerBar": {
+    "waiting": "等你允许使用 <app>{{app}}</app>",
+    "stopping": "正在收回电脑…",
+    "stopLabel": "这一轮不再使用电脑，回合继续"
+  },
+  "computerPane": {
+    "title": "电脑",
+    "live": "实时",
+    "paused": "已暂停",
+    "show": "显示 {{app}}",
+    "showApp": "显示这个应用",
+    "note": "只显示 {{agent}} 在用的窗口，你的其他窗口不在这里。",
+    "idle": "{{agent}} 没在使用电脑",
+    "idleHint": "回合使用电脑时，Agent 在用的那个窗口会实时显示在这里。",
+    "noWindow": "{{agent}} 还没打开窗口",
+    "noWindowHint": "它一读取或操作某个窗口，那个窗口就会显示在这里。",
+    "starting": "正在显示窗口…",
+    "hiddenHint": "它被最小化、隐藏了，或在另一个桌面上。显示它之后就能在这里看到。",
+    "failed": "Kettu 无法显示这个窗口",
+    "noPermission": "Kettu 需要屏幕录制权限才能显示窗口",
+    "noPermissionHint": "在系统设置里允许，然后退出并重新打开 Kettu。",
+    "allow": "打开系统设置",
+    "retry": "重试",
+    "elsewhere": "只有在 Agent 使用其应用的那台电脑上才能显示窗口。"
+  },
+  "computerSetup": {
+    "label": "设置 Computer use",
+    "ask": "{{agent}} 想使用你的电脑，正在等你设置 Computer use。",
+    "wants": "想使用你的电脑",
+    "waiting": "等你设置",
+    "granting": "等你授权",
+    "step": "第 {{n}} 步，共 {{count}} 步",
+    "enable": {
+      "title": "打开 Computer use",
+      "body": "{{agent}} 会在后台读取应用的窗口、点击和输入，只对你在这台电脑上发的消息生效。",
+      "action": "打开",
+      "switch": "电脑操作"
+    },
+    "accessibility": {
+      "title": "允许辅助功能",
+      "body": "Kettu 靠它读取窗口、点击和输入。系统设置会打开“辅助功能”，在列表里打开 Kettu 旁边的开关，再回到这里。",
+      "pane": "辅助功能"
+    },
+    "screen-recording": {
+      "title": "允许屏幕录制",
+      "body": "Kettu 靠截图看清窗口里的内容。系统设置会打开“屏幕录制”，在列表里打开 Kettu 旁边的开关，再回到这里。",
+      "pane": "屏幕录制"
+    },
+    "open": "打开系统设置",
+    "openAgain": "再打开系统设置",
+    "inSettings": "在系统设置里等你",
+    "goesOn": "做完会自动继续。",
+    "notNow": "不用了",
+    "elsewhere": "要在{{host}}上完成设置",
+    "elsewhereBody": "开关和系统权限只能在那台电脑的 Kettu 里打开。设置好后，{{agent}} 会自动继续。",
+    "thatComputer": "运行它的那台电脑",
+    "outcome": {
+      "ready": "已设置好 Computer use",
+      "declined": "没有设置 Computer use",
+      "timeout": "没有在限定时间内设置好 Computer use"
+    },
+    "declinedNote": "不用了"
+  },
+  "subagent": {
+    "fallbackTitle": "子 Agent",
+    "tools_other": "{{count}} 个工具"
+  },
+  "subagentBar": {
+    "runsFor": "{{agent}} 正在为 <parent/> 运行这个子 Agent",
+    "runsForParent": "{{agent}} 正在为<parent>父会话</parent>运行这个子 Agent",
+    "stop": "停止",
+    "back": "返回 {{title}}",
+    "backShort": "返回"
+  },
+  "subSession": {
+    "back": "返回 {{title}}",
+    "startedFrom": "从 <parent>{{title}}</parent> 开始"
+  },
+  "sessionMessage": {
+    "from": "来自 {{title}}",
+    "fromParent": "来自父会话"
+  },
+  "viewers": {
+    "more": "{{name}} +{{count}}",
+    "label": "{{names, list(style: narrow)}} 上也开着这个会话"
+  },
+  "userEntry": {
+    "device": "从 {{device}} 发送"
+  },
+  "sessionReport": {
+    "agent": "该会话",
+    "finished": "{{agent}} 做完了",
+    "stopped": "{{agent}} 被停止了",
+    "failed": "{{agent}} 出错了",
+    "failedWith": "{{agent}} 出错了 · {{reason}}"
+  },
+  "sessionStarted": {
+    "label": "已启动 <title>{{title}}</title>",
+    "missing": "已启动一个会话"
+  },
+  "compaction": {
+    "inProgress": "正在压缩上下文…",
+    "completed": "上下文已压缩",
+    "failed": "无法压缩上下文",
+    "cancelled": "已取消压缩",
+    "summary": "摘要"
+  },
+  "gitEvent": {
+    "committed": "已提交 <id/> <subject/>",
+    "moreCommits_other": "另有 {{count}} 个提交",
+    "pushed_other": "已推送 {{count}} 个提交到 <upstream/>",
+    "switchedTo": "已切换到 <branch/>",
+    "openedPr": "已创建 Pull Request",
+    "copyCommitId": "复制提交 ID"
+  },
+  "artifactEntry": {
+    "created": "已创建",
+    "updated": "已更新",
+    "restored": "已恢复",
+    "version": "v{{version}}",
+    "versions": "v{{from}} → v{{to}}"
+  },
+  "planChip": {
+    "label": "计划：第 {{step}} 步，共 {{total}} 步，{{content}}",
+    "labelDone": "计划：{{total}} 步都已完成",
+    "title": "计划",
+    "count": "{{step}}/{{total}}"
+  },
+  "userActions": {
+    "steered": "已插入当前对话",
+    "copyMessage": "复制消息",
+    "label": "消息操作"
+  },
+  "replyFooter": {
+    "copyReply": "复制回复",
+    "fork": "从这里分叉",
+    "forking": "正在分叉…",
+    "forkNotReady": "会话就绪后才能分叉",
+    "label": "回复操作"
+  },
+  "changes": {
+    "label": "改动",
+    "files_other": "{{count}} 个文件有改动",
+    "review": "查看",
+    "commit": "提交并创建 PR",
+    "more_other": "再显示 {{count}} 个文件",
+    "fewer": "收起"
+  },
+  "queue": {
+    "label": "排队中的消息：{{count}} 条",
+    "paused": "已暂停",
+    "position": "{{number}} / {{count}}",
+    "previous": "上一条排队消息",
+    "following": "下一条排队消息",
+    "resume": "继续",
+    "attachment": "附件",
+    "from": "来自 {{device}}",
+    "fromSession": "来自 {{title}}",
+    "attachments_other": "{{count}} 个附件",
+    "sendNow": "立即发送",
+    "steer": "立即插入当前对话",
+    "stopAndSend": "停止本轮，接着发送这条消息",
+    "edit": "在输入框中编辑",
+    "remove": "移除",
+    "count_other": "{{count}} 条排队",
+    "title": "排队",
+    "collapse": "收起队列"
+  },
+  "agentStart": {
+    "installing": "正在安装 {{agent}}…",
+    "starting": "正在启动 {{agent}}…",
+    "loading": "正在加载对话…"
+  },
+  "failed": {
+    "reportProblem": "报告问题"
+  },
+  "pending": {
+    "back": "返回",
+    "newSubSessionOf": "新建 {{title}} 的子会话",
+    "notRunning": "{{agent}} 未运行",
+    "couldntStart": "无法启动 {{agent}}"
+  },
+  "newSession": {
+    "title": "新建会话",
+    "subSessionTitle": "新建子会话",
+    "subSessionProject": "子会话在父会话的项目中工作",
+    "chooseProject": "选择要工作的项目",
+    "projectMissing": "{{project}} 已不存在",
+    "chooseAgent": "为这个会话选择 Agent",
+    "whatToWorkOn": "想让 {{agent}} 做什么？",
+    "message": "消息",
+    "messageAgent": "给 {{agent}} 发消息",
+    "describeTask": "描述一个任务…",
+    "send": "发送",
+    "host": "主机",
+    "project": "项目",
+    "chooseProjectShort": "选择项目",
+    "missing": "未找到",
+    "openProject": "打开项目…",
+    "agent": "智能体",
+    "chooseAgentShort": "选择 Agent",
+    "notInstalled": "未安装",
+    "noProject": "无项目",
+    "searchProjects": "搜索项目…",
+    "searchProjectsLabel": "搜索项目",
+    "recent": "最近",
+    "noMatchingProjects": "没有匹配的项目",
+    "greeting": {
+      "hello": {
+        "morning": "早上好",
+        "afternoon": "下午好",
+        "evening": "晚上好",
+        "late": "夜深了",
+        "back": "好久不见"
+      },
+      "named": "{{hello}}，{{name}}",
+      "first": "你好，我是 Kettu",
+      "lines": {
+        "morning": [
+          "今天从哪儿开始？",
+          "先做哪件事？"
+        ],
+        "afternoon": [
+          "接着做点什么？",
+          "适合啃块硬骨头"
+        ],
+        "evening": [
+          "还有要收尾的吗？",
+          "今天辛苦了"
+        ],
+        "late": [
+          "慢慢来",
+          "做完这件就休息"
+        ],
+        "monday": [
+          "新的一周，先做什么？",
+          "周一，慢慢进入状态"
+        ],
+        "friday": [
+          "周五了，收个尾",
+          "这周辛苦了"
+        ],
+        "weekend": [
+          "周末也在忙？",
+          "周末，做点轻松的"
+        ]
+      }
+    },
+    "branchHint": "会话从这个分支开始",
+    "commitHint": "会话从这个提交开始",
+    "missingLine": "这个项目的文件夹不见了，请换一个项目。",
+    "chooseProjectFirst": "先选择项目",
+    "chooseAgentFirst": "先选择 Agent",
+    "noAgent": "没有可用的 Agent，先添加或启用一个再开始。",
+    "noAgentOnHost": "{{host}} 上暂时没有可以启动的 Agent。",
+    "noAgentNode_other": "暂时没有可以启动的 Agent：{{agents, list(style: narrow)}} 需要 Node.js 22 或更高版本。",
+    "noAgentUpdate_other": "暂时没有可以启动的 Agent：你的 {{agents, list(style: narrow)}} 版本比 Kettu 要的旧，更新后才能开始。",
+    "setUpAgents": "设置 Agent…",
+    "agentMenu": {
+      "label": "Agent 和模型",
+      "search": "搜索 Agent 和模型",
+      "agents": "Agent",
+      "setsUp": "首次使用时自动配置",
+      "installing": "正在安装…",
+      "failed": "出错",
+      "signIn": "需要登录",
+      "window": "{{limit}} {{value}}",
+      "windowResets": "{{limit}} {{value}} · {{reset}}",
+      "valueUsed": "已用 {{percent}}%",
+      "valueLeft": "剩余 {{percent}}%",
+      "setsUpLong": "{{agent}} 会在首次使用时自动配置：Kettu 会为它安装适配器，适配器运行你的 {{command}}。",
+      "needsUpdate": "需要更新",
+      "updateLong": "你的 {{command}} {{current}} 比 Kettu 要的旧（至少 {{minimum}}），更新后才能用。",
+      "updateOnHost": "在 {{host}} 上更新 {{agent}} 后才能用。",
+      "updateTo": "更新到 {{version}}",
+      "updating": "正在更新…",
+      "howToUpdate": "更新方法…",
+      "install": "安装…",
+      "failedLong": "{{agent}} 启动失败。",
+      "retry": "重试",
+      "signInLong": "登录 {{agent}} 后才能使用。",
+      "signInOnHost": "在 {{host}} 上登录 {{agent}} 后才能使用。",
+      "signInAction": "登录…",
+      "modelsOnStart": "{{agent}} 启动后，这里会列出它的模型。",
+      "useAgent": "使用 {{agent}}",
+      "moreModels": "更多模型 ({{number}})",
+      "noMatch": "没有匹配的 Agent 或模型",
+      "checking": "正在检查 {{agent}} 的模型…",
+      "prepareFailed": "{{agent}} 无法打开会话：{{error}}",
+      "versionBroken": "Kettu 检查发现你的 {{command}} {{version}} 和它不能一起用。",
+      "versionUnsupported": "你的 {{command}} {{version}} 不在 Kettu 能用的版本里（{{supported}}）。",
+      "versionOnHost": "在 {{host}} 上把 {{agent}} 换成 Kettu 能用的版本。",
+      "howToChange": "更换方法…"
+    },
+    "startNotice": {
+      "model": {
+        "not_offered": "{{agent}} 已不再提供 {{wanted}}，将使用 {{actual}} 启动。",
+        "refused": "{{agent}} 没有接受 {{wanted}}，将使用 {{actual}} 启动。",
+        "replaced": "{{agent}} 的默认模型已在 Kettu 之外改为 {{actual}}，将使用它启动，而不是 {{wanted}}。"
+      },
+      "option": {
+        "not_offered": "{{agent}} 已不再提供 {{option}} {{wanted}}，将使用 {{actual}} 启动。",
+        "refused": "{{agent}} 没有接受 {{option}} {{wanted}}，将使用 {{actual}} 启动。",
+        "replaced": "{{agent}} 的默认 {{option}} 已在 Kettu 之外改为 {{actual}}，将使用它启动，而不是 {{wanted}}。"
+      },
+      "noOption": "{{agent}} 现在没有 {{option}} 选项，不会使用 {{wanted}}。",
+      "noSwitch": "{{agent}} 现在没有 {{option}} 选项，无法开启。",
+      "switchOff": "{{agent}} 启动时 {{option}} 为关闭，而不是开启。",
+      "switchOn": "{{agent}} 启动时 {{option}} 为开启，而不是关闭。"
+    },
+    "installHarness": "安装 Harness…",
+    "updateHarness": "更新 Harness…",
+    "thisComputer": "本机",
+    "hostOffline": "离线",
+    "hostNotConnected": "{{host}} 还没有连上",
+    "openProjectHere": "在本机打开项目…",
+    "openProjectOn": "在 {{host}} 上打开项目…",
+    "projectOnHost": "项目：{{host}} 上的 {{name}}",
+    "hostFolders": {
+      "title": "在 {{host}} 上打开项目",
+      "description": "项目留在 {{host}} 上，不会复制到这台电脑；Agent 在那里读写它。",
+      "up": "上一级",
+      "location": "位置",
+      "list": "{{folder}} 里的文件夹",
+      "folders": "文件夹",
+      "goIn": "进入",
+      "goUp": "上一级",
+      "empty": "这里没有文件夹。",
+      "emptyHint": "仍可打开这个文件夹。",
+      "errorHint": "可以回到上一级，或重试。",
+      "retry": "重试",
+      "repo": "Git 仓库",
+      "note": "只列文件夹。路径按 {{host}} 的格式。",
+      "opens": "将打开",
+      "open": "打开"
+    },
+    "picker": {
+      "search": "搜索 Agent",
+      "noMatch": "没有匹配的 Agent",
+      "signedOut": "已退出 · 登录后使用",
+      "failed": "启动失败",
+      "needsUpdate": "版本太旧 · 点击更新",
+      "versionBroken": "{{version}} 和 Kettu 不能一起用",
+      "versionUnsupported": "{{version}} 不在 Kettu 能用的版本里",
+      "limitUsed": "已用 {{limit}}限额的 {{percent}}%",
+      "limitLeft": "{{limit}}限额剩余 {{percent}}%",
+      "limitReached": "已达 {{limit}}限额",
+      "manage": "管理 Agent…"
+    },
+    "modelMenu": {
+      "label": "模型",
+      "search": "搜索模型",
+      "model": "模型"
+    },
+    "pickup": {
+      "title": "接着上次继续",
+      "waiting": "等待你批准",
+      "working": "进行中",
+      "failed": "出错停止",
+      "signIn": "等待登录",
+      "finished": "{{ago}}完成"
+    },
+    "artifacts": {
+      "title": "最近的 artifact",
+      "viewAll": "查看全部"
+    },
+    "addAgent": "添加 Agent…",
+    "guide": {
+      "title": "还没有 Agent",
+      "hint": "装一个就能开始；在终端里装好的，点重新检测。",
+      "about": {
+        "claude-code": "Anthropic 出品，用 Claude 订阅或 API key 登录。",
+        "codex": "OpenAI 出品，用 ChatGPT 或 API key 登录。",
+        "opencode": "开源，可以接任意模型服务商。",
+        "pi": "小巧、可扩展的终端 Agent。"
+      },
+      "found": "已在这台电脑上找到",
+      "outdated": "你的 {{name}} {{current}} 比 Kettu 要的旧，更新后才能用。",
+      "redetect": "重新检测"
+    },
+    "workflow": {
+      "label": "工作流",
+      "chat": "对话",
+      "chatHint": "和一个 Agent 对话，和普通会话一样",
+      "heading": "工作流",
+      "unreadableHint": "文件读不出来",
+      "blocked": {
+        "approval": "待批准",
+        "changed": "已改动，待批准",
+        "unreadable": "读不出来"
+      },
+      "findMore": "在 Marketplace 里找更多工作流…",
+      "addFromMarketplace": "去 Marketplace 添加一个工作流",
+      "worktreeHint": "需求在自己的 worktree 和分支上进行。",
+      "worktreeNote": "需求在自己的 worktree 里进行，从 <base>{{base}}</base> 切出新分支，发出时由 Kettu 起名。",
+      "textOnly": "需求只能是文字：去掉附件后再发出。",
+      "stepAgents": "工作流的步骤只能由 Claude Code 和 Codex 的 Agent 来做：请选其中一个。",
+      "previewFoot": "Pace：{{pace}} · Auto 的步骤开始时才选人"
+    }
+  },
+  "signIn": {
+    "title": "登录 {{agent}}",
+    "description": "{{agent}} 需要先登录才能启动。Kettu 不会获取你的凭据。",
+    "descriptionWithKey": "{{agent}} 需要先登录才能启动。",
+    "noMethods": "{{agent}} 没有说明登录方式。请在它自己的命令行中登录，然后重试。",
+    "apiKey": "API 密钥",
+    "keyOnly": "{{agent}} 只能用 API key 登录。Codebuddy Code 的浏览器和微信登录整台电脑共用一份，加出来的 Agent 没有自己的登录。",
+    "copyCommand": "复制命令",
+    "inTerminal": "在终端中登录",
+    "signedIn": "我已登录，重试",
+    "envHint": "在设置 › Agent 里 {{agent}} 的页面上填写。",
+    "inSettings": "去设置里填写",
+    "keySet": "我已填好，重试",
+    "optional": "可选",
+    "pageOpen": "等待浏览器",
+    "pageOpenHint": "{{agent}} 的登录页面已在这台设备的浏览器中打开，请在那里完成登录。",
+    "openPageAgain": "再次打开页面",
+    "onComputer": "这种方式会在 {{agent}} 所在的电脑上打开浏览器，请到那台电脑上登录，然后重试。"
+  },
+  "takeover": {
+    "title": "由 {{agent}} 接手",
+    "carried_other": "由 {{agent}} 接手 · 带上前面 {{count}} 轮",
+    "omitted_other": "带过去的内容。还有 {{count}} 轮没带，它能用读历史的工具取回。",
+    "whole": "带过去的内容。",
+    "summarize": "已要求它先总结前面的对话再接着做"
+  },
+  "view": {
+    "couldntOpen": "无法打开此会话",
+    "hostSilent": "Agent 后台进程没有响应。",
+    "stopped": "{{agent}} 已停止",
+    "couldNotContinue": "{{agent}} 无法继续此会话。",
+    "signInToContinue": "登录 {{agent}} 以继续",
+    "historyStays": "历史记录会保留在这里，会话会从中断的地方继续。",
+    "accountMoved": "{{agent}} 用不了这个账号",
+    "openHarness": "打开 {{name}}",
+    "signIn": "登录…",
+    "agentRemoved": "{{agent}} 已移除",
+    "agentRemovedBody": "历史仍留在这里。可以在输入框里选另一个 Agent 接着做，或重新添加这个 Agent。",
+    "agentTurnedOff": "{{agent}} 已停用",
+    "agentTurnedOffBody": "历史仍留在这里。到设置里启用这个 Agent，或在输入框里选另一个 Agent 接着做。",
+    "openAgent": "打开 Agent",
+    "archivedComposer": "这个会话已归档，不能再发消息。",
+    "restore": "恢复",
+    "openAgents": "打开 Agents",
+    "announceApproval": "{{agent}} 需要你的授权",
+    "announceQuestion": "{{agent}} 有问题要问你",
+    "announceFinished": "{{agent}} 已完成"
+  },
+  "find": {
+    "placeholder": "在会话中查找",
+    "previous": "上一条（Shift+Enter）",
+    "next": "下一条（Enter）",
+    "close": "关闭（Esc）",
+    "none": "无结果",
+    "failed": "查找失败",
+    "short": "至少输入 2 个字",
+    "indexing": "正在为对话建立索引，结果可能不全",
+    "unsupported": "这台主机还不能在会话中查找"
+  },
+  "thread": {
+    "label": "对话",
+    "olderFailed": "无法加载更早的消息",
+    "tokens_other": "{{tokens}} token",
+    "phase": {
+      "thinking": "正在思考",
+      "execute_other": "正在运行 {{count}} 条命令",
+      "read_other": "正在读取 {{count}} 个文件",
+      "search": "正在搜索",
+      "fetch_other": "正在获取 {{count}} 个网页",
+      "edit_other": "正在编辑 {{count}} 个文件",
+      "writing": "正在回复",
+      "compacting": "正在压缩上下文",
+      "approval": "等待你的授权",
+      "question": "等待你的回答",
+      "working": "处理中"
+    },
+    "resume": "继续",
+    "continuePrompt": "继续",
+    "outOfCredit": {
+      "details": "详情",
+      "copy": "复制原始信息"
+    },
+    "width": {
+      "label": "调整内容宽度"
+    },
+    "outline": {
+      "label_other": "大纲，{{count}} 条消息",
+      "noText": "没有文字",
+      "matches_other": "{{count}} 处"
+    },
+    "jump": {
+      "label": "跳到最新",
+      "labelWith": "跳到最新，{{state}}",
+      "tooltipWith": "{{state}} · 跳到最新",
+      "failed": "出错停止"
+    }
+  },
+  "routine": {
+    "link": "打开例程 {{name}}",
+    "sent": "由 {{name}} 发送 · 立即运行",
+    "due": "由 {{name}} 发送 · {{when}} 到期",
+    "catchUp": "由 {{name}} 发送 · 补运行 {{when}}"
+  },
+  "link": {
+    "title": "打开链接？",
+    "userinfo": "链接中“@”之前的文字并不是它的去向。",
+    "copy": "复制链接",
+    "copyMarkdown": "复制为 Markdown",
+    "copyReference": "复制引用",
+    "firstVisit": "首次访问",
+    "firstVisitNote": "你还没有从 Kettu 打开过这个站点。会话浏览器打开它之后才会显示它的图标。",
+    "defaultBrowser": "默认浏览器",
+    "yourBrowser": "默认浏览器",
+    "sessionBrowser": "会话浏览器",
+    "browserHint": "你自己的浏览器和登录状态",
+    "sessionHint": "{{agent}} 可以查看和操作",
+    "sessionHintGeneric": "会话的 Agent 可以查看和操作",
+    "writtenBy": "由 {{agent}} 写在 <title>{{title}}</title> 中",
+    "openIn": "在 {{browser}} 中打开",
+    "openInSession": "在会话浏览器中打开",
+    "opensIn": "{{url}} · 将在 {{browser}} 中打开",
+    "opensInSession": "{{url}} · 将在会话浏览器中打开",
+    "alwaysSite": "始终在 {{browser}} 中打开 {{site}} 的链接",
+    "alwaysSiteSession": "始终在会话浏览器中打开 {{site}} 的链接",
+    "alwaysHost": "始终在 {{browser}} 中打开这个站点",
+    "alwaysHostSession": "始终在会话浏览器中打开这个站点",
+    "openFailed": "无法打开链接：{{error}}"
+  },
+  "alert": {
+    "note": "说明",
+    "tip": "提示",
+    "important": "重要",
+    "warning": "警告",
+    "caution": "注意"
+  },
+  "svg": {
+    "alt": "SVG 图片"
+  },
+  "block": {
+    "openInTerminal": "在终端中打开",
+    "copy": "复制",
+    "wrap": "自动换行",
+    "showMore_other": "再显示 {{count}} 行",
+    "showLess": "收起",
+    "view": "查看方式",
+    "preview": "预览",
+    "source": "源码",
+    "download": "下载",
+    "diagram": "图表",
+    "diagramFailed": "无法绘制这个图表。",
+    "copyLatex": "复制 LaTeX",
+    "copyMarkdown": "复制为 Markdown",
+    "downloadCsv": "下载 CSV",
+    "tableSize": "{{rows}} · {{columns}}",
+    "rows_other": "{{count}} 行",
+    "columns_other": "{{count}} 列"
+  },
+  "command": {
+    "run": "运行",
+    "more": "更多运行方式",
+    "runNote": "在新终端里运行，{{agent}} 看着输出接着做",
+    "runOnly": "只运行",
+    "runOnlyNote": "在新终端里运行，不告诉 {{agent}}",
+    "put": "放进终端",
+    "putNote": "不按回车，你看过再按",
+    "openTerminal": "打开终端",
+    "goType": "去输入",
+    "stop": "停止",
+    "runAgain": "再运行",
+    "state": {
+      "running": "运行中",
+      "password": "等你输入密码",
+      "ended": "已结束",
+      "shellExited": "Shell 已退出，退出码 {{code}}",
+      "gone": "终端已关闭"
+    },
+    "failed": "无法运行这段命令：{{message}}",
+    "notNotified": "命令在运行，但没能告诉 {{agent}}",
+    "chip": "在终端运行了 <code>{{command}}</code>",
+    "chipMore_other": "等 {{count}} 行",
+    "chipOpen": "打开它的终端",
+    "chipGone": "它的终端已关闭"
+  },
+  "media": {
+    "openImage": "打开图片 {{name}}",
+    "openImageMore_other": "打开图片 {{name}}，另有 {{count}} 张",
+    "moreBadge": "+{{count}}",
+    "pixels": "{{width}} × {{height}}",
+    "retryFile": "重试 {{name}}",
+    "notFound": "在 {{path}} 找不到。",
+    "cannotReadShort": "无法读取：{{message}}",
+    "unsupported": "这种图片格式无法在这里显示。",
+    "unsupportedVideo": "这种视频格式无法在这里播放。",
+    "unsupportedAudio": "这种音频格式无法在这里播放。",
+    "unsupportedShort": "无法在这里显示",
+    "unsupportedPlayShort": "无法在这里播放",
+    "tooLargeShort": "文件太大，无法在这里显示",
+    "inProject": "已写入项目文件夹",
+    "download": "下载",
+    "play": "播放 {{name}}",
+    "speed": "播放速度 {{rate}}×",
+    "rate": "{{rate}}×",
+    "openLarger": "放大查看",
+    "showInFiles": "在文件面板中显示",
+    "showIn": "在{{name}}中显示",
+    "openWithDefault": "用默认应用打开",
+    "saveAs": "另存为…",
+    "sound": "音频",
+    "video": "视频"
+  },
+  "viewer": {
+    "image": "图片",
+    "position": "{{number}} / {{count}}",
+    "zoomIn": "放大",
+    "zoomOut": "缩小",
+    "fit": "缩放至适合",
+    "actualSize": "实际大小",
+    "copy": "复制图片",
+    "copied": "已复制",
+    "saveAs": "另存为…",
+    "previous": "上一个",
+    "next": "下一个"
+  },
+  "host": {
+    "away": "{{name}} 没有连上",
+    "awayBody": "{{state}}。它回来后，这里的会话会自动接上。",
+    "awayComposer": "{{name}} 没有连上：{{state}}。它回来后才能接着发消息。"
+  },
+  "question": {
+    "asksYou": "等你回答",
+    "answeredOther": "其他回答",
+    "other": "其他回答…",
+    "otherPlaceholder": "写下你自己的回答",
+    "steps": "问题",
+    "step": "第 {{number}} 个问题",
+    "skip": "跳过",
+    "skipAll": "全部跳过",
+    "next": "下一题",
+    "submit": "提交",
+    "answered": "已回答 {{answered}}/{{total}}",
+    "answeredOne": "已回答",
+    "skipped": "已跳过",
+    "secret": "已隐藏",
+    "secretHint": "输入时隐藏，也不留在对话里",
+    "hint": {
+      "one": "选一项",
+      "oneOrOwn": "选一项，或写下你自己的回答",
+      "any": "选择所有适用的",
+      "anyOrOwn": "选择所有适用的，或写下你自己的回答"
+    },
+    "picked_other": "已选 {{count}} 项",
+    "ownAnswer": "你自己的回答",
+    "typing": "写下你的回答",
+    "separator": "、",
+    "of": "{{agent}} · 第 {{number}} 个问题，共 {{count}} 个",
+    "otherTell": "还有别的？告诉 {{agent}}"
+  },
+  "reply": {
+    "button": "回复",
+    "placeholder": "回复 {{agent}}…",
+    "send": "发送回复",
+    "quote": "引用的文字",
+    "side": "侧聊"
+  },
+  "planCard": {
+    "label": "计划",
+    "version": "计划 {{version}}",
+    "show": "显示",
+    "plan": "计划",
+    "changes": "改动",
+    "changesSince": "和上一版相比改了什么。",
+    "unchanged_other": "{{count}} 行没变",
+    "added": "新增",
+    "removed": "删除",
+    "buildIn": "开始构建，使用",
+    "implementAsk": "按这个计划实施吗？",
+    "keepPlanning": "继续计划，告诉 {{agent}} 要改什么…",
+    "sendNote": "发送意见",
+    "keepPlanningButton": "继续计划",
+    "startBuilding": "开始构建",
+    "implement": "实施",
+    "approved": "计划已批准",
+    "keptPlanning": "已继续计划",
+    "dropped": "计划已取消",
+    "showPlan": "显示计划",
+    "hidePlan": "收起计划",
+    "planMode": "计划",
+    "modeChanged": "模式从 <b>{{from}}</b> 改为 <b>{{mode}}</b>",
+    "copy": "复制计划",
+    "copied": "已复制计划",
+    "copyFailed": "无法复制计划",
+    "showWhole": "显示完整计划",
+    "finishedBuild": "{{agent}} 已完成计划。开始构建，或附上意见继续计划。",
+    "finishedImplement": "{{agent}} 已完成计划。按它实施，或附上意见继续计划。"
+  },
+  "elicitation": {
+    "inAgent": "{{agent}} 里的 MCP 服务器",
+    "optional": "可选",
+    "required": "必填",
+    "tooShort_other": "至少 {{count}} 个字符",
+    "tooLong_other": "最多 {{count}} 个字符",
+    "notEmail": "不是邮箱地址",
+    "notUrl": "不是网址",
+    "notDate": "不是日期",
+    "notInteger": "不是整数",
+    "notNumber": "不是数字",
+    "atLeast": "至少为 {{value}}",
+    "atMost": "最多为 {{value}}",
+    "pickAtLeast_other": "至少选 {{count}} 项",
+    "pickAtMost_other": "最多选 {{count}} 项",
+    "pickDate": "选择日期",
+    "sentTo": "发给 {{server}}",
+    "decline": "拒绝",
+    "submit": "提交",
+    "opensInBrowser": "在浏览器中打开。你在那里填的内容 Kettu 看不到。",
+    "open": "打开 {{site}}",
+    "finishIn": "在浏览器中完成 {{site}} 上的操作",
+    "opened": "已打开 {{site}}",
+    "submitted": "已提交",
+    "declined": "已拒绝",
+    "openAgain": "再次打开",
+    "showValues": "显示填写的值",
+    "hideValues": "收起"
+  },
+  "toolCall": {
+    "usingTools": "正在处理…",
+    "announce": {
+      "running": "{{name}} 正在运行",
+      "success": "{{name}} 已完成",
+      "error": "{{name}} 失败",
+      "cancelled": "{{name}} 已取消"
+    },
+    "copy": "复制{{what}}",
+    "copied": "已复制",
+    "section": {
+      "command": "命令",
+      "output": "输出",
+      "content": "内容",
+      "result": "结果",
+      "changes": "更改"
+    },
+    "exitCode": "退出码 {{code}}",
+    "earlierLines_other": "前面 {{count}} 行",
+    "noOutput": "没有输出"
+  },
+  "access": {
+    "action": {
+      "site": "打开网站",
+      "device": "使用设备",
+      "app": "使用应用",
+      "projectMcp": "启动 MCP 服务器",
+      "projectHooks": "运行这个项目设为自动执行的命令"
+    }
+  },
+  "worktree": {
+    "where": "会话在哪里工作",
+    "local": "本地",
+    "new": "新 worktree",
+    "localTrigger": "本地 · <name>{{branch}}</name>",
+    "newTrigger": "Worktree · <name>{{branch}}</name>",
+    "localWorks": "在项目文件夹里的 <name>{{branch}}</name> 上工作",
+    "localHint": "这个项目的别的会话改的是同一批文件。选新 worktree，这个会话就有自己的分支和文件夹。",
+    "basedOn": "基于",
+    "auto": "自动",
+    "autoHint": "按你的消息起名",
+    "uncommitted_other": "{{count}} 个未提交的改动留在项目文件夹里。",
+    "back": "返回",
+    "findBranch": "查找分支",
+    "noBranchMatch": "没有匹配“{{query}}”的分支",
+    "localBranches": "本地",
+    "remoteBranches": "远程",
+    "current": "当前",
+    "branchesFailed": "没能列出分支：{{message}}",
+    "branchName": "分支名",
+    "namedForYou": "由 Kettu 起名",
+    "nameHelp": "可以不填。不填时 Kettu 按第一条消息起英文名，比如 <code>{{example}}</code>。",
+    "branchInvalid": "Git 不接受这个分支名：不能有空格、..、~ ^ : ? * [ \\ 这些字符，也不能以 - 开头。",
+    "templateReading": "正在读取项目的分支模板…",
+    "templateFailed": "没能读到项目的分支模板：{{message}}",
+    "noteAuto": "从 <base/> 切出新分支，发出时由 Kettu 起名。",
+    "noteAutoAt": "从 <base/> 的 <oid/> 切出新分支，发出时由 Kettu 起名。",
+    "noteNamed": "从 <base/> 切出新分支 <branch/>。",
+    "noteNamedAt": "从 <base/> 的 <oid/> 切出新分支 <branch/>。",
+    "branch": "分支",
+    "inWorktree": "在分支 {{branch}} 的 worktree 里工作",
+    "creating": "正在建 worktree…",
+    "preparing": "正在准备 worktree…",
+    "showOutput": "查看输出",
+    "outputTitle": "worktree 准备的输出",
+    "noOutput": "还没有输出。",
+    "outputFailed": "没能读取输出：{{message}}",
+    "failedTitle": "worktree 没能准备好",
+    "failedCopy": "复制本地文件失败。",
+    "failedSetup": "初始化命令退出，退出码 {{code}}。",
+    "failedStopped": "初始化命令没跑完就被结束了。",
+    "failedWaits": "第一条消息会等 worktree 准备好再发给 Agent。",
+    "retry": "重试",
+    "skip": "跳过并继续",
+    "missing": "worktree 的文件夹在 Kettu 之外被删掉了。发下一条消息时会按分支 <branch/> 重建。",
+    "removed": "worktree 的文件夹已删除。发下一条消息时会按分支 <branch/> 重建。",
+    "gone": "这个会话的 worktree 和分支都已删除，不能再继续对话。",
+    "agentWorktree": "在自己的 worktree <branch/> 里工作过",
+    "agentWorktreeUnnamed": "在自己的 worktree 里工作过",
+    "copyPath": "复制路径"
+  },
+  "workflow": {
+    "pace": "节奏",
+    "paces": {
+      "quick": "快速",
+      "balanced": "均衡",
+      "thorough": "周全"
+    },
+    "auto": "自动",
+    "you": "你",
+    "youReview": "你来审",
+    "source": {
+      "first": "第一步",
+      "pinned": "已固定",
+      "task": "本需求",
+      "you": "你"
+    },
+    "reviews": "审查{{steps}}",
+    "hint": "“{{hint}}”",
+    "pinnedHint": "在这个工作流的 Marketplace 页面上为每个需求固定",
+    "backToAuto": "改回 Auto",
+    "whoDoes": "谁做{{step}}",
+    "pinEveryTask": "为每个需求固定步骤",
+    "suggest": {
+      "title": "作为工作流来做？",
+      "description": "每一步一个会话。",
+      "descriptionReview_other": "每一步一个会话；{{steps}}等你审。",
+      "label": "{{agent}} 的建议 · 等你回答",
+      "workflow": "工作流",
+      "steps_other": "{{count}} 步",
+      "task": "需求 · {{agent}} 写的，可以修改",
+      "taskLabel": "需求",
+      "who": "每一步由谁做 · Auto 步骤开始时再选",
+      "edit": "修改",
+      "doneEditing": "完成",
+      "start": "开始",
+      "decline": "不用，直接做",
+      "declineMessage": "这个不用工作流，你直接做吧。",
+      "unusable": "{{workflow}} 现在不能开始需求。换一个工作流，或者不用工作流直接做。",
+      "missing": "这个工作流已经不在库里了。换一个，或者不用工作流直接做。",
+      "emptyTask": "先写好需求。",
+      "started": "已作为需求开始",
+      "openTask": "打开",
+      "declined": "不用工作流，直接做",
+      "chooseWorkflow": "选择工作流"
+    },
+    "saved": {
+      "pending": "已保存“{{name}}”，等你批准",
+      "approved": "“{{name}}”已批准",
+      "changed": "“{{name}}”在你批准后改动过",
+      "removed": "“{{name}}”已经不在库里了",
+      "refused": "工作流没有保存",
+      "refusedHint": "{{agent}} 可以改好这些问题后重新保存。",
+      "approveHint": "在 Marketplace 里批准之前，什么都不能用它。",
+      "open": "在 Marketplace 中打开",
+      "madeBy": "{{agent}} 写的"
+    },
+    "check": {
+      "report": "报告 · {{outcome}}",
+      "reportPlain": "报告",
+      "pick": "选择 · {{steps}}",
+      "accepted": "已接受",
+      "refused": "已拒绝",
+      "lines": {
+        "report": {
+          "step_open": "这一步可以报告",
+          "outcome": "“{{outcome}}”是这一步的结果之一",
+          "outcomePlain": "报告的是这一步的结果之一",
+          "note": "要交的说明已经写好",
+          "document": "要交的文档是在这一步里写的",
+          "committed": "改动都已提交",
+          "merged": "合并已提交",
+          "picks": "选择都成立"
+        },
+        "pick": {
+          "step": "{{step}}在等这个选择",
+          "agent": "{{agent}} 存在且已开启",
+          "allowed": "Auto 可以选 {{agent}}",
+          "model": "{{agent}} 有 {{model}}",
+          "modelPlain": "{{agent}} 有这个模型",
+          "effort": "{{effort}} 是它支持的 effort",
+          "effortPlain": "它支持这个 effort",
+          "tools": "这一步的工具可以交给它",
+          "limit": "它的套餐用量没有用完",
+          "review": "它不审查自己做的事"
+        }
+      },
+      "next": {
+        "review": "{{step}}现在等你审。",
+        "pick": "接下来由 {{agent}} 选择谁做{{steps}}。",
+        "endDone": "需求完成了。",
+        "endDropped": "需求以放弃结束。",
+        "retryReport": "{{agent}} 改好后会重新报告。",
+        "retryPick": "{{agent}} 会重新选择。",
+        "stuck": "被拒绝的次数太多：需求在等你。",
+        "start_other": "接下来开始{{steps}}。",
+        "wait_other": "{{steps}}在等其他分支。",
+        "person_other": "{{steps}}在等你。"
+      },
+      "showDetails": "Kettu 的回复",
+      "hideDetails": "收起"
+    }
+  },
+  "marketPublish": {
+    "kind": {
+      "skill": "技能",
+      "plugin": "插件",
+      "mcp-server": "MCP 服务器",
+      "workflow": "工作流"
+    },
+    "visibility": {
+      "public": "所有人",
+      "private": "只有我",
+      "unlisted": "已下架"
+    },
+    "visibilityHint": {
+      "public": "列进 Marketplace，登录 Kettu 的人都能看到。",
+      "private": "不列出，只有登录你账号的电脑能装。"
+    },
+    "harness": {
+      "claude-code": "Claude Code",
+      "codex": "Codex"
+    },
+    "everyAgent": "所有 Agent",
+    "stepAgents": "Claude Code 和 Codex",
+    "visibleTo": "谁能看到",
+    "asBefore": "和之前一样",
+    "adds": "会加",
+    "addsGroup": {
+      "skills": "技能",
+      "commands": "命令",
+      "agents": "Agent",
+      "hooks": "Hook",
+      "servers": "MCP 服务器"
+    },
+    "workflowGroup": {
+      "steps": "步骤",
+      "waits": "等你的步骤",
+      "servers": "点名的 MCP 服务器",
+      "skills": "点名的 Skill"
+    },
+    "stepsBy": "步骤由谁做",
+    "worksWith": "适用于",
+    "runs": "会运行",
+    "changes": "改动",
+    "change": {
+      "added": "新文件",
+      "removed": "已删除"
+    },
+    "uploads": "上传",
+    "filesSize_other": "{{count}} 个文件，{{size}}",
+    "from": "来自 {{folder}}",
+    "viewFiles": "看文件",
+    "hideFiles": "收起文件",
+    "checks": "检查",
+    "noSecrets": "没有密钥",
+    "runsNothing": "安装时不运行任何东西",
+    "withinLimits": "没有超出上限",
+    "title": {
+      "new": "发布到 Kettu 的 Marketplace？",
+      "version": "发布 {{name}} 的 {{version}}？",
+      "unlist": "把 {{name}} 从 Kettu 的 Marketplace 下架？"
+    },
+    "description": {
+      "new": "点发布之前什么都不上传。以后的新版本还会再问你。",
+      "version_other": "{{count}} 人装着它，他们下次更新时拿到 {{version}}。",
+      "unlist": "它会从 Marketplace 里去掉。已经装了的人照常能用，也照常收到新版本。"
+    },
+    "notes": "更新说明 · {{agent}} 写的，能改",
+    "notesYours": "更新说明",
+    "notesPlaceholder": "这个版本改了什么",
+    "publisherName": "发布者名",
+    "publisherHint": "这是你第一次发布：你发布的每一项都会写着这个名字。以后能在“已发布”里改。",
+    "handleInvalid": "发布者名是 1 到 32 个小写字母、数字和连字符，开头和结尾是字母或数字。",
+    "publish": "发布",
+    "publishVersion": "发布 {{version}}",
+    "unlist": "下架",
+    "notNow": "以后再说",
+    "keptDraft": "已留成草稿",
+    "showProblems_other": "显示 {{count}} 个问题",
+    "hideProblems": "收起问题",
+    "outcome": {
+      "publishing": "正在发布 {{name}}…",
+      "unlisting": "正在下架 {{name}}…",
+      "published": "已发布 {{name}} {{version}}",
+      "unlisted": "已下架 {{name}}",
+      "failed": "没能发布 {{name}}",
+      "unlistFailed": "没能下架 {{name}}",
+      "later": "没有发布",
+      "expired": "没有及时回答",
+      "ended": "这一轮先结束了",
+      "interrupted": "Marketplace 回复之前 Kettu 停止了"
+    }
+  },
+  "sideChat": {
+    "title": "侧聊",
+    "note": {
+      "claude": "不进对话 · 不用工具",
+      "codex": "不进对话 · 只读，不问授权",
+      "fork": "不进对话 · 临时分叉，用完即删",
+      "hidden": "不进对话 · 临时会话，用完即删",
+      "other": "由 {{agent}} 回答 · 临时会话"
+    },
+    "empty": {
+      "title": "问 {{agent}} 一句",
+      "claudeSees": "看得到这个会话到现在的全部对话，连正在跑的这一轮，只缺还在写的那条回复",
+      "codexSees": "看得到这个会话到现在的全部对话，连正在跑的这一轮已做完的部分",
+      "noInterrupt": "不打断它，问答也不进对话",
+      "claudeTools": "不用工具；要查文件、跑命令，请在主对话里说",
+      "codexTools": "能读文件、跑只读命令，不改东西、不问授权",
+      "claudeCost": "用这个会话的额度、和主会话共用缓存；Claude Code 不单独报侧聊的用量，用量页里没有这部分",
+      "codexCost": "用这个会话的额度、和主会话共用缓存",
+      "forkHow": "{{agent}} 把这个会话分叉出一份来答，Kettu 答完就删掉这份分叉",
+      "forkSees": "看得到到现在的全部对话；还在跑的那个工具调用不一定带上",
+      "forkCost": "和主会话共用一部分缓存；开分叉要几秒",
+      "hiddenHow": "{{agent}} 没有自带的侧问和分叉，Kettu 开一个用完即删的临时会话来答",
+      "hiddenCarried": "放得下模型的窗口就带上全部对话，放不下带第一条请求和最近的几轮，并写明带了多少",
+      "hiddenCost": "和主会话不共用缓存，第一问要全价付这段对话、慢几秒，追问会便宜下来"
+    },
+    "pick": {
+      "title": "{{agent}} 还不能侧聊",
+      "why": "它开的临时会话现在删不干净，会留在它自己的会话历史里。可以换一个 Agent 来答，Kettu 带上这个会话的对话。",
+      "before": "由",
+      "after": "来答",
+      "cost": "花的是 {{agent}} 的额度；放得下就带上全部对话，放不下带第一条请求和最近的几轮。",
+      "ask": "用 {{agent}} 问",
+      "none": "这台电脑上没有能侧聊的 Agent。",
+      "change": "换一个 Agent 来答"
+    },
+    "answering": "正在回答…",
+    "stop": "停止",
+    "stopped": "已停止",
+    "retry": "重试",
+    "quote": "引用到输入框",
+    "copy": "复制",
+    "copied": "已复制",
+    "saw": {
+      "agent": "看到整段对话 · {{agent}} 自带的侧问",
+      "fork": "看到整段对话 · 临时分叉",
+      "agentCompacted": "看到的是 Agent 现在记得的对话 · {{agent}} 自带的侧问",
+      "forkCompacted": "看到的是 Agent 现在记得的对话 · 临时分叉",
+      "compacted_other": "Agent 压缩过上下文：前 {{count}} 轮只在它的摘要里",
+      "compactedNone": "Agent 压缩过上下文，之后还没有新的对话",
+      "copyAfter_other": "看到压缩之后的全部 {{count}} 轮对话 · 约 {{tokens}}k token · 临时会话",
+      "none": "会话还没有对话",
+      "copyAll_other": "看到全部 {{count}} 轮对话 · 约 {{tokens}}k token · 临时会话",
+      "copyPart_other": "看到第一条请求和最近 {{count}} 轮，共 {{total}} 轮 · 约 {{tokens}}k token · 临时会话",
+      "fellBackAgent": "{{agent}} 自带的侧问用不了，改由临时会话来答",
+      "fellBackFork": "{{agent}} 分叉不了这个会话，改由临时会话来答"
+    },
+    "step": {
+      "read": "读了 {{title}}",
+      "search": "搜索了 {{title}}",
+      "run": "跑了 {{title}}",
+      "other": "{{title}}"
+    },
+    "placeholder": {
+      "first": "问一句…",
+      "more": "追问…"
+    },
+    "hint": {
+      "keys": "{{send}} 问 · Esc 回到对话",
+      "close": "{{keys}} 收起"
+    },
+    "clear": "清空",
+    "cleared": "已清空侧聊",
+    "undo": "撤销",
+    "close": "关闭",
+    "send": "问",
+    "quoted": "引用的段落",
+    "removeQuote": "去掉引用",
+    "seconds": "{{n}} 秒",
+    "by": "由 {{agent}} 回答"
+  }
+}

@@ -67,8 +67,8 @@
     "retry": "重试"
   },
   "ref": {
-    "issue": "Issue",
-    "issueIcon": "Issue {{state}}",
+    "issue": "议题",
+    "issueIcon": "议题 {{state}}",
     "issueState": {
       "open": "打开",
       "completed": "已完成",

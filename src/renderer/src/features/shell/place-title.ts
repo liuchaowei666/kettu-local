@@ -32,6 +32,8 @@ export function placeTitle(place: HistoryPlace): string {
       return t('history.places.overview')
     case 'usage':
       return t('history.places.usage')
+    case 'teams':
+      return t('history.places.teams')
     case 'routines':
       return t('history.places.routines')
     case 'routine':

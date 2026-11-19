@@ -8,7 +8,7 @@
   "sections": {
     "now": "进行中",
     "earlier": "已结束",
-    "artifacts": "Artifacts"
+    "artifacts": "产出物"
   },
   "earlier": {
     "subagents": "子 Agent",

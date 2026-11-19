@@ -10,7 +10,7 @@
     "advanced": "高级",
     "about": "关于",
     "archived": "已归档会话",
-    "artifacts": "Artifacts",
+    "artifacts": "产出物",
     "sharing": "分享",
     "remote": "远程访问",
     "browser": "浏览器",
@@ -18,7 +18,7 @@
     "memory": "记忆",
     "hosts": "主机",
     "devices": "移动设备",
-    "computer-use": "Computer use"
+    "computer-use": "电脑操作"
   },
   "page": {
     "title": "设置",
@@ -258,7 +258,7 @@
   },
   "terminal": {
     "shell": {
-      "name": "Shell",
+      "name": "命令行",
       "description": "你的登录 shell，或你选择的程序。",
       "descriptionWindows": "已安装 pwsh 时使用 pwsh，否则使用 Windows PowerShell；也可以选择其他程序。",
       "loginShell": "登录 Shell",
@@ -281,7 +281,7 @@
       "description": "单位：像素。"
     },
     "groups": {
-      "shell": "Shell",
+      "shell": "命令行",
       "display": "显示"
     }
   },
@@ -502,7 +502,7 @@
   },
   "computer": {
     "groups": {
-      "use": "Computer use",
+      "use": "电脑操作",
       "permissions": "这台电脑",
       "allowedApps": "始终允许"
     },
@@ -608,7 +608,7 @@
       "keywords": "调试 开发者工具 devtools inspector cdp 端口",
       "restart": "以调试模式重启…",
       "restartNormally": "正常重启",
-      "cdp": "DevTools Protocol",
+      "cdp": "DevTools 协议",
       "pipe": "经管道",
       "cdpFailed": "没有打开，端口可能被占用",
       "waiting": "正在等待端口…",
@@ -720,7 +720,7 @@
       "readFailed": "读取这个 Agent 的模式失败。"
     },
     "claudeSettings": {
-      "auto": "Auto",
+      "auto": "自动",
       "compact": {
         "name": "自动压缩窗口",
         "description": "对话累积到多少 token 时，Claude Code 开始压缩它。可以给所有模型设一个，也可以给某个模型另设。Auto 由 Claude Code 自己决定。项目自己的设置在该项目里优先，改动从下一个会话起生效。",
@@ -840,7 +840,7 @@
       "open": "打开 Marketplace"
     },
     "openHarnessButton": "打开",
-    "harness": "Harness",
+    "harness": "运行时",
     "signInRow": "登录",
     "signInRowHint": "由 Harness 自己在终端里登录，Kettu 不经手凭据。",
     "signInAgain": "在终端中重新登录",
@@ -882,7 +882,7 @@
       "keywords": "新建 账号 配置目录 API key",
       "title": "添加 Agent",
       "description": "选择一个 Harness 和配置。已经在用的登录可以继续使用。",
-      "harness": "Harness",
+      "harness": "运行时",
       "name": "名字",
       "namePlaceholder": "比如 公司 API",
       "nameTooLong_other": "最多 {{count}} 个字",
@@ -907,7 +907,7 @@
       "submit": "添加 Agent"
     },
     "key": {
-      "row": "API key",
+      "row": "API 密钥",
       "set": "已设置，{{name}} 把它保存在自己的配置文件夹里。",
       "notSet": "用你自己的 key 和服务商，代替登录。",
       "notSetOpenAi": "用 OpenAI 的 API key 代替登录。",
@@ -922,7 +922,7 @@
       "save": "保存",
       "baseUrl": "服务地址",
       "baseUrlHint": "留空就是 Anthropic 官方；第三方网关填它给的地址。",
-      "key": "API key",
+      "key": "API 密钥",
       "model": "模型",
       "modelPlaceholder": "可选，留空用 {{name}} 的默认",
       "noteClaude": "key 交给 Claude Code，存进这个 Agent 配置目录里的 settings.json；Kettu 不留副本，也不读回。终端里用这个目录运行 {{command}} 也能用。",
@@ -972,7 +972,7 @@
       "command": "复制登录命令",
       "unavailable": "没有登录方式",
       "methods": {
-        "key": "API key",
+        "key": "API 密钥",
         "oauth": "登录",
         "command": "命令",
         "external": "外部登录",
@@ -986,7 +986,7 @@
       "key": {
         "title": "{{name}} 的 API key",
         "description": "key 由 OpenCode 保存。Kettu 仅用它向对应厂商查询用量。",
-        "label": "API key",
+        "label": "API 密钥",
         "save": "保存 key"
       },
       "usage": {
@@ -1221,7 +1221,7 @@
       "name": "Cloudflare 账号",
       "description": "通过你自己的 Cloudflare 账号发布 artifact。粘贴 API token 后，Kettu 会找到它能访问的账号。",
       "keywords": "分享 发布 链接 cloudflare workers token 账号",
-      "token": "API token",
+      "token": "API 令牌",
       "tokenPlaceholder": "粘贴 token",
       "createToken": "创建具有 Workers Scripts Edit 权限的 token",
       "connect": "连接",

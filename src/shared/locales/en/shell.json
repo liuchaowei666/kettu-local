@@ -97,7 +97,8 @@
       "marketplace": "Marketplace",
       "marketplaceItem": "Marketplace › {{item}}",
       "settings": "Settings › {{section}}",
-      "settingsItem": "Settings › {{section}} › {{item}}"
+      "settingsItem": "Settings › {{section}} › {{item}}",
+      "teams": "Teams"
     }
   },
   "debugMode": {

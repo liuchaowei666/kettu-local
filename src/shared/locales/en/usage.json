@@ -176,7 +176,8 @@
     "showMore_other": "Show {{count}} more",
     "showFewer": "Show fewer",
     "near_one": "· {{count}} near a limit",
-    "near_other": "· {{count}} near a limit"
+    "near_other": "· {{count}} near a limit",
+    "balance": "Balance"
   },
   "activity": {
     "title": "Activity",

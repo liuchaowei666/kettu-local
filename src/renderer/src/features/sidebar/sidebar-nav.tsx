@@ -5,6 +5,7 @@ import {
   PencilEdit02Icon,
   RepeatIcon,
   Store01Icon,
+  UserGroupIcon,
   ViewIcon,
 } from '@hugeicons/core-free-icons'
 import { useTranslation } from 'react-i18next'
@@ -18,6 +19,7 @@ import { useSettingsStore } from '@renderer/stores/settings'
 import {
   openArtifacts,
   openMarketplace,
+  openTeams,
   openOverview,
   openRoutines,
   openUsage,
@@ -39,6 +41,7 @@ export function useSidebarNav(): Pick<AppShellProps, 'nav' | 'active' | 'onNavig
     artifacts: t('nav.artifacts'),
     routines: t('nav.routines'),
     marketplace: t('nav.marketplace'),
+    teams: t('nav.teams'),
     usage: tu('nav.usage'),
   }
   const routines = useRoutinesRow()
@@ -53,6 +56,7 @@ export function useSidebarNav(): Pick<AppShellProps, 'nav' | 'active' | 'onNavig
       return 'artifacts'
     if (main.kind === 'routines' || main.kind === 'routine') return 'routines'
     if (main.kind === 'marketplace') return 'marketplace'
+    if (main.kind === 'teams') return 'teams'
     if (main.kind === 'usage') return 'usage'
     return null
   })
@@ -63,6 +67,7 @@ export function useSidebarNav(): Pick<AppShellProps, 'nav' | 'active' | 'onNavig
     { label: labels.overview, icon: ViewIcon, count: forYou || undefined },
     { label: labels.artifacts, icon: DashboardSquare02Icon },
     { label: labels.routines, icon: RepeatIcon, end: routines.end, ariaLabel: routines.name },
+    { label: labels.teams, icon: UserGroupIcon },
     { label: labels.marketplace, icon: Store01Icon },
     { label: labels.usage, icon: Analytics01Icon, end: usageEnd },
   ]
@@ -75,6 +80,7 @@ export function useSidebarNav(): Pick<AppShellProps, 'nav' | 'active' | 'onNavig
       else if (label === labels.artifacts) openArtifacts()
       else if (label === labels.routines) openRoutines()
       else if (label === labels.marketplace) openMarketplace()
+      else if (label === labels.teams) openTeams()
       else if (label === labels.usage) openUsage()
     },
   }

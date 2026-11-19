@@ -2,7 +2,7 @@
   "headerTools": {
     "board": "看板",
     "files": "文件",
-    "computer": "Computer",
+    "computer": "电脑",
     "terminal": "终端",
     "browser": "浏览器",
     "devices": "移动设备",
@@ -90,14 +90,15 @@
       "usage": "用量",
       "routines": "例程",
       "newRoutine": "新建例程",
-      "artifacts": "Artifacts",
+      "artifacts": "产出物",
       "recentlyDeleted": "Artifacts › 最近删除",
-      "artifact": "Artifact",
+      "artifact": "产出物",
       "task": "需求",
-      "marketplace": "Marketplace",
-      "marketplaceItem": "Marketplace › {{item}}",
+      "marketplace": "插件市场",
+      "marketplaceItem": "插件市场 › {{item}}",
       "settings": "设置 › {{section}}",
-      "settingsItem": "设置 › {{section}} › {{item}}"
+      "settingsItem": "设置 › {{section}} › {{item}}",
+      "teams": "团队"
     }
   },
   "debugMode": {

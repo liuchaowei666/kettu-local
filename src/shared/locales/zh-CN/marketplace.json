@@ -1,6 +1,6 @@
 {
   "page": {
-    "title": "Marketplace",
+    "title": "插件市场",
     "description": "给你的 Agent 用的插件、技能、MCP 服务器和工作流，来自你所用工具的开发者，以及社区。",
     "descriptionThisMac": "给这台 Mac 上的 Agent 用的插件、技能、MCP 服务器和工作流，来自你所用工具的开发者，以及社区。",
     "descriptionThisComputer": "给这台电脑上的 Agent 用的插件、技能、MCP 服务器和工作流，来自你所用工具的开发者，以及社区。",
@@ -121,7 +121,7 @@
     "workflowUpdated": "{{name}} 已更新到 {{version}}。批准新版本之后才能用。"
   },
   "listing": {
-    "back": "Marketplace",
+    "back": "插件市场",
     "kind": "MCP 服务器",
     "official": "官方",
     "addedByYou": "由你添加",
@@ -305,7 +305,7 @@
     "marketplace": {
       "title": "添加插件市场",
       "description": "插件市场为 Claude Code 或 Codex 列出插件。你选择的 Agent 会把它保存在自己的配置中。",
-      "agent": "Agent",
+      "agent": "智能体",
       "noAgents": "请先添加一个 Claude Code 或 Codex Agent。",
       "source": "来源",
       "sourceHint": "GitHub 仓库（owner/repo），或 Git URL。",
@@ -354,7 +354,7 @@
     "installs_one": "{{value}} 次安装",
     "installs_other": "{{value}} 次安装",
     "installNote": "由 {{harness}} 安装到这个 Agent 自己的配置中，它的终端也能用上。",
-    "agent": "Agent",
+    "agent": "智能体",
     "noAgents": "请先添加一个 {{harness}} Agent。",
     "scope": "范围",
     "scopeUser": "所有项目",

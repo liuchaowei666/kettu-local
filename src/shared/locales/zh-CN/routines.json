@@ -20,7 +20,7 @@
     "columns": {
       "routine": "例程",
       "schedule": "计划",
-      "agent": "Agent",
+      "agent": "智能体",
       "status": "状态",
       "name": "名称"
     },

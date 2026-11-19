@@ -1,6 +1,6 @@
 {
   "page": {
-    "title": "Artifacts",
+    "title": "产出物",
     "ask": "让 Agent 做一份",
     "kinds": {
       "document": "文档",
@@ -21,7 +21,7 @@
       "canvas": "做一个多页的画布 artifact："
     },
     "filterMenu": "筛选：{{value}}",
-    "agent": "Agent",
+    "agent": "智能体",
     "anyAgent": "任意 Agent",
     "filterBoth": "{{agent}} · {{project}}",
     "kind": "类型",

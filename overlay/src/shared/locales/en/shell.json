@@ -1,0 +1,116 @@
+{
+  "headerTools": {
+    "board": "Board",
+    "files": "Files",
+    "computer": "Computer",
+    "terminal": "Terminal",
+    "browser": "Browser",
+    "devices": "Mobile devices",
+    "closePane": "Close pane",
+    "leaveSession": "Leave session",
+    "sideChat": "Side chat",
+    "sideChatNews": "New answer",
+    "more": "More tools",
+    "requests": "Requests"
+  },
+  "hostBanner": {
+    "restarting": "Restarting the agent host. Your sessions come back by themselves.",
+    "reconnecting": "Reconnecting to the host…",
+    "stopped": "The agent host stopped and could not be restarted.",
+    "restart": "Restart",
+    "reportProblem": "Report a problem"
+  },
+  "openProjectFailed": "Couldn't open the project: {{error}}",
+  "launch": {
+    "loadFailed": "Couldn't load your projects",
+    "starting": "Starting Kettu…"
+  },
+  "shortcuts": {
+    "title": "Keyboard shortcuts",
+    "search": "Search shortcuts",
+    "noMatch": "No shortcut matches.",
+    "newSession": "New session",
+    "searchSessions": "Search",
+    "openProject": "Open project",
+    "settings": "Settings",
+    "toggleSidebar": "Toggle sidebar",
+    "back": "Back",
+    "forward": "Forward",
+    "history": "Show all history",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "resetZoom": "Actual size",
+    "showShortcuts": "This list",
+    "close": "Close tab or leave session",
+    "previousSession": "Previous session",
+    "nextSession": "Next session",
+    "focusPane": "Go to pane 1–9",
+    "answerPermission": "Answer a request",
+    "cancelTurn": "Stop",
+    "findInSession": "Find in the session",
+    "send": "Send",
+    "sendNow": "Send now while running",
+    "newLine": "New line",
+    "focusComposer": "Focus the composer",
+    "addFiles": "Add files or photos",
+    "addMenu": "Open the + menu",
+    "toggleTerminal": "Show or hide the terminal",
+    "newTerminal": "New terminal",
+    "askSelection": "Ask about the selection",
+    "groups": {
+      "general": "General",
+      "sessions": "Sessions",
+      "composer": "Composer",
+      "terminal": "Terminal"
+    },
+    "sideChat": "Open, focus or hide the side chat"
+  },
+  "topBar": {
+    "showSidebar": "Show sidebar",
+    "hideSidebar": "Hide sidebar",
+    "back": "Back",
+    "forward": "Forward",
+    "backTo": "Back to <title/>",
+    "forwardTo": "Forward to <title/>"
+  },
+  "history": {
+    "title": "History",
+    "showAll": "Show all history",
+    "search": "Search history",
+    "noMatch": "No places match “{{query}}”",
+    "current": "Current",
+    "ago": {
+      "now": "just now",
+      "minutes": "{{count}} min",
+      "hours": "{{count}} h"
+    },
+    "places": {
+      "newSession": "New session",
+      "overview": "Overview",
+      "usage": "Usage",
+      "routines": "Routines",
+      "newRoutine": "New routine",
+      "artifacts": "Artifacts",
+      "recentlyDeleted": "Artifacts › Recently deleted",
+      "artifact": "Artifact",
+      "task": "Task",
+      "marketplace": "Marketplace",
+      "marketplaceItem": "Marketplace › {{item}}",
+      "settings": "Settings › {{section}}",
+      "settingsItem": "Settings › {{section}} › {{item}}",
+      "teams": "Teams"
+    }
+  },
+  "debugMode": {
+    "label": "Debug mode",
+    "tooltip": "Debug mode is on · Show the ports"
+  },
+  "windowHost": {
+    "thisMac": "This Mac",
+    "thisComputer": "This computer",
+    "unknown": "Another host",
+    "away": "{{name}} is not connected: {{state}}",
+    "lastRead": "This is what Kettu last read from it. It updates once the host is back.",
+    "nothingRead": "Nothing has been read from it yet. It shows here once the host is back."
+  }
+}

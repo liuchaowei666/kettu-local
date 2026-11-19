@@ -14,7 +14,8 @@
     "searchField": "Search…",
     "projects": "Projects",
     "openProject": "Open project…",
-    "resize": "Resize sidebar"
+    "resize": "Resize sidebar",
+    "teams": "Teams"
   },
   "search": {
     "placeholder": "Search sessions, artifacts, routines and more",

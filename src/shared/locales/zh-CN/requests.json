@@ -34,7 +34,7 @@
     "added": "{{time}} 加了 {{tools}}",
     "removed": "{{time}} 去掉 {{tools}}",
     "raw": "Claude Code 为它们记的记录",
-    "instructions": "Instructions",
+    "instructions": "指令",
     "codexRaw": "Codex 为它们记的记录",
     "instructionBlocks_one": "Instructions · {{count}} 段",
     "instructionBlocks_other": "Instructions · {{count}} 段"

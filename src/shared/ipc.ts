@@ -1,4 +1,5 @@
 import type { AccountStatus } from './account'
+import type { Team } from './teams'
 import type { AgentsApi, HostMethod } from './agent-host'
 import type { ArtifactImportKind, ArtifactImportResult, ThumbnailPage } from './artifacts'
 import type { SelectMessage } from './artifact-runtime/page-messages'
@@ -219,6 +220,9 @@ export interface IpcInvokeContract {
   'app:capture-rect': { args: [rect: PageRect]; result: Uint8Array | null }
   // true stops the work and goes on, false stays, 'background' closes the windows and keeps it running.
   'app:respond-quit': { args: [id: number, answer: boolean | 'background']; result: void }
+  /** The teams kept on this computer, for the Teams page. */
+  'teams:read': { args: []; result: Team[] }
+  'teams:write': { args: [teams: Team[]]; result: Team[] }
   'settings:get': { args: []; result: SettingsFile }
   'settings:update': { args: [patch: SettingsPatch]; result: SettingsFile }
   'login-item:status': { args: []; result: LoginItemStatus }
@@ -598,6 +602,11 @@ export interface PreloadEventContract {
 
 /** API the preload script exposes to the renderer as `window.kettu`. */
 export interface KettuApi {
+  /** The teams kept on this computer: a chief and members, each with its own agent and prompt. */
+  teams: {
+    read(): Promise<Team[]>
+    write(teams: Team[]): Promise<Team[]>
+  }
   /** The system of the device the page runs on, which picks the shortcuts' modifier. */
   platform: Platform
   /** The desktop app's window, or the web client in a browser, which has no main process. */

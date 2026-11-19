@@ -50,6 +50,8 @@ type PageView =
       parentId?: string
     }
   | { kind: 'usage' } // the usage page, opened from the sidebar
+  // The Teams page: the chief and members kept on this computer, and the task that starts them.
+  | { kind: 'teams' }
   // The Overview page, opened from the sidebar: every task and session that has something to say.
   | { kind: 'overview' }
   // The Routines page, opened from the sidebar; with a null routine id, New routine, which an
@@ -563,6 +565,13 @@ function handPanel(
 export function openOverview(): void {
   useViewStore.setState((s) => ({
     main: { kind: 'overview' },
+    settings: { ...s.settings, open: false },
+  }))
+}
+
+export function openTeams(): void {
+  useViewStore.setState((s) => ({
+    main: { kind: 'teams' },
     settings: { ...s.settings, open: false },
   }))
 }
