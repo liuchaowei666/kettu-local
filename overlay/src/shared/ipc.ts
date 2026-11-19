@@ -1,0 +1,1040 @@
+import type { AccountStatus } from './account'
+import type { PowerReading } from './power'
+import type { AgentsApi, HostMethod } from './agent-host'
+import type { ArtifactImportKind, ArtifactImportResult, ThumbnailPage } from './artifacts'
+import type { SelectMessage } from './artifact-runtime/page-messages'
+import type { ArtifactExportFormat } from './artifact-types'
+import type { GrantedAttachment } from './attachments'
+import type { BrowserBounds, BrowserOriginDecision, BrowserState } from './browser'
+import type { ControlAgent, ControlOutcome } from './control'
+import type { DebugStatus } from './debug'
+import type { ComputerPermissionKind, ComputerUseStatus } from './computer-use'
+import type { EditorApp, EditorList } from './editors'
+import type { BusySession, BusyTerminal } from './host-control'
+import type { HostSessionChange } from './host-sessions'
+import type { Locale } from './locale'
+import type { MarketKeysPatch, MarketKeyState } from './marketplace'
+import type { CarriedMedia } from './media'
+import type { Platform } from './platform'
+import type { DeviceActivity } from './remote/activity'
+import type { HostAdminMethod } from './remote/host-admin'
+import type { DiscoveredHosts, DiscoveryRequestEvent } from './remote/discovery'
+import type {
+  HostPairingState,
+  HostPairStart,
+  HostsStatus,
+  SshAddress,
+  SshConfigHosts,
+  SshManageResult,
+} from './remote/hosts'
+import type { PairingState } from './remote/pairing'
+import type { DirectAddress } from './remote/protocol'
+import type { RemoteStatus } from './remote/status'
+import type { AgentColor, SettingsFile, SettingsPatch } from './settings'
+import type {
+  BroughtSite,
+  SignInChoice,
+  SignInOffer,
+  SignInRequest,
+  SignInResult,
+  SignInSite,
+  SignInSource,
+} from './signins'
+import type {
+  ShareAccess,
+  SharingConnectResult,
+  SharingOpenResult,
+  SharingResult,
+  SharingStatus,
+  SharingTarget,
+} from './sharing'
+import type { TerminalMethod, TerminalsApi } from './terminal-host'
+import type { DeviceCaptureKind, DevicesApi } from './device-host'
+import type { PreparedReport, ReportFileView, ReportRequest, ReportSubmitResult } from './report'
+import type { CatalogInstallResult, CatalogState, ThemeInstallResult, ThemesState } from './themes'
+import type { AgentId, HarnessId } from './thread'
+import type { TrayTarget } from './tray'
+import type { UpdateStatus } from './updates'
+
+export interface AppInfo {
+  name: string
+  version: string
+  /** The system and its version, then the architecture, as a bug report names them. */
+  system: string
+  userDataPath: string
+  /** The folder of the log files; absent from hosts older than it. */
+  logsPath?: string
+  isPackaged: boolean
+}
+
+/** Steps to reproduce being recorded, in Unix milliseconds. */
+export interface ReportRecording {
+  startedAt: number
+  endsAt: number
+}
+
+/** A bundle prepared, or why not: too large for the range and extras chosen, or failed. */
+export type ReportPrepareResult =
+  { ok: true; report: PreparedReport } | { ok: false; reason: 'too_large' | 'failed' }
+
+/** Something the user did in a window, for the log: ids, counts and switches, never text. */
+export interface ActionReport {
+  at: number
+  name: string
+  data?: Record<string, string | number | boolean | null>
+}
+
+/** The system's default browser: its name and a small PNG of its icon; null where unknown. */
+export interface DefaultBrowser {
+  name: string | null
+  icon: string | null // a `data:image/png` URL
+}
+
+/** The icon of each site opened from Kettu, as a `data:` URL by origin; null for none. */
+export type SiteIconMap = Record<string, string | null>
+
+/** A change to the sites' icons. */
+export type SiteIconEvent =
+  | { kind: 'set'; origin: string; icon: string | null }
+  | { kind: 'removed'; origin: string }
+  | { kind: 'cleared' }
+  /** An icon loaded for a link's site, which that site has not been opened for. */
+  | { kind: 'link'; origin: string; icon: string }
+
+/** Whether the app can register a login item, and whether macOS waits for the user's approval. */
+export interface LoginItemStatus {
+  /** A development build cannot register one. */
+  available: boolean
+  requiresApproval: boolean
+}
+
+/** A file the Files pane holds unsaved edits for, by its project and its path in it. */
+export interface UnsavedFile {
+  projectPath: string
+  path: string
+}
+
+/**
+ * What main asks a window to confirm before it quits, restarts to update or, on macOS, closes
+ * with unsaved files.
+ */
+export interface QuitRequest {
+  id: number
+  /** `restart`: the user asked for one, as to turn debug mode on or off. */
+  reason: 'quit' | 'update' | 'restart' | 'close'
+  sessions: BusySession[]
+  terminals: BusyTerminal[]
+  unsaved: UnsavedFile[]
+  /** The work may keep running in the background, with the windows closed, instead of stopping. */
+  keepRunning: boolean
+}
+
+/** A project and the origins it always lets agents open, as Settings › Browser lists them. */
+export interface AllowedSites {
+  projectPath: string
+  origins: string[]
+}
+
+/** Commands main sends to the renderer, from the app menu or a notification. */
+export type AppCommand =
+  | { kind: 'open-project' }
+  | { kind: 'new-session' }
+  | { kind: 'open-settings'; section?: string }
+  /** Kettu was started again to debug, while this run is a normal one. */
+  | { kind: 'confirm-debug-restart' }
+  | { kind: 'toggle-sidebar' }
+  | { kind: 'open-session'; sessionId: string }
+  | { kind: 'open-routines' }
+  | { kind: 'go-back' }
+  | { kind: 'go-forward' }
+  | { kind: 'show-history' }
+  /** The first Cmd+Q: say a second one quits. */
+  | { kind: 'quit-hint'; countdown: { expiresAt: number; duration: number } | null }
+  /** Cmd+W: the page closes the part used last, else the shown session, else the window. */
+  | { kind: 'close'; browser?: true }
+  /** Report a problem, from the Help menu or the end of a recording, with its span then. */
+  | { kind: 'report-problem'; span?: { from: number; to: number } }
+  /** macOS: closing hid the window, which keeps its page; none of its sessions counts as seen. */
+  | { kind: 'window-hidden' }
+  /** The window hidden on close shows again. */
+  | { kind: 'window-shown' }
+
+/**
+ * `artifact:open`: the artifact's origin URL, without a query, or why it cannot be shown:
+ * `not_found` when the host does not know it, `unavailable` when the host cannot answer now,
+ * `preview_only` in a client that cannot frame it, as the hosted web client, which shows its preview.
+ */
+export type ArtifactOpenResult =
+  { url: string } | { failed: 'not_found' | 'unavailable' | 'preview_only' }
+
+/** A frame of an artifact tried to leave its origin for an http(s) address, which never loads. */
+export interface ArtifactBlockedEvent {
+  origin: string // the artifact's, as `artifact:open` gave it, without the path
+  url: string
+  /** The frame the app holds tried it, and shows an error page now, so the app loads it again. */
+  reload: boolean
+}
+
+/** The process of an artifact's frame stopped, so the frame shows nothing until it reloads. */
+export interface ArtifactStoppedEvent {
+  origin: string
+}
+
+/** A page on an artifact origin the window opened reported a pick; the page's data, checked. */
+export interface ArtifactSelectedEvent {
+  origin: string // as `artifact:open` gave it, without the path
+  message: SelectMessage
+}
+
+/** One page of a canvas, by the protocol's numbers, at its own size, for `artifact:png`. */
+export interface ArtifactPngPage {
+  page: { group: number; index: number; file?: string } | null
+  width: number
+  height: number
+}
+
+/** An app shortcut typed while a page's frame had focus, which main passes to the app's page. */
+export interface ForwardedKey {
+  key: string
+  code: string
+  shiftKey: boolean
+  ctrlKey: boolean
+  metaKey: boolean
+  altKey: boolean
+  /** The session whose side panel's browser page had focus, when the key was typed there. */
+  browserSession?: string
+}
+
+/** A rectangle of the page in CSS pixels, as `getBoundingClientRect` gives it. */
+export interface PageRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/** Request/response contract of every `ipcRenderer.invoke` channel, keyed by channel name. */
+export interface IpcInvokeContract {
+  'app:get-info': { args: []; result: AppInfo }
+  'app:default-browser': { args: []; result: DefaultBrowser }
+  'app:capture-rect': { args: [rect: PageRect]; result: Uint8Array | null }
+  // true stops the work and goes on, false stays, 'background' closes the windows and keeps it running.
+  'app:respond-quit': { args: [id: number, answer: boolean | 'background']; result: void }
+  'settings:get': { args: []; result: SettingsFile }
+  'settings:update': { args: [patch: SettingsPatch]; result: SettingsFile }
+  'login-item:status': { args: []; result: LoginItemStatus }
+  'themes:get': { args: []; result: ThemesState }
+  'themes:install': { args: []; result: ThemeInstallResult }
+  // `token`: from the `conflict` answer of the last `themes:install`.
+  'themes:replace': { args: [token: string]; result: ThemeInstallResult }
+  'themes:remove': { args: [id: string]; result: void }
+  // `text`: a whole theme file, which main checks before the save dialog; the saved path, or null
+  // when cancelled.
+  'themes:export': { args: [text: string]; result: string | null }
+  'themes:reveal': { args: [id: string]; result: void }
+  // `refresh`: read the index from GitHub again rather than the copy main kept.
+  'themes:catalog': { args: [refresh: boolean]; result: CatalogState }
+  'themes:install-catalog': { args: [id: string]; result: CatalogInstallResult }
+  // `url`: an avatar URL `git.avatarUrl` gave; null when it is none or the picture did not load.
+  'avatars:load': { args: [url: string]; result: string | null }
+  'dialog:open-project': { args: []; result: string | null }
+  'dialog:choose-agent-binary': { args: [harnessId: HarnessId]; result: string | null }
+  // A folder for an agent to add, which `settings:add-agent` then accepts; null when cancelled.
+  'dialog:choose-agent-folder': { args: []; result: string | null }
+  // `folder`: one the dialog returned, or null for a new folder Kettu makes. Resolves to the id.
+  'settings:add-agent': {
+    args: [harnessId: HarnessId, name: string, folder: string | null]
+    result: AgentId
+  }
+  'settings:rename-agent': { args: [agentId: AgentId, name: string]; result: void }
+  'settings:set-agent-color': { args: [agentId: AgentId, color: AgentColor]; result: void }
+  // `trash`: move the folder Kettu made for the agent to the trash.
+  'settings:remove-agent': { args: [agentId: AgentId, trash: boolean]; result: void }
+  'dialog:choose-shell': { args: []; result: string | null }
+  // `defaultPath`: the folder the dialog opens in, the session's; an empty list when cancelled.
+  'dialog:add-attachments': {
+    args: [kind: 'files' | 'folder', defaultPath: string | null]
+    result: GrantedAttachment[]
+  }
+  // Paths the preload read off dropped or pasted files, granted as the dialog's are; in their
+  // order, null for one that is neither a file nor a folder.
+  'attachments:grant': { args: [paths: string[]]; result: (GrantedAttachment | null)[] }
+  // Every file copied in the file manager, granted in the order copied, when the clipboard lists
+  // `pastedPath`, the first file a paste carried; null when it lists no files or not that one.
+  'attachments:clipboard-files': {
+    args: [pastedPath: string]
+    result: GrantedAttachment[] | null
+  }
+  'diagnostics:clear-verbose': { args: []; result: void }
+  'debug:get': { args: []; result: DebugStatus }
+  // true restarts in debug mode, false normally; through the quit flow, which may ask first.
+  'debug:restart': { args: [debug: boolean]; result: void }
+  // A problem report: the window's screenshot first, then this computer's bundle or one another
+  // host sent, its files to view, and saving or dropping it.
+  'report:capture': { args: []; result: void }
+  'report:prepare': { args: [request: ReportRequest]; result: ReportPrepareResult }
+  'report:adopt': { args: [zip: string]; result: ReportPrepareResult }
+  'report:view': { args: [id: string, path: string]; result: ReportFileView }
+  'report:save': { args: [id: string]; result: string | null }
+  'report:discard': { args: [id: string]; result: void }
+  'report:submit': { args: [id: string]; result: ReportSubmitResult }
+  'report:recording': { args: []; result: ReportRecording | null }
+  'report:record': { args: [on: boolean]; result: ReportRecording | null }
+  // When the last run ended unexpectedly, until the notice of it is dismissed.
+  'report:crash-notice': { args: []; result: number | null }
+  'report:dismiss-crash-notice': { args: []; result: void }
+  'shell:show-data-folder': { args: []; result: void }
+  'shell:show-item': { args: [path: string]; result: void }
+  'editors:list': { args: []; result: EditorList }
+  // `editorId`: one `editors:list` gave; `path`: an existing file or folder, absolute.
+  'editors:open': { args: [editorId: string, path: string]; result: void }
+  // Asks for an app and opens `path` in it; null when the dialog was cancelled.
+  'editors:choose': { args: [path: string]; result: EditorApp | null }
+  // A media URL main still grants, never a path; copy and save also take the bytes the thread
+  // carries. `media:save-as` is false when the save dialog was cancelled.
+  'media:copy-image': { args: [source: string | CarriedMedia]; result: void }
+  'media:save-as': { args: [source: string | CarriedMedia]; result: boolean }
+  'media:reveal': { args: [url: string]; result: void }
+  'media:open-external': { args: [url: string]; result: void }
+  'notifications:test': { args: []; result: boolean }
+  'update:get-status': { args: []; result: UpdateStatus }
+  'update:check': { args: []; result: UpdateStatus }
+  'update:download': { args: []; result: void }
+  'update:cancel': { args: []; result: void }
+  'update:restart': { args: []; result: void }
+  'update:dismiss': { args: []; result: void }
+  'agent-host:restart': { args: []; result: void }
+  'terminal-host:restart': { args: []; result: void }
+  'terminal-host:running': { args: []; result: boolean }
+  'device-host:restart': { args: []; result: void }
+  // A screenshot or recording of a mobile device, kept in Downloads; the path it was written to.
+  'devices:save-capture': {
+    args: [device: string, kind: DeviceCaptureKind, data: ArrayBuffer]
+    result: string
+  }
+  'artifact:open': { args: [id: string]; result: ArtifactOpenResult }
+  'artifact:close': { args: [url: string]; result: void }
+  'artifact:thumbnail': {
+    args: [id: string, version: number, layout: ThumbnailPage[] | null]
+    result: string | null
+  }
+  'artifact:open-external': { args: [id: string, version: number]; result: void }
+  'artifact:export': { args: [id: string, version: number]; result: boolean }
+  // A page's image as a base64 PNG, for a message to an agent; null when it cannot render.
+  'artifact:page-image': {
+    args: [
+      id: string,
+      version: number,
+      page: ArtifactPngPage['page'],
+      size: { width: number; height: number },
+    ]
+    result: string | null
+  }
+  // `name` is the file's default name; false when the user cancelled the save dialog.
+  'artifact:png': {
+    args: [
+      id: string,
+      version: number,
+      page: ArtifactPngPage['page'],
+      size: { width: number; height: number },
+      name: string,
+    ]
+    result: boolean
+  }
+  'artifact:export-as': {
+    args: [id: string, version: number, format: ArtifactExportFormat]
+    result: boolean
+  }
+  // `project`: a registered project's folder, or null for No project.
+  'artifact:import': {
+    args: [project: string | null, kind: ArtifactImportKind]
+    result: ArtifactImportResult
+  }
+  'account:status': { args: []; result: AccountStatus }
+  // Reads the account again, refreshing the tokens when needed.
+  'account:check': { args: []; result: AccountStatus }
+  // Opens the browser at the sign-in page; the rest follows as `account:changed`.
+  'account:sign-in': { args: []; result: AccountStatus }
+  'account:cancel-sign-in': { args: []; result: AccountStatus }
+  'account:sign-out': { args: []; result: AccountStatus }
+  'sharing:status': { args: []; result: SharingStatus }
+  'sharing:refresh': { args: []; result: SharingStatus }
+  // `accountId`: the account the user chose, or null to use the one the token reaches.
+  'sharing:connect': {
+    args: [token: string, accountId: string | null]
+    result: SharingConnectResult
+  }
+  'sharing:remove': { args: []; result: SharingStatus }
+  // The switch for publishing to Kettu on its own; answering the one-time notice turns it on or off.
+  'sharing:set-auto': { args: [enabled: boolean]; result: SharingResult }
+  // Main reads the version's HTML from the host, so the page never comes from the renderer.
+  'sharing:publish': {
+    args: [id: string, version: number, target: SharingTarget, access: ShareAccess]
+    result: SharingResult
+  }
+  'sharing:update': { args: [id: string, version: number]; result: SharingResult }
+  'sharing:set-access': { args: [id: string, access: ShareAccess]; result: SharingResult }
+  'sharing:new-code': { args: [id: string]; result: SharingResult }
+  'sharing:open-link': { args: [id: string]; result: SharingOpenResult }
+  'sharing:visitors': { args: [id: string]; result: number | null }
+  'sharing:unpublish': { args: [id: string]; result: SharingResult }
+  // Fills or clears inputs of a server the settings keep; answers which inputs are set, never values.
+  'marketplace:set-keys': { args: [patch: MarketKeysPatch]; result: MarketKeyState }
+  'marketplace:set-agent-env': {
+    args: [agentId: string, variable: string, value: string | null]
+    result: void
+  }
+  'remote:status': { args: []; result: RemoteStatus }
+  // A pairing code for this page, voiding any other; null while remote access is not on. Its
+  // progress comes as `remote:pairing` under the id.
+  'remote:pair': { args: []; result: number | null }
+  'remote:pair-close': { args: [codeId: number]; result: void }
+  'remote:pair-answer': { args: [codeId: number, add: boolean, name: string]; result: void }
+  // The discovery request the owner is asked about now, for a window that opens after it came.
+  'remote:discovery-pending': { args: []; result: DiscoveryRequestEvent | null }
+  'remote:discovery-answer': {
+    args: [requestId: number, add: boolean, name: string]
+    result: void
+  }
+  // Null once done, else a code the page words in the user's language.
+  'remote:rename-device': { args: [id: string, name: string]; result: 'not_renamed' | null }
+  'remote:remove-device': { args: [id: string]; result: 'not_removed' | null }
+  'remote:activity': { args: [id: string]; result: DeviceActivity[] }
+  'remote:reset': { args: []; result: void }
+  // Listens for direct connections again on the same port, as after the port was in use.
+  'remote:retry-direct': { args: []; result: void }
+  // Tries every relay now, as after a conflict with another copy of Kettu or an error.
+  'remote:retry-relay': { args: []; result: void }
+  'hosts:status': { args: []; result: HostsStatus }
+  // Pairs with the host of a pasted link, its progress as `hosts:pairing` under the id.
+  'hosts:pair': { args: [link: string]; result: HostPairStart }
+  // The machines of the user's SSH config Add host may add, read again on each call.
+  'hosts:ssh-config': { args: []; result: SshConfigHosts }
+  // Adds the machine at an SSH address, its progress as `hosts:pairing` under the id; several
+  // run at once.
+  'hosts:add-ssh': { args: [address: SshAddress]; result: HostPairStart }
+  // A key file for an SSH address typed by hand, from the system's file dialog: its path alone.
+  'hosts:choose-key-file': { args: []; result: string | null }
+  'hosts:pair-close': { args: [pairId: number]; result: void }
+  // The account's hosts on the relay that this computer may pair with: paired ones and itself left
+  // out.
+  'hosts:discover': { args: []; result: DiscoveredHosts }
+  // Pairs with a host `hosts:discover` listed, its progress as `hosts:pairing` under the id.
+  'hosts:pair-discovered': { args: [relayId: string]; result: HostPairStart }
+  // This computer's user saw the same code on both screens, or not, which ends the pairing.
+  'hosts:pair-match': { args: [pairId: number, match: boolean]; result: void }
+  // This computer's name on a connected host. Each change answers null once done, else a code
+  // the page words in the user's language.
+  'hosts:rename': { args: [id: string, name: string]; result: 'not_connected' | null }
+  'hosts:set-addresses': {
+    args: [id: string, addresses: DirectAddress[]]
+    result: 'unknown_host' | null
+  }
+  // Forgets the host here; nothing changes on it.
+  'hosts:remove': { args: [id: string]; result: 'unknown_host' | null }
+  // Tries the hosts not connected now, without waiting for the next try.
+  'hosts:retry': { args: []; result: void }
+  // A host added over SSH, from its page, over SSH: installs this computer's version there,
+  // moves it to another address of the same machine, tries it now, or uninstalls Kettu there and
+  // forgets it here.
+  'hosts:update-ssh': { args: [id: string]; result: SshManageResult }
+  'hosts:change-ssh': { args: [id: string, address: SshAddress]; result: SshManageResult }
+  'hosts:reconnect': { args: [id: string]; result: SshManageResult }
+  'hosts:uninstall': { args: [id: string, data: boolean]; result: SshManageResult }
+  // The session's agent names the page's pill while a turn uses it.
+  'browser:show': { args: [sessionId: string, agent: ControlAgent | null]; result: void }
+  'browser:hide': { args: [sessionId: string]; result: void }
+  // Destroys the page. The session stays, unlike a session leaving the list.
+  'browser:close': { args: [sessionId: string]; result: void }
+  /** A blank tab, selected; null when the browser holds all the tabs it may. */
+  'browser:new-tab': { args: [sessionId: string]; result: string | null }
+  'browser:select-tab': { args: [sessionId: string, tabId: string]; result: void }
+  /** Closing the last tab closes the browser. */
+  'browser:close-tab': { args: [sessionId: string, tabId: string]; result: void }
+  'browser:bounds': { args: [sessionId: string, bounds: BrowserBounds]; result: void }
+  // A URL the renderer normalised; only http(s) ever reaches the page.
+  'browser:navigate': { args: [sessionId: string, url: string]; result: void }
+  'browser:back': { args: [sessionId: string]; result: void }
+  'browser:forward': { args: [sessionId: string]; result: void }
+  'browser:reload': { args: [sessionId: string]; result: void }
+  'browser:stop': { args: [sessionId: string]; result: void }
+  'browser:open-external': { args: [sessionId: string]; result: void }
+  // The page as it looks now, for the pane to show while an overlay would cover the view.
+  'browser:freeze': { args: [sessionId: string]; result: string | null }
+  'browser:capture': { args: [sessionId: string]; result: Uint8Array | null }
+  'browser:thaw': { args: [sessionId: string]; result: void }
+  /** Take over: the page is the user's, and the agent's calls wait, until Hand back. */
+  'browser:take-over': { args: [sessionId: string]; result: void }
+  /** Hand back: the agent goes on with the page. */
+  'browser:hand-back': { args: [sessionId: string]; result: void }
+  /** Done or Skip on a step the agent asked the user to do on the page. */
+  'browser:answer-ask': { args: [sessionId: string, outcome: ControlOutcome]; result: void }
+  /** The pane's bar or the thread's card: what the user answered a new site's request. */
+  'browser:answer-origin': {
+    args: [sessionId: string, requestId: number, decision: BrowserOriginDecision]
+    result: void
+  }
+  /** The user's own browsers and profiles, with how many sites have sign-ins in each. */
+  'sign-ins:sources': { args: []; result: SignInSource[] }
+  /** A profile's sites with sign-ins; hosts and times only. */
+  'sign-ins:sites': { args: [choice: SignInChoice]; result: SignInSite[] }
+  /** Copies the chosen sites' cookies into Kettu's browser; on macOS the system asks first. */
+  'sign-ins:bring': { args: [request: SignInRequest]; result: SignInResult }
+  /** Stops a bring that waits for the keychain. */
+  'sign-ins:cancel': { args: []; result: void }
+  'sign-ins:brought': { args: []; result: BroughtSite[] }
+  /** Signs Kettu's browser out of a brought site. */
+  'sign-ins:remove': { args: [site: string]; result: void }
+  /** The sign-in another browser has for a page's site, when Kettu's browser lacks one. */
+  'sign-ins:offer': { args: [url: string]; result: SignInOffer | null }
+  /** This computer as computer use sees it: the driver, and the permissions on macOS. */
+  'computer:status': { args: []; result: ComputerUseStatus }
+  /** Asks macOS for a permission computer use needs, or opens its pane in System Settings. */
+  'computer:request-permission': { args: [kind: ComputerPermissionKind]; result: void }
+  /** The icon of an app a session uses, as a data URL; null when the system has none. */
+  'computer:app-icon': { args: [path: string]; result: string | null }
+  /** The sites each project always lets agents open. */
+  'browser:allowed-sites': { args: []; result: AllowedSites[] }
+  'browser:remove-allowed-site': { args: [projectPath: string, origin: string]; result: void }
+  'browser:clear-data': { args: []; result: void }
+  'browser:site-icons': { args: []; result: SiteIconMap }
+  /** A link's site has no icon yet: main tries the icon at the site's own root. */
+  'browser:load-site-icon': { args: [url: string]; result: void }
+  /** A link in Kettu opened the address, in either place, so its site counts as opened. */
+  'browser:site-opened': { args: [url: string]; result: void }
+  /** This computer's power draw, as the desktop meter last wrote it; null when it is not running. */
+  'power:read': { args: []; result: PowerReading | null }
+}
+
+export type IpcInvokeChannel = keyof IpcInvokeContract
+export type IpcInvokeArgs<C extends IpcInvokeChannel> = IpcInvokeContract[C]['args']
+export type IpcInvokeResult<C extends IpcInvokeChannel> = IpcInvokeContract[C]['result']
+
+/** Events main sends to the renderer, keyed by channel name. */
+export interface IpcEventContract {
+  'settings:changed': SettingsFile
+  'themes:changed': ThemesState
+  'update:changed': UpdateStatus
+  'app:confirm-quit': QuitRequest
+  'debug:changed': DebugStatus
+  'app:command': AppCommand
+  'report:recording-changed': ReportRecording | null
+  'app:shortcut': ForwardedKey
+  'artifact:blocked': ArtifactBlockedEvent
+  'artifact:stopped': ArtifactStoppedEvent
+  'artifact:selected': ArtifactSelectedEvent
+  'account:changed': AccountStatus
+  'sharing:changed': SharingStatus
+  'remote:changed': RemoteStatus
+  /** Sent only to the page that opened the code. */
+  'remote:pairing': RemotePairingEvent
+  /** Sent to every window: a device of the account asks to be added, or that request ended. */
+  'remote:discovery': DiscoveryRequestEvent
+  'hosts:changed': HostsStatus
+  /** Sent only to the page that pasted the link. */
+  'hosts:pairing': HostPairingEvent
+  'browser:state': BrowserState
+  /** An agent's first navigation opened a session's page, so the pane may show it. */
+  'browser:opened': { sessionId: string }
+  /** A session's agent opened a mobile device, which the pane shows if the panel is free. */
+  'devices:opened': { sessionId: string; deviceId: string }
+  'terminals:ready': null
+  'browser:site-icon': SiteIconEvent
+  /** The sites brought from other browsers changed. */
+  'sign-ins:changed': BroughtSite[]
+  /** To the menu bar panel: it came forward. */
+  'tray:shown': null
+}
+
+export type IpcEventChannel = keyof IpcEventContract
+
+export interface HostPairingEvent {
+  pairId: number
+  pairing: HostPairingState
+}
+
+export interface RemotePairingEvent {
+  codeId: number
+  pairing: PairingState
+}
+
+/** Messages the renderer sends to main without waiting for an answer. */
+export interface IpcSendContract {
+  'agent-host:connect': []
+  'terminal-host:connect': []
+  'device-host:connect': []
+  /** The window's port to the sessions on other hosts, as `host-sessions:port`. */
+  'host-sessions:connect': []
+  'perf:interactive': []
+  'diagnostics:actions': [actions: ActionReport[]]
+  /** The page has no `onConfirmQuit` listener, so main asks with a native dialog instead. */
+  'app:confirm-quit-unhandled': [id: number]
+  /** Every file with unsaved edits, whenever that changes, so quitting can ask without a round trip. */
+  'app:set-unsaved': [files: UnsavedFile[]]
+  /** Closes the sender's window, as the menu's Close Window does. */
+  'app:close-window': []
+  /** The sessions the renderer still lists, so a page closes once its session leaves the host. */
+  'browser:sessions': [sessionIds: string[]]
+  /** The menu bar panel's calls, which main takes from the panel's own page alone. */
+  'tray:open': [target: TrayTarget]
+  'tray:quit': []
+  'tray:hide': []
+  'tray:resize': [height: number]
+}
+
+/** Payload of `agent-host:reset` and `terminal-host:reset`. */
+export interface HostResetEvent {
+  /** The host crashed too often and stays down until the renderer calls `restart()`. */
+  failed: boolean
+}
+
+/** Messages main sends to the preload alone; they are never forwarded to the page. */
+export interface PreloadEventContract {
+  'agent-host:port': [] // the MessagePort travels in the event's ports
+  'agent-host:reset': HostResetEvent
+  'terminal-host:port': []
+  'terminal-host:reset': HostResetEvent
+  'device-host:port': []
+  'device-host:reset': HostResetEvent
+  'host-sessions:port': []
+}
+
+/** API the preload script exposes to the renderer as `window.kettu`. */
+export interface KettuApi {
+  /** The system of the device the page runs on, which picks the shortcuts' modifier. */
+  platform: Platform
+  /** The desktop app's window, or the web client in a browser, which has no main process. */
+  client: 'desktop' | 'web'
+  /** The hosted web client, signed in to a Kettu account and reaching its hosts through the relay. */
+  hosted?: true
+  /** The system of the host whose paths the page shows: this computer's, or the one connected. */
+  hostPlatform(): Platform
+  /** The interface language the system's preferred languages pick, for Language › System. */
+  systemLocale: Locale
+  app: {
+    getInfo(): Promise<AppInfo>
+    /** The browser links open in outside Kettu, read once per run. */
+    defaultBrowser(): Promise<DefaultBrowser>
+    /** That part of this window as it is on screen, as PNG bytes; null where it cannot be read. */
+    captureRect(rect: PageRect): Promise<Uint8Array | null>
+    respondQuit(id: number, answer: boolean | 'background'): Promise<void>
+    onConfirmQuit(listener: (request: QuitRequest) => void): () => void
+    setUnsaved(files: UnsavedFile[]): void
+    closeWindow(): void
+    onCommand(listener: (command: AppCommand) => void): () => void
+    reportInteractive(): void
+    /** App shortcuts typed in an artifact's frame, which the page itself never sees. */
+    onShortcut(listener: (key: ForwardedKey) => void): () => void
+  }
+  artifacts: {
+    /** Lets the window frame the artifact, if the host knows it. */
+    open(id: string): Promise<ArtifactOpenResult>
+    /** Undoes one `open`, once the frame is gone. */
+    close(url: string): Promise<void>
+    /**
+     * A version's card image as a `data:` URL, or null when it could not render. A canvas passes
+     * its pages laid out, which main cannot find without parsing the HTML.
+     */
+    thumbnail(id: string, version: number, layout: ThumbnailPage[] | null): Promise<string | null>
+    /** Opens a copy of the version in the default browser, outside the app's isolation. */
+    openExternal(id: string, version: number): Promise<void>
+    /**
+     * Asks where to save the version: its HTML file, or a folder for its files when it has
+     * several; false when the user cancelled.
+     */
+    export(id: string, version: number): Promise<boolean>
+    /**
+     * Asks where to save a typed version in one of its type's formats, converted on the host:
+     * one file, or a folder for Markdown with pictures; false when the user cancelled.
+     */
+    exportAs(id: string, version: number, format: ArtifactExportFormat): Promise<boolean>
+    /**
+     * Asks for an HTML file or a folder with an `index.html` and makes it an artifact in the
+     * project, or in No project when null; null when the user cancelled.
+     */
+    import(project: string | null, kind: ArtifactImportKind): Promise<ArtifactImportResult>
+    onBlocked(listener: (event: ArtifactBlockedEvent) => void): () => void
+    onStopped(listener: (event: ArtifactStoppedEvent) => void): () => void
+    /** A page's pick, from a frame of an origin this window opened. */
+    onSelected(listener: (event: ArtifactSelectedEvent) => void): () => void
+    /**
+     * Renders a page of the version at its own size, apart from the window, and saves it as a PNG
+     * where the user says; false when they cancelled. Only a desktop host renders one.
+     */
+    png(
+      id: string,
+      version: number,
+      page: ArtifactPngPage['page'],
+      size: { width: number; height: number },
+      name: string,
+    ): Promise<boolean>
+    /** Renders a page as `png` does and hands its image back, base64, for a message to an agent. */
+    pageImage(
+      id: string,
+      version: number,
+      page: ArtifactPngPage['page'],
+      size: { width: number; height: number },
+    ): Promise<string | null>
+  }
+  /** The Kettu account; main holds its tokens and makes every request. */
+  account: {
+    /** What main knows, without the network. */
+    status(): Promise<AccountStatus>
+    /** Reads the account again; a sign-in the service ended comes back signed out, saying why. */
+    check(): Promise<AccountStatus>
+    signIn(): Promise<AccountStatus>
+    cancelSignIn(): Promise<AccountStatus>
+    /** Signs out at the service and forgets the sign-in here. */
+    signOut(): Promise<AccountStatus>
+    /**
+     * The hosted web client's other way out, for a shared computer: asks the hosts to remove this
+     * browser, signs out, and clears all the browser keeps; the page then starts over.
+     */
+    signOutAndClear?(): Promise<void>
+    onChanged(listener: (status: AccountStatus) => void): () => void
+  }
+  /** Publishing artifacts online; main holds the account's token and makes every request. */
+  sharing: {
+    status(): Promise<SharingStatus>
+    /** Reads the Kettu account's pages and storage from the service again. */
+    refresh(): Promise<SharingStatus>
+    /**
+     * Checks the token with Cloudflare and connects the account it reaches; with an account ID, the
+     * one chosen.
+     */
+    connect(token: string, accountId: string | null): Promise<SharingConnectResult>
+    /** Forgets the account and its token; published pages stay as they are. */
+    remove(): Promise<SharingStatus>
+    /**
+     * Publishes to the target, at the level a Kettu page takes; an artifact already published is
+     * updated where it lives.
+     */
+    publish(
+      id: string,
+      version: number,
+      target: SharingTarget,
+      access: ShareAccess,
+    ): Promise<SharingResult>
+    /** Puts the version on the artifact's page, at the same URL. */
+    update(id: string, version: number): Promise<SharingResult>
+    /** Changes who can open a Kettu page, at the same URL. */
+    setAccess(id: string, access: ShareAccess): Promise<SharingResult>
+    /** Draws a Kettu page a new access code. */
+    newCode(id: string): Promise<SharingResult>
+    /** An address that opens the page for its publisher, without its code or a sign-in. */
+    openLink(id: string): Promise<SharingOpenResult>
+    /** How many people look at the artifact's page on Kettu now; null when nobody can say. */
+    visitors(id: string): Promise<number | null>
+    unpublish(id: string): Promise<SharingResult>
+    /** Turns publishing to Kettu on its own on or off, which also answers its one-time notice. */
+    setAuto(enabled: boolean): Promise<SharingResult>
+    onChanged(listener: (status: SharingStatus) => void): () => void
+  }
+  /** The Marketplace's keys, which the host keeps apart from its settings and never hands back. */
+  marketplace: {
+    /**
+     * Fills or clears the inputs of a server already in the settings' `marketplace.mcp`; null
+     * clears one. Answers which inputs of each server are set.
+     */
+    setKeys(patch: MarketKeysPatch): Promise<MarketKeyState>
+    setAgentEnv(agentId: string, variable: string, value: string | null): Promise<void>
+  }
+  /** Remote access: devices paired with this computer, and pairing more. */
+  remote: {
+    status(): Promise<RemoteStatus>
+    /** Opens a pairing code for this page; null while remote access is not on. */
+    pair(): Promise<number | null>
+    /** Add device closed, which voids its code. */
+    closePairing(codeId: number): Promise<void>
+    /** Adds the device the code paired, under `name`, or rejects it. */
+    answerPairing(codeId: number, add: boolean, name: string): Promise<void>
+    /** The discovery request waiting for the owner's answer, if any. */
+    pendingDiscovery(): Promise<DiscoveryRequestEvent | null>
+    /** Adds the device of a discovery request, under `name`, or turns it down. */
+    answerDiscovery(requestId: number, add: boolean, name: string): Promise<void>
+    onDiscovery(listener: (event: DiscoveryRequestEvent) => void): () => void
+    /** Null once renamed, else why not. */
+    renameDevice(id: string, name: string): Promise<'not_renamed' | null>
+    /** Removes the device and ends its sessions at once; null once removed, else why not. */
+    removeDevice(id: string): Promise<'not_removed' | null>
+    /** The device's activity of the last 30 days, newest first. */
+    activity(id: string): Promise<DeviceActivity[]>
+    /** Removes every device and gives this computer a new identity. */
+    reset(): Promise<void>
+    /** Tries the direct connections' port again. */
+    retryDirect(): Promise<void>
+    /** Tries every relay again. */
+    retryRelay(): Promise<void>
+    onChanged(listener: (status: RemoteStatus) => void): () => void
+    onPairing(listener: (event: RemotePairingEvent) => void): () => void
+  }
+  /** Other hosts this computer connects to as a device. */
+  hosts: {
+    status(): Promise<HostsStatus>
+    /** Pairs with the host of a pasted link, unless it is no link or this computer's own. */
+    pair(link: string): Promise<HostPairStart>
+    /** The machines of the user's SSH config, resolved by the system's ssh. */
+    sshConfig(): Promise<SshConfigHosts>
+    /** Adds the machine at an SSH address over the system's ssh, unless it is no SSH address. */
+    addSsh(address: SshAddress): Promise<HostPairStart>
+    /** A key file's path from the system's file dialog, or null when none was chosen. */
+    chooseKeyFile(): Promise<string | null>
+    /** Add host closed: a pairing not yet added ends. */
+    closePairing(pairId: number): Promise<void>
+    /** The account's hosts this computer may pair with. */
+    discover(): Promise<DiscoveredHosts>
+    /** Pairs with a host `discover` listed. */
+    pairDiscovered(relayId: string): Promise<HostPairStart>
+    /** Whether the code on both screens is the same; false ends the pairing. */
+    matchPairing(pairId: number, match: boolean): Promise<void>
+    /** Renames this computer on a connected host; null once renamed, else why not. */
+    rename(id: string, name: string): Promise<'not_connected' | null>
+    setAddresses(id: string, addresses: DirectAddress[]): Promise<'unknown_host' | null>
+    /** Forgets the host here; nothing changes on it. Null once forgotten, else why not. */
+    remove(id: string): Promise<'unknown_host' | null>
+    /** Tries the hosts not connected now, without waiting for the next try. */
+    retry(): Promise<void>
+    /** Installs this computer's version on a host added over SSH, then connects to it again. */
+    updateSsh(id: string): Promise<SshManageResult>
+    /** Reaches a host added over SSH at another address, once it reaches the same daemon there. */
+    changeSsh(id: string, address: SshAddress): Promise<SshManageResult>
+    /** Tries a host added over SSH now; settles once the try did. */
+    reconnect(id: string): Promise<SshManageResult>
+    /** Uninstalls Kettu from a host added over SSH, its data too with `data`, then forgets it. */
+    uninstall(id: string, data: boolean): Promise<SshManageResult>
+    onChanged(listener: (status: HostsStatus) => void): () => void
+    onPairing(listener: (event: HostPairingEvent) => void): () => void
+    /**
+     * A request to a connected host's agent host or terminal host, or an owner's call to its
+     * parent, which rejects as `agents.request` does; one for a host whose first connection is
+     * under way waits for it a while.
+     */
+    request(
+      hostId: string,
+      method: HostMethod | HostAdminMethod | TerminalMethod,
+      params: unknown,
+    ): Promise<unknown>
+    /** Each host's events, and whether its session opened, ended or must be read again. */
+    onSession(listener: (hostId: string, change: HostSessionChange) => void): () => void
+  }
+  /** The computer's power draw, for the meter beside the composer. */
+  power: {
+    read(): Promise<PowerReading | null>
+  }
+  settings: {
+    get(): Promise<SettingsFile>
+    update(patch: SettingsPatch): Promise<SettingsFile>
+    onChanged(listener: (settings: SettingsFile) => void): () => void
+    /** Adds an agent to Claude Code or Codex, in a folder from `chooseAgentFolder` or a new one. */
+    addAgent(harnessId: HarnessId, name: string, folder: string | null): Promise<AgentId>
+    renameAgent(agentId: AgentId, name: string): Promise<void>
+    /** The dot on an added agent's mark. */
+    setAgentColor(agentId: AgentId, color: AgentColor): Promise<void>
+    removeAgent(agentId: AgentId, trash: boolean): Promise<void>
+  }
+  /** The themes folder, which main reads and checks; the page never names a path. */
+  themes: {
+    /** Reads the folder again. */
+    get(): Promise<ThemesState>
+    /** Asks for a theme file and installs it, or names the installed theme it would replace. */
+    install(): Promise<ThemeInstallResult>
+    /** Installs the file a `conflict` answer named, in place of the installed theme. */
+    replace(token: string): Promise<ThemeInstallResult>
+    remove(id: string): Promise<void>
+    /** Asks where to save a theme file; the saved file's path, or null when the user cancelled. */
+    export(text: string): Promise<string | null>
+    /** Shows an installed theme's file in the file manager. */
+    reveal(id: string): Promise<void>
+    /** The online catalog's themes, read from GitHub when `refresh` is set or the first time. */
+    catalog(refresh: boolean): Promise<CatalogState>
+    /** Downloads a catalog theme and installs it, or names the file theme it would replace. */
+    installCatalog(id: string): Promise<CatalogInstallResult>
+    onChanged(listener: (state: ThemesState) => void): () => void
+  }
+  /** Pull request authors' avatars, which main fetches from GitHub's avatar host. */
+  avatars: {
+    /** The picture as a data: URL, or null when it is none or did not load. */
+    load(url: string): Promise<string | null>
+  }
+  loginItem: {
+    getStatus(): Promise<LoginItemStatus>
+  }
+  dialogs: {
+    openProject(): Promise<string | null>
+    chooseAgentBinary(harnessId: HarnessId): Promise<string | null>
+    /** Picks or creates a configuration folder for an agent to add, which `addAgent` accepts. */
+    chooseAgentFolder(): Promise<string | null>
+    chooseShell(): Promise<string | null>
+  }
+  /** Debug mode: this run's ports, and restarting into it or out of it. */
+  debug: {
+    get(): Promise<DebugStatus>
+    restart(debug: boolean): Promise<void>
+    onChanged(listener: (status: DebugStatus) => void): () => void
+  }
+  report: {
+    /** Takes the window's screenshot, before the dialog covers it. */
+    capture(): Promise<void>
+    prepare(request: ReportRequest): Promise<ReportPrepareResult>
+    /** A bundle another host built, in base64, kept here like this computer's. */
+    adopt(zip: string): Promise<ReportPrepareResult>
+    view(id: string, path: string): Promise<ReportFileView>
+    /** Asks where to save the zip; resolves to the path, or null if cancelled. */
+    save(id: string): Promise<string | null>
+    discard(id: string): Promise<void>
+    /** Submits a bundle as the user reviewed it, with the sign-in of the host that built it. */
+    submit(id: string): Promise<ReportSubmitResult>
+    recording(): Promise<ReportRecording | null>
+    /** Starts or stops recording steps to reproduce; stopping opens the dialog. */
+    record(on: boolean): Promise<ReportRecording | null>
+    onRecording(listener: (recording: ReportRecording | null) => void): () => void
+    crashNotice(): Promise<number | null>
+    dismissCrashNotice(): Promise<void>
+  }
+  diagnostics: {
+    /** Deletes the detailed records; refused while they are on. */
+    clearVerbose(): Promise<void>
+    /** Adds what the user did to the log, in batches. */
+    recordActions(actions: ActionReport[]): void
+  }
+  shell: {
+    showDataFolder(): Promise<void>
+    /** Shows a file or folder in the system file manager; the path must be absolute. */
+    showItem(path: string): Promise<void>
+  }
+  /** Open in editor: the code editors on this computer, which main finds and starts by id. */
+  editors: {
+    /** The known editors installed, then the apps the user chose; icons read from the apps. */
+    list(): Promise<EditorList>
+    /** Opens a file or folder, by its absolute path, in a listed editor, the last one from then. */
+    open(editorId: string, path: string): Promise<void>
+    /** Asks for an app and opens the path in it, which `list` offers from then; null if cancelled. */
+    choose(path: string): Promise<EditorApp | null>
+  }
+  /** Actions on a file served on the media scheme, by its URL, or on bytes the thread carries. */
+  media: {
+    /** Puts the picture on the clipboard as an image. */
+    copyImage(source: string | CarriedMedia): Promise<void>
+    /** Saves a copy where the save dialog says; false when cancelled. */
+    saveAs(source: string | CarriedMedia): Promise<boolean>
+    /** Shows the file in the system file manager. */
+    reveal(url: string): Promise<void>
+    /** Opens the file in the system's default app for it. */
+    openExternal(url: string): Promise<void>
+  }
+  notifications: {
+    /** Shows a sample notification at once; false when the system does not support them. */
+    test(): Promise<boolean>
+  }
+  updates: {
+    getStatus(): Promise<UpdateStatus>
+    check(): Promise<UpdateStatus>
+    /** Update: downloads, then restarts once the download is ready. */
+    download(): Promise<void>
+    /** Stops a download that `download()` started. */
+    cancel(): Promise<void>
+    restart(): Promise<void>
+    dismiss(): Promise<void>
+    onChanged(listener: (status: UpdateStatus) => void): () => void
+  }
+  /** Agents using the desktop apps of this computer. */
+  computer: {
+    status(): Promise<ComputerUseStatus>
+    requestPermission(kind: ComputerPermissionKind): Promise<void>
+    /** The icon of the app at `path`, the bundle on macOS, as a data URL; null when none. */
+    appIcon(path: string): Promise<string | null>
+  }
+  /** The side panel's browser, one per session with its tabs, all in one profile. */
+  browser: {
+    /** Shows a session's selected tab, or nothing when it has none yet; `agent` names its pill. */
+    show(sessionId: string, agent: ControlAgent | null): Promise<void>
+    /** Hides the pages, keeping them alive for when the pane shows again. */
+    hide(sessionId: string): Promise<void>
+    /** Destroys every tab and forgets their addresses. The session stays. */
+    close(sessionId: string): Promise<void>
+    /** Opens a blank tab and selects it; null when the browser holds all the tabs it may. */
+    newTab(sessionId: string): Promise<string | null>
+    /** Shows another tab; the agent keeps its own. */
+    selectTab(sessionId: string, tabId: string): Promise<void>
+    /** Closes a tab; closing the last one closes the browser. */
+    closeTab(sessionId: string, tabId: string): Promise<void>
+    /** Where the pane's page sits, in device-independent pixels; null while it is not shown. */
+    setBounds(sessionId: string, bounds: BrowserBounds): Promise<void>
+    navigate(sessionId: string, url: string): Promise<void>
+    back(sessionId: string): Promise<void>
+    forward(sessionId: string): Promise<void>
+    reload(sessionId: string): Promise<void>
+    stop(sessionId: string): Promise<void>
+    /** Opens the page's current address in the system browser. */
+    openExternal(sessionId: string): Promise<void>
+    /** A still of the page for the pane to show, after which main hides the view. */
+    freeze(sessionId: string): Promise<string | null>
+    thaw(sessionId: string): Promise<void>
+    /** The page as PNG bytes, for attaching to a message; null when there is none to capture. */
+    capture(sessionId: string): Promise<Uint8Array | null>
+    /** Take over: the page is the user's until Hand back; the agent's calls wait meanwhile. */
+    takeOver(sessionId: string): Promise<void>
+    /** Hand back: the agent goes on with the page. */
+    handBack(sessionId: string): Promise<void>
+    /** Done or Skip on a step the agent asked the user to do on the page. */
+    answerAsk(sessionId: string, outcome: ControlOutcome): Promise<void>
+    /** The pane's bar or the thread's card: what the user answered a new site's request. */
+    answerOrigin(
+      sessionId: string,
+      requestId: number,
+      decision: BrowserOriginDecision,
+    ): Promise<void>
+    /** The sites each project always lets agents open. */
+    allowedSites(): Promise<AllowedSites[]>
+    removeAllowedSite(projectPath: string, origin: string): Promise<void>
+    /** Clears the profile's cookies, site storage and cache, and the sites' icons. */
+    clearData(): Promise<void>
+    /** The icons of the sites the pages opened, which links in replies show. */
+    siteIcons(): Promise<SiteIconMap>
+    /** Tries the icon at a link's own site when Kettu has none recorded for it yet. */
+    loadSiteIcon(url: string): Promise<void>
+    onSiteIcon(listener: (event: SiteIconEvent) => void): () => void
+    /** A link in Kettu opened `url`, in either place: its site is recorded, without an icon. */
+    siteOpened(url: string): Promise<void>
+    /** The sessions that still exist; a page whose session does not is closed. */
+    setSessions(sessionIds: string[]): void
+    onState(listener: (state: BrowserState) => void): () => void
+    /** An agent opened a session's page for the first time. */
+    onOpened(listener: (event: { sessionId: string }) => void): () => void
+  }
+  /** Sign-ins brought from the user's own browsers into Kettu's, by site. */
+  signIns: {
+    sources(): Promise<SignInSource[]>
+    sites(choice: SignInChoice): Promise<SignInSite[]>
+    bring(request: SignInRequest): Promise<SignInResult>
+    cancel(): Promise<void>
+    brought(): Promise<BroughtSite[]>
+    remove(site: string): Promise<void>
+    offer(url: string): Promise<SignInOffer | null>
+    onChanged(listener: (sites: BroughtSite[]) => void): () => void
+  }
+  /** What the user chose to attach, granted to the agent host by main; never a path. */
+  attachments: {
+    /** Shows the system's file or folder dialog, opening in `defaultPath`. */
+    pick(kind: 'files' | 'folder', defaultPath: string | null): Promise<GrantedAttachment[]>
+    /** Dropped or pasted files, in their order; null for one with no file on disk behind it. */
+    fromFiles(files: File[]): Promise<(GrantedAttachment | null)[]>
+    /**
+     * The files and folders a paste carries, copied in the file manager: all of them, from the
+     * clipboard, or the paste's own files without a list there. Null when the first has no file
+     * on disk behind it, so the paste is an image or text.
+     */
+    fromClipboard(files: File[]): Promise<GrantedAttachment[]> | null
+  }
+  agents: AgentsApi
+  terminals: TerminalsApi
+  /** The mobile devices of this computer, through the device host. */
+  devices: DevicesApi & {
+    onOpened(listener: (event: { sessionId: string; deviceId: string }) => void): () => void
+    /**
+     * Keeps a screenshot or recording of `device` in Downloads. The path it was written to, or
+     * null where the browser saves it and the page never learns where.
+     */
+    saveCapture(device: string, kind: DeviceCaptureKind, data: ArrayBuffer): Promise<string | null>
+  }
+}

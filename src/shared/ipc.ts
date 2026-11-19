@@ -1,4 +1,5 @@
 import type { AccountStatus } from './account'
+import type { PowerReading } from './power'
 import type { AgentsApi, HostMethod } from './agent-host'
 import type { ArtifactImportKind, ArtifactImportResult, ThumbnailPage } from './artifacts'
 import type { SelectMessage } from './artifact-runtime/page-messages'
@@ -501,6 +502,8 @@ export interface IpcInvokeContract {
   'browser:load-site-icon': { args: [url: string]; result: void }
   /** A link in Kettu opened the address, in either place, so its site counts as opened. */
   'browser:site-opened': { args: [url: string]; result: void }
+  /** This computer's power draw, as the desktop meter last wrote it; null when it is not running. */
+  'power:read': { args: []; result: PowerReading | null }
 }
 
 export type IpcInvokeChannel = keyof IpcInvokeContract
@@ -813,6 +816,10 @@ export interface KettuApi {
     ): Promise<unknown>
     /** Each host's events, and whether its session opened, ended or must be read again. */
     onSession(listener: (hostId: string, change: HostSessionChange) => void): () => void
+  }
+  /** The computer's power draw, for the meter beside the composer. */
+  power: {
+    read(): Promise<PowerReading | null>
   }
   settings: {
     get(): Promise<SettingsFile>
