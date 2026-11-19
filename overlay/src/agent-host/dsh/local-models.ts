@@ -179,8 +179,8 @@ function validate(value: unknown): LocalConfig {
 }
 
 /** The profile rows that declare every local provider, in the harness's own patch format. */
-export function providersPatch(): string {
-  const { providers } = localConfig()
+export function providersPatch(only?: LocalProvider[]): string {
+  const providers = only ?? localConfig().providers
   if (providers.length === 0) return ''
   const quote = (value: string): string => JSON.stringify(value)
   const lines = [
@@ -238,4 +238,12 @@ export function syncProvidersProfile(): void {
   } catch {
     // A profile that cannot be written is reported by the harness when the session starts.
   }
+}
+
+/**
+ * The providers as one session's own --patch file. A patch applies after the profile, so this
+ * wins over anything the profile (or the harness's own edits to it) says about these providers.
+ */
+export function sessionProvidersPatch(): string {
+  return providersPatch(localConfig().providers)
 }

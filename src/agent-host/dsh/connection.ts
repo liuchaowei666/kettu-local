@@ -60,7 +60,7 @@ import type {
   SubagentStartedNotification,
 } from './protocol'
 import { readProvider } from './credentials'
-import { providerOf, syncProvidersProfile } from './local-models'
+import { providerOf, sessionProvidersPatch } from './local-models'
 
 const PENDING_EVENTS = 2_000
 const INITIALIZE_TIMEOUT_MS = 60_000
@@ -663,18 +663,24 @@ export class DshConnection implements AgentConnection {
   }
 
   private async spawn(session: Session): Promise<Proc> {
-    // Providers this machine added in local-models.json that the profile does not declare yet.
-    syncProvidersProfile()
     const { spec, env } = this.context
     const servers = session.options.mcpServers ?? []
     const patch = mcpPatch(servers)
     let folder: string | null = null
     const args = [...spec.args, '--profile', 'sdk']
-    if (patch.yaml) {
+    const providers = sessionProvidersPatch()
+    if (patch.yaml || providers) {
       folder = await mkdtemp(path.join(os.tmpdir(), 'kettu-dsh-'))
-      const file = path.join(folder, 'mcp.patch.yml')
-      await writeFile(file, patch.yaml, { mode: 0o600 })
-      args.push('--patch', file)
+      if (patch.yaml) {
+        const file = path.join(folder, 'mcp.patch.yml')
+        await writeFile(file, patch.yaml, { mode: 0o600 })
+        args.push('--patch', file)
+      }
+      if (providers) {
+        const file = path.join(folder, 'providers.patch.yml')
+        await writeFile(file, providers, { mode: 0o600 })
+        args.push('--patch', file)
+      }
     }
     const child = this.context.spawn({
       command: spec.command,
