@@ -440,11 +440,10 @@ export function bootstrap(): Promise<unknown> {
   // Asked first, so the host reads the threads before the ones the launch opens.
   void removeEmptySessions()
   const sessionState = loadSessionState()
+  // The team's assistant session exists from the first launch, not from a button. It waits for
+  // the agents, since creating a session needs the agent that runs it.
   void loadAgents()
-  // The team's assistant session exists from the first launch, not from a button.
-  void useTeamsStore
-    .getState()
-    .ensureAssistant()
+    .then(() => useTeamsStore.getState().ensureAssistant())
     .catch((error: unknown) => console.warn(`No assistant session: ${errorMessage(error)}`))
   void loadGitTools()
   void loadGitHubStar()

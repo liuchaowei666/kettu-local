@@ -1018,6 +1018,8 @@ export interface HostContract {
       options?: Record<string, string | boolean>
       prompt?: UserContent[]
       preparedId?: string
+      /** Its title, instead of the first line of the first message. */
+      title?: string
       // A new worktree, cut from `base`, to work in; `branch` is the user's name for its branch.
       worktree?: { base: string; branch?: string }
     }

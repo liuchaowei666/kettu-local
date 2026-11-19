@@ -117,7 +117,9 @@ export function chiefPrompt(team: Team, task: string): string {
     task.trim(),
     '---',
     '',
-    members.length > 0 ? `## 团队成员\n${list}` : '这个团队没有成员：你自己完成后直接交付。',
+    members.length > 0
+      ? `## 团队成员\n${list}`
+      : '## 团队成员\n（没有预置成员：你自己按任务用 start_session 开合适的会话，写清每个会话的角色和交付要求。）',
     '',
     '## 怎么做',
     '1. **第一个动作**必须是 `start_session`：给每个成员开一个会话，agent 用上面写的、model 有写就带上。',
@@ -217,6 +219,7 @@ export function chiefStandbyPrompt(team: Team): string {
     '## 你只做这四件事',
     '1. 拆解我交代的事，写清范围与验收标准；',
     '2. 用 start_session 给团队里合适的成员各开一个会话，把分工发下去（agent 按成员配置，model 有写就带上）；',
+    '   **成员不用我预先配置**：团队里没有合适的人，你就按任务自己开（例如一个实现的、一个审查的），在开场消息里写清它的角色、任务和交付要求；',
     '3. 等成员结束，用 get_session 收成果，不合格就用 send_message 打回重做；',
     '4. 给我一份简短汇报：做了什么、改了哪些文件、怎么验证、还有什么风险。',
     '',
