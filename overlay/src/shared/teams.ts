@@ -81,33 +81,59 @@ export function membersOf(team: Team): TeamBot[] {
   return team.bots.filter((bot) => bot.role === 'member')
 }
 
-/** The opening message a chief session gets: the task, who is on the team, and how to run it. */
+/**
+ * The opening message a chief session gets: the task, who is on the team, and how to run it.
+ *
+ * The rules follow the shape DS Bot (Fei2411/DS-Bot, Apache-2.0) gives its Main Bot: the chief
+ * decides who does what and reports back, and never does the members' work itself. Written for
+ * Kettu's own tools, which start a session per member rather than messaging long-lived bots.
+ */
 export function chiefPrompt(team: Team, task: string): string {
   const members = membersOf(team)
   const list = members
-    .map((bot) => `- ${bot.name}（agent: ${bot.agentId}${bot.model ? `, model: ${bot.model}` : ''}）：${bot.prompt}\n  记忆文件：.team/bots/${bot.id}.md`)
+    .map(
+      (bot) =>
+        `- ${bot.name}（agent: ${bot.agentId}${bot.model ? `, model: ${bot.model}` : ''}）` +
+        `\n  职责：${bot.prompt || '（未填写，按任务自行判断）'}` +
+        `\n  记忆文件：.team/bots/${bot.id}.md`,
+    )
     .join('\n')
   return [
     `你是团队主管${chiefOf(team)?.name ? `「${chiefOf(team)!.name}」` : ''}，团队名称：${team.name}。`,
     '',
-    '用户交给团队的任务：',
+    '## 你的职责（只做这四件事）',
+    '1. 拆解任务，写清范围、验收标准、给每个成员的具体分工；',
+    '2. 为**每一个**成员开一个会话，把任务派下去；',
+    '3. 验收成员成果，不满意就打回重做；',
+    '4. 给用户一份简短的交付说明。',
+    '',
+    '**你不做实现**：不写代码、不改文件、不跑会写东西的命令、不新建文件。',
+    '如果你发现自己正在动手做成员的活，立刻停下来，把这件事写成任务发给对应的成员。',
+    '',
+    '## 用户交给团队的任务',
     '---',
     task.trim(),
     '---',
     '',
-    members.length > 0 ? `团队成员：\n${list}` : '这个团队暂时没有成员，你自己完成并直接交付。',
+    members.length > 0 ? `## 团队成员\n${list}` : '这个团队没有成员：你自己完成后直接交付。',
     '',
-    '做法：',
-    '1. 先拆解任务，写清范围、验收标准、给每个成员的具体分工；',
-    '2. 用 kettu 的 start_session 为每个成员各开一个会话（agent 和 model 用上面写的），开场消息里要包含：任务原文、整体简报、这个成员的职责、要交付什么；',
-    '   并让它在开工前先读自己的记忆文件（不存在就跳过），结束前把自己的总结追加进去；',
-    '3. 等每个会话结束时 Kettu 会通知你，再用 get_session 取回它的成果；',
-    '4. 对照验收标准检查成员成果，必要时把它发回给同一个会话让它改（send_message）；',
-    '5. 最后给用户一份简短交付说明：做了什么、改了哪些文件、怎么验证、已知问题与建议。',
+    '## 怎么做',
+    '1. **第一个动作**必须是 `start_session`：给每个成员开一个会话，agent 用上面写的、model 有写就带上。',
+    '   开场消息里要有：任务原文、你的整体简报（范围/验收标准）、这个成员的职责、要交付什么、',
+    '   以及「开工前先读 .team/bots/<id>.md（不存在就跳过），结束前把总结追加进去」。',
+    '   成员没全部开完之前，不要调用别的工具。',
+    '2. 会话开始后，你只等结果：Kettu 会在它结束时通知你，用 `get_session` 取回回复。',
+    '3. 成果不符合验收标准，用 `send_message` 发回同一个会话让它改，写明具体要改什么。',
+    '4. 全部通过后，做一次自查：跑 `git status --short`，**如果出现你自己改的文件，就是违规**——',
+    '   回退它们，把这些改动写成任务重新发给成员。',
+    '5. 收尾：给用户一份交付说明（做了什么、改了哪些文件、怎么验证、已知问题与建议）。',
     '',
-    '你自己的记忆文件是 .team/bots/chief.md：开工前读它，收尾时把你的判断与经验追加进去。',
-    '',
-    '注意：不要代替成员做完所有事；你的价值是拆解、调度、验收和汇总。',
+    '## 团队规则（与 DS Bot 的团队约定一致）',
+    '- 每个成员只做自己那部分，不要替它做；',
+    '- 派活只发一次，不要反复催问，也不要发「收到」「谢谢」这类消息；',
+    '- 成员之间需要配合时，由你把任务写给需要动手的那一个，不要让它俩互相等；',
+    '- 你的记忆文件是 .team/bots/chief.md：开工前读它，收尾时把你的判断和经验追加进去；',
+    '- 回复用户时用中文、短句、不要复述代码。',
   ].join('\n')
 }
 
