@@ -130,6 +130,7 @@ import {
 import {
   detectAgent,
   displayCommand,
+  protocolOf,
   type AgentDefinition,
   type CommandWords,
   type DetectContext,
@@ -316,6 +317,8 @@ export interface AgentManagerDeps extends DriverOverrides {
   appVersion: string
   env: EnvironmentService
   diagnostics: Diagnostics
+  /** Keeps an ACP agent's messages by session, for the Requests pane. */
+  acpMessages?: { add(agentId: AgentId, direction: 'in' | 'out', message: unknown): void }
   launcher: AgentLauncher
   settings(): HostSettings
   /** The folder hidden sessions run in: the reports' and the one that reads the options. */
@@ -3302,11 +3305,13 @@ export class AgentManager {
   // Sign-in, account and limits.
 
   private connectionHooks(slot: Slot): ConnectionHooks {
-    const { diagnostics } = this.deps
+    const { diagnostics, acpMessages } = this.deps
     const agentId = slot.id
+    const acp = (this.deps.protocols?.[agentId] ?? protocolOf(slot.def)) === 'acp'
     return {
       traffic: (direction, message) => {
         diagnostics.traffic(agentId, direction, message)
+        if (acp) acpMessages?.add(agentId, direction, message)
         for (const run of this.processesOf(slot)) {
           if (run.pid != null) this.deps.trees?.active({ pid: run.pid, startedAt: run.startedAt })
         }
@@ -4142,6 +4147,12 @@ export class AgentManager {
       throw agentError(error)
     }
     if (slot.signIn === 'signed-in') this.hooks.signedIn(slot.id)
+  }
+
+  /** OpenCode's own client for an OpenCode agent, which reads its sessions; null for another. */
+  openCode(agentId: AgentId): OpenCodeClient | null {
+    const slot = this.slots.get(agentId)
+    return slot && harnessOf(agentId) === 'opencode' ? this.openCodeClient(slot) : null
   }
 
   private openCodeClient(slot: Slot): OpenCodeClient {

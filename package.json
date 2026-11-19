@@ -1,7 +1,7 @@
 {
   "name": "kettu",
   "productName": "Kettu",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "private": true,
   "description": "A beautifully crafted desktop workbench for terminal coding agents.",
   "author": "Amigoer",
