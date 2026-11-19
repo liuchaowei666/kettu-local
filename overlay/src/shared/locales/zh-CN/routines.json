@@ -1,0 +1,322 @@
+{
+  "page": {
+    "title": "例程",
+    "description": "按计划运行的 Agent 任务，只在你给的权限内行事。",
+    "descriptionOn": "在 {{host}} 上按计划运行的 Agent 任务，只在你给的权限内行事。",
+    "descriptionThisMac": "在这台 Mac 上按计划运行的 Agent 任务，只在你给的权限内行事。",
+    "descriptionThisComputer": "在这台电脑上按计划运行的 Agent 任务，只在你给的权限内行事。",
+    "descriptionAll": "在所有主机上按计划运行的 Agent 任务，只在你给的权限内行事。",
+    "new": "新建例程",
+    "emptyTitle": "还没有例程",
+    "emptyDescription": "例程在 Kettu 打开时按计划把提示词发给 Agent，每次运行都在一个单独的会话里。",
+    "unreadableTitle": "无法读取你的例程",
+    "unreadable": "routines.json 已另存为 {{backup}}，没有丢失任何内容。新建例程不受影响。",
+    "unreadableGone": "Kettu 以空列表开始。",
+    "loadFailed": "无法加载例程。",
+    "retry": "重试",
+    "open": "打开 {{name}}",
+    "switchOn": "开启 {{name}}",
+    "switchOff": "关闭 {{name}}",
+    "columns": {
+      "routine": "例程",
+      "schedule": "计划",
+      "agent": "智能体",
+      "status": "状态",
+      "name": "名称"
+    },
+    "footnote": "例程只在 Kettu 打开时运行。Agent 距离套餐限额不到 10% 时，例程会暂停。"
+  },
+  "examples": {
+    "heading": "从示例开始",
+    "hint": "打开填好这些的新建例程，创建之前什么都不运行。",
+    "use": "使用",
+    "open": "从 {{name}} 开始",
+    "triage": {
+      "name": "早间整理",
+      "prompt": "总结上次运行以来新开或更新的 issue 和 Pull Request，标出紧急的。"
+    },
+    "tests": {
+      "name": "夜间测试",
+      "prompt": "跑完整的测试，逐个说明失败和可能的原因。"
+    },
+    "dependencies": {
+      "name": "依赖检查",
+      "prompt": "查依赖的更新和已知漏洞，说明哪些要紧。"
+    },
+    "changelog": {
+      "name": "更新日志草稿",
+      "prompt": "按区域整理本周合并的 Pull Request，写出发布说明的草稿。"
+    },
+    "links": {
+      "name": "文档链接检查",
+      "prompt": "找出文档里失效的链接和它们所在的页面。"
+    },
+    "review": {
+      "name": "每周回顾",
+      "prompt": "总结这周项目里改了什么、还有什么没做完。"
+    },
+    "web": "{{level}} · 联网"
+  },
+  "menu": {
+    "open": "打开",
+    "turnOff": "关闭",
+    "turnOn": "开启"
+  },
+  "row": {
+    "waitingSince": "{{time}} 起等待批准",
+    "running": "运行中 · {{duration}}",
+    "pausedNear": "已暂停 · 接近套餐限额",
+    "pausedReached": "已暂停 · 已达套餐限额",
+    "failed": "{{ago}}失败",
+    "cancelled": "已取消",
+    "cancelledAt": "已取消 · {{when}}",
+    "interrupted": "已中断",
+    "interruptedAt": "已中断 · {{when}}",
+    "skipped": "已跳过",
+    "skippedAt": "已跳过 · {{when}}",
+    "nextAt": "{{when}} · {{away}}",
+    "never": "尚未运行",
+    "nextAtRich": "{{when}} · <away>{{away}}</away>",
+    "onHost": "{{host}} · {{line}}"
+  },
+  "signal": {
+    "name": "例程，{{signal}}",
+    "waiting_one": "{{count}} 个运行在等待批准",
+    "waiting_other": "{{count}} 个运行在等待批准",
+    "failed": "一个运行失败",
+    "running": "一个运行正在工作",
+    "unread": "一个运行已结束"
+  },
+  "state": {
+    "on": "开启",
+    "off": "关闭",
+    "done": "已完成",
+    "paused": "已暂停",
+    "waiting": "等待批准",
+    "waitingSince": "自 {{time}} 起等待你的批准",
+    "running": "运行中",
+    "runningSince": "自 {{time}} 起运行中",
+    "starting": "启动中",
+    "queued": "排队中",
+    "next": "下次运行 {{when}} · {{away}}",
+    "nextToday": "下次运行 今天 {{time}} · {{away}}",
+    "nextTomorrow": "下次运行 明天 {{time}} · {{away}}",
+    "pausedUntil": "暂停至 {{time}}：{{reason}}",
+    "pausedUntilDay": "暂停至 {{day}} {{time}}：{{reason}}",
+    "pausedFor": "已暂停：{{reason}}"
+  },
+  "pause": {
+    "title": "{{agent}} 的例程已暂停",
+    "used": "{{agent}} 的限额已用 {{percent}}%（{{limit}}）",
+    "reached": "{{agent}} 的限额已用完（{{limit}}）",
+    "limitUsed": "限额已用 {{percent}}%（{{limit}}）。",
+    "limitReached": "限额已用完（{{limit}}）。",
+    "resumes": "例程将于 {{time}} 恢复。",
+    "resumesDay": "例程将于 {{day}} {{time}} 恢复。",
+    "notice": "{{use}}{{resume}}"
+  },
+  "when": {
+    "today": "今天 {{time}}",
+    "tomorrow": "明天 {{time}}",
+    "yesterday": "昨天 {{time}}",
+    "weekday": "{{weekday}} {{time}}",
+    "date": "{{date}} {{time}}"
+  },
+  "away": {
+    "minutes": "{{count}} 分钟后",
+    "hours": "{{hours}} 小时后",
+    "hoursMinutes": "{{hours}} 小时 {{minutes}} 分钟后",
+    "days_other": "{{count}} 天后"
+  },
+  "schedule": {
+    "daily": "每天 {{time}}",
+    "weekdays": "工作日 {{time}}",
+    "weekly": "{{days}} {{time}}",
+    "weeklySunday": "每周日 {{time}}",
+    "weeklyMonday": "每周一 {{time}}",
+    "weeklyTuesday": "每周二 {{time}}",
+    "weeklyWednesday": "每周三 {{time}}",
+    "weeklyThursday": "每周四 {{time}}",
+    "weeklyFriday": "每周五 {{time}}",
+    "weeklySaturday": "每周六 {{time}}",
+    "once": "{{date}} {{time}}，仅一次",
+    "everyMinutes": "每 {{count}} 分钟，从 {{time}} 起算",
+    "everyHours_one": "每小时，从 {{time}} 起算",
+    "everyHours_other": "每 {{count}} 小时，从 {{time}} 起算",
+    "cron": "Cron {{expression}}",
+    "kind": {
+      "once": "一次",
+      "every": "每隔",
+      "daily": "每天",
+      "weekly": "每周",
+      "cron": "Cron"
+    },
+    "clockGap": "钟表跳过这个时间，将在 {{time}} 运行。",
+    "clockOverlap": "钟表重复这个时间，只在第一次运行。",
+    "ranOnce": "它已在 {{date}} {{time}} 运行，不会再运行。",
+    "nextRuns": "接下来三次",
+    "onceOff": "运行之后自动关闭",
+    "previewToday": "今天 · {{time}}",
+    "previewAt": "{{date}} · {{time}}",
+    "everyValue": "每隔",
+    "countedFrom": "起算时间",
+    "date": "日期",
+    "time": "时间",
+    "days": "星期",
+    "on": "日期",
+    "expression": "Cron 表达式",
+    "expressionHint": "0 9 * * 1-5",
+    "cronSyntax": "* 任意 · a-b 范围 · a,b 列表 · */n 每隔 n · 可用 MON、JAN 等名称",
+    "field": {
+      "date": "日期",
+      "time": "时间",
+      "every": "间隔",
+      "days": "星期",
+      "expression": "Cron 表达式",
+      "minute": "分钟",
+      "hour": "小时",
+      "dayOfMonth": "日期中的日",
+      "month": "月份",
+      "dayOfWeek": "星期几"
+    },
+    "problem": {
+      "format": "{{field}}：{{detail}}",
+      "range": "{{field}}：{{detail}} 超出 {{min}} 到 {{max}}。",
+      "past": "{{field}}：选择一个将来的时间。",
+      "never": "{{field}}：未来五年内不会运行。",
+      "frequent": "{{field}}：两次运行至少间隔 5 分钟。",
+      "empty": "{{field}}：至少选择一天。"
+    },
+    "unvalid": "未保存。例程仍按上一个有效计划运行：{{schedule}}",
+    "runs": "运行",
+    "runsOnce": "只运行一次",
+    "dstNote": "夏令时调整时钟时，运行会顺延一小时，但不会被跳过。",
+    "cronNote": "五个字段，按你的本地时间。"
+  },
+  "routine": {
+    "back": "例程",
+    "untitled": "未命名例程",
+    "notSaved": "尚未保存",
+    "newNotSaved": "新例程 · 尚未保存",
+    "name": "例程名称",
+    "rename": "重命名",
+    "create": "创建例程",
+    "cancel": "取消",
+    "runNow": "立即运行",
+    "more": "更多",
+    "delete": "删除…",
+    "task": "任务",
+    "prompt": "提示词",
+    "promptDescription": "例程每次运行时原样发送。",
+    "promptPlaceholder": "每次运行时，Agent 要做什么？",
+    "project": "项目",
+    "projectDescription": "它的运行在此工作。",
+    "noProject": "无项目",
+    "agent": "Agent 和模型",
+    "agentDescription": "它的运行使用的 Agent、模型和选项。",
+    "permissions": "权限",
+    "permissionsHint": "它的运行可以不询问就做什么",
+    "timeLimit": "时间限制",
+    "timeLimitDescription": "运行到达这个时间就停止，等待你的时间不计入。",
+    "limits": "限制",
+    "keptRuns": "保留的运行会话",
+    "keptRunsDescription": "更早的运行会话会被移除，结果仍留在运行记录里。",
+    "keptRunsOption": "最近 {{count}} 次",
+    "keptConfirmTitle": "只保留最近 {{count}} 次的运行会话？",
+    "keptConfirm_one": "会移除 {{count}} 个更早的运行会话，结果仍留在运行记录里。",
+    "keptConfirm_other": "会移除 {{count}} 个更早的运行会话，结果仍留在运行记录里。",
+    "keptConfirmAction": "移除会话",
+    "schedule": "计划",
+    "scheduleHint": "按本地时间",
+    "scheduleNotSaved": "这个计划尚未保存；修正后即可保存。",
+    "createMissingSchedule": "先修正计划。",
+    "waitingTitle": "有一个运行正在等待你的批准",
+    "waitingDescription": "它请求做超出其权限的事。其间到期的运行会被跳过。",
+    "openRun": "打开该运行",
+    "openRunFailed": "无法打开这次运行的会话，请稍后再试。",
+    "runs": "运行记录",
+    "next": "下次",
+    "runsShown": "{{shown}} / {{total}}",
+    "noRunsTitle": "还没有运行",
+    "showMore": "显示更多",
+    "runsFailed": "无法加载运行记录。",
+    "createMissingPrompt": "先写提示词。",
+    "createMissingProject": "先选择项目。",
+    "createMissingAgent": "先选择 Agent。",
+    "createHostAway": "这台主机离线，等它重新连上后再创建。",
+    "saveFailed": "无法保存更改：{{error}}",
+    "runFailed": "无法开始运行：{{error}}",
+    "deleted": "这个例程已被删除。",
+    "backToRoutines": "返回例程",
+    "deleteTitle": "删除 {{name}}？",
+    "deleteWithSessions_one": "它的 {{count}} 个运行会话会一并删除。",
+    "deleteWithSessions_other": "它的 {{count}} 个运行会话会一并删除。",
+    "deleteNoSessions": "它没有运行会话。",
+    "deleteConfirm": "删除",
+    "deleteFailed": "无法删除例程：{{error}}"
+  },
+  "runsHint": {
+    "now": "立即运行可以先试一次。",
+    "today": "立即运行可以先试一次，或等到今天 {{time}}。",
+    "tomorrow": "立即运行可以先试一次，或等到明天 {{time}}。",
+    "later": "立即运行可以先试一次，或等到 {{when}}。",
+    "new": "创建之后，立即运行可以先试一次。",
+    "newAt": "创建之后，立即运行可以先试一次，或等第一次运行：{{when}}。"
+  },
+  "permission": {
+    "levels": "权限",
+    "level": {
+      "read": {
+        "name": "只读",
+        "description": "读取和搜索项目。"
+      },
+      "edit": {
+        "name": "编辑项目",
+        "description": "还可以在项目文件夹内创建、更改、移动和删除文件。"
+      },
+      "commands": {
+        "name": "编辑并运行命令",
+        "description": "还可以运行命令，这些命令能做你能做的任何事。"
+      }
+    },
+    "web": {
+      "name": "使用网络",
+      "description": "在任意级别下获取网页和搜索网络。"
+    },
+    "caption": {
+      "claude-code": "Claude Code 在编辑和大多数命令前会询问，因此 Kettu 会逐条回应。",
+      "codex": "Codex 有自己的沙箱：选择“编辑项目”时，它也会在项目内不经询问地运行命令；离开项目或访问网络时会询问。",
+      "opencode": "OpenCode 只对它自己的权限设置标为“ask”的操作询问；默认什么都不问，所以 Kettu 无法把它限制在这个权限范围内。",
+      "pi": "Pi 执行任何操作前都不会询问，所以 Kettu 无法把它限制在这个权限范围内。"
+    }
+  },
+  "limit": {
+    "minutes": "{{count}} 分钟",
+    "hours_one": "{{count}} 小时",
+    "hours_other": "{{count}} 小时"
+  },
+  "trigger": {
+    "manual": "立即运行",
+    "catchUp": "补运行",
+    "schedule": "按计划"
+  },
+  "run": {
+    "starting": "启动中",
+    "running": "运行中",
+    "waiting": "等待批准",
+    "queued": "排队中",
+    "succeeded": "已完成",
+    "noOutput": "已完成，没有回答。",
+    "failed": "失败",
+    "timedOut": "已超时",
+    "cancelled": "已取消",
+    "interrupted": "已中断",
+    "skippedOverlap": "已跳过：上次运行还在工作。",
+    "skippedLimit": "已跳过：接近套餐限额。",
+    "skippedTimes": "跳过 ×{{count}}",
+    "duration": "工作了 {{duration}}",
+    "working": "已工作 {{duration}}",
+    "waitingFor": "已等待 {{duration}}",
+    "announce": "{{name}}：{{status}}"
+  }
+}

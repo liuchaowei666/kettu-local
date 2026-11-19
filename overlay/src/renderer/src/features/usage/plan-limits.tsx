@@ -206,11 +206,13 @@ function PlanCard({ card, named, now }: { card: UsageCard; named: boolean; now: 
   const where = [...new Set(card.places.map((place) => hostName(place.hostId)))]
   // A balance's name and amount, in the locale's money format, for both the rows and the hero.
   const balanceName = (label: string) =>
-    label === 'Prepaid balance'
-      ? t('limits.prepaidBalance')
-      : label === 'Extra usage'
-        ? t('limits.extraUsage')
-        : label
+    label === 'Balance'
+      ? t('limits.balance')
+      : label === 'Prepaid balance'
+        ? t('limits.prepaidBalance')
+        : label === 'Extra usage'
+          ? t('limits.extraUsage')
+          : label
   const balanceText = (balance: { amount: number; currency: string }) =>
     planBalance(
       balance.amount,
