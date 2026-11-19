@@ -18,7 +18,14 @@ import type { Platform } from './platform'
 import type { DeviceActivity } from './remote/activity'
 import type { HostAdminMethod } from './remote/host-admin'
 import type { DiscoveredHosts, DiscoveryRequestEvent } from './remote/discovery'
-import type { HostPairingState, HostPairStart, HostsStatus } from './remote/hosts'
+import type {
+  HostPairingState,
+  HostPairStart,
+  HostsStatus,
+  SshAddress,
+  SshConfigHosts,
+  SshManageResult,
+} from './remote/hosts'
 import type { PairingState } from './remote/pairing'
 import type { DirectAddress } from './remote/protocol'
 import type { RemoteStatus } from './remote/status'
@@ -141,7 +148,7 @@ export type AppCommand =
   | { kind: 'go-forward' }
   | { kind: 'show-history' }
   /** The first Cmd+Q: say a second one quits. */
-  | { kind: 'quit-hint' }
+  | { kind: 'quit-hint'; countdown: { expiresAt: number; duration: number } | null }
   /** Cmd+W: the page closes the part used last, else the shown session, else the window. */
   | { kind: 'close'; browser?: true }
   /** Report a problem, from the Help menu or the end of a recording, with its span then. */
@@ -400,8 +407,13 @@ export interface IpcInvokeContract {
   'hosts:status': { args: []; result: HostsStatus }
   // Pairs with the host of a pasted link, its progress as `hosts:pairing` under the id.
   'hosts:pair': { args: [link: string]; result: HostPairStart }
-  // Adds the machine at an SSH address, its progress as `hosts:pairing` under the id.
-  'hosts:add-ssh': { args: [target: string]; result: HostPairStart }
+  // The machines of the user's SSH config Add host may add, read again on each call.
+  'hosts:ssh-config': { args: []; result: SshConfigHosts }
+  // Adds the machine at an SSH address, its progress as `hosts:pairing` under the id; several
+  // run at once.
+  'hosts:add-ssh': { args: [address: SshAddress]; result: HostPairStart }
+  // A key file for an SSH address typed by hand, from the system's file dialog: its path alone.
+  'hosts:choose-key-file': { args: []; result: string | null }
   'hosts:pair-close': { args: [pairId: number]; result: void }
   // The account's hosts on the relay that this computer may pair with: paired ones and itself left
   // out.
@@ -421,6 +433,13 @@ export interface IpcInvokeContract {
   'hosts:remove': { args: [id: string]; result: 'unknown_host' | null }
   // Tries the hosts not connected now, without waiting for the next try.
   'hosts:retry': { args: []; result: void }
+  // A host added over SSH, from its page, over SSH: installs this computer's version there,
+  // moves it to another address of the same machine, tries it now, or uninstalls Kettu there and
+  // forgets it here.
+  'hosts:update-ssh': { args: [id: string]; result: SshManageResult }
+  'hosts:change-ssh': { args: [id: string, address: SshAddress]; result: SshManageResult }
+  'hosts:reconnect': { args: [id: string]; result: SshManageResult }
+  'hosts:uninstall': { args: [id: string, data: boolean]; result: SshManageResult }
   // The session's agent names the page's pill while a turn uses it.
   'browser:show': { args: [sessionId: string, agent: ControlAgent | null]; result: void }
   'browser:hide': { args: [sessionId: string]; result: void }
@@ -516,6 +535,7 @@ export interface IpcEventContract {
   'browser:opened': { sessionId: string }
   /** A session's agent opened a mobile device, which the pane shows if the panel is free. */
   'devices:opened': { sessionId: string; deviceId: string }
+  'terminals:ready': null
   'browser:site-icon': SiteIconEvent
   /** The sites brought from other browsers changed. */
   'sign-ins:changed': BroughtSite[]
@@ -750,8 +770,12 @@ export interface KettuApi {
     status(): Promise<HostsStatus>
     /** Pairs with the host of a pasted link, unless it is no link or this computer's own. */
     pair(link: string): Promise<HostPairStart>
+    /** The machines of the user's SSH config, resolved by the system's ssh. */
+    sshConfig(): Promise<SshConfigHosts>
     /** Adds the machine at an SSH address over the system's ssh, unless it is no SSH address. */
-    addSsh(target: string): Promise<HostPairStart>
+    addSsh(address: SshAddress): Promise<HostPairStart>
+    /** A key file's path from the system's file dialog, or null when none was chosen. */
+    chooseKeyFile(): Promise<string | null>
     /** Add host closed: a pairing not yet added ends. */
     closePairing(pairId: number): Promise<void>
     /** The account's hosts this computer may pair with. */
@@ -767,6 +791,14 @@ export interface KettuApi {
     remove(id: string): Promise<'unknown_host' | null>
     /** Tries the hosts not connected now, without waiting for the next try. */
     retry(): Promise<void>
+    /** Installs this computer's version on a host added over SSH, then connects to it again. */
+    updateSsh(id: string): Promise<SshManageResult>
+    /** Reaches a host added over SSH at another address, once it reaches the same daemon there. */
+    changeSsh(id: string, address: SshAddress): Promise<SshManageResult>
+    /** Tries a host added over SSH now; settles once the try did. */
+    reconnect(id: string): Promise<SshManageResult>
+    /** Uninstalls Kettu from a host added over SSH, its data too with `data`, then forgets it. */
+    uninstall(id: string, data: boolean): Promise<SshManageResult>
     onChanged(listener: (status: HostsStatus) => void): () => void
     onPairing(listener: (event: HostPairingEvent) => void): () => void
     /**

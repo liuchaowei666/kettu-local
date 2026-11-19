@@ -5,11 +5,12 @@
 
 import { spawn } from 'node:child_process'
 import { Duplex } from 'node:stream'
-import { MAX_FAILURE_DETAIL } from '@shared/remote/hosts'
+import { MAX_FAILURE_DETAIL, type SshAddress } from '@shared/remote/hosts'
 import type { Platform } from '@shared/platform'
 import type { DirectAddress } from '@shared/remote/protocol'
 import type { Transport } from '@shared/remote/transport'
 import installScript from '../../tools/daemon/install.sh?raw'
+import uninstallScript from '../../tools/daemon/uninstall.sh?raw'
 import { quotePosix } from '../agent-host/quote'
 import { RELEASES_ENV } from '../daemon/update'
 import { CLOSE_GRACE_MS } from './limits'
@@ -44,6 +45,21 @@ const OPTIONS = [
   ...['-o', 'RemoteCommand=none'],
   ...['-o', 'LogLevel=INFO'],
 ]
+
+/**
+ * The machine, last on ssh's command line, after the port and key file of an address typed by
+ * hand; the key file with `IdentitiesOnly`, so ssh offers it instead of the agent's keys.
+ */
+export function addressArgs(address: SshAddress): string[] {
+  return [
+    ...(address.sshPort === undefined ? [] : ['-p', String(address.sshPort)]),
+    ...(address.identityFile === undefined
+      ? []
+      : ['-i', address.identityFile, '-o', 'IdentitiesOnly=yes']),
+    '--',
+    address.target,
+  ]
+}
 
 /** What kept ssh from a machine, from what it printed. */
 export type SshProblem =
@@ -114,13 +130,14 @@ const keepEnd = (kept: string, chunk: string): string => {
  */
 export function runSsh(
   program: SshProgram,
-  target: string,
+  address: SshAddress,
   script: string,
   options: { timeoutMs: number; signal: AbortSignal },
 ): Promise<SshRun | null> {
   return new Promise((resolve) => {
     if (options.signal.aborted) return resolve(null)
-    const child = spawn(program.command, [...program.args, ...OPTIONS, '--', target, 'sh -s'], {
+    const args = [...program.args, ...OPTIONS, ...addressArgs(address), 'sh -s']
+    const child = spawn(program.command, args, {
       env: program.env ?? process.env,
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
@@ -286,6 +303,38 @@ export function installRun(version: string, env: NodeJS.ProcessEnv = process.env
 }
 
 /**
+ * The uninstall script, with its output on one stream as the install's, deleting the daemon's data
+ * and logs too with `data`.
+ */
+export function uninstallRun(data: boolean): string {
+  return ['exec 2>&1', data ? 'set -- --data' : 'set --', uninstallScript].join('\n')
+}
+
+const UNINSTALL_MARK = 'kettu-uninstall'
+
+/** What the uninstall script printed of how it ended. */
+export interface UninstallReport {
+  /** It ran to its end. */
+  done: boolean
+  /** The `kettu` it left alone, as the install script did not install it. */
+  foreign: string | null
+  /** A daemon still ran outside the service, so only the service was removed. */
+  running: boolean
+}
+
+export function parseUninstallReport(stdout: string): UninstallReport {
+  const report: UninstallReport = { done: false, foreign: null, running: false }
+  for (const line of stdout.replace(/\r/g, '').split('\n')) {
+    if (!line.startsWith(`${UNINSTALL_MARK} `)) continue
+    const [field = '', ...rest] = line.slice(UNINSTALL_MARK.length + 1).split(' ')
+    if (field === 'done') report.done = true
+    else if (field === 'running') report.running = true
+    else if (field === 'foreign') report.foreign = rest.join(' ').slice(0, MAX_FAILURE_DETAIL)
+  }
+  return report
+}
+
+/**
  * Each connection to the daemon through `ssh -W`, one ssh each, and why the last one ended when
  * ssh failed.
  */
@@ -295,7 +344,7 @@ export class SshForward {
 
   constructor(
     private readonly program: SshProgram,
-    private readonly target: string,
+    private readonly address: SshAddress,
   ) {}
 
   /** Why the last ssh failed, or null while it runs or when it said nothing known. */
@@ -318,7 +367,7 @@ export class SshForward {
       const forward = `${address.host}:${address.port}`
       const child = spawn(
         this.program.command,
-        [...this.program.args, ...OPTIONS, '-W', forward, '--', this.target],
+        [...this.program.args, ...OPTIONS, '-W', forward, ...addressArgs(this.address)],
         {
           env: this.program.env ?? process.env,
           stdio: ['pipe', 'pipe', 'pipe'],

@@ -35,6 +35,12 @@ const terminals = new PortClient<TerminalEvent>({
   transport: hostTransport('terminal-host'),
   lazy: true,
 })
+subscribe('terminals:ready')(() => terminals.connect())
+void invoke('terminal-host:running')
+  .then((running) => {
+    if (running) terminals.connect()
+  })
+  .catch((error: unknown) => console.warn('Could not read terminal host status', error))
 
 const devices = new PortClient<DeviceEvent>({
   label: 'device host',
@@ -171,7 +177,9 @@ const api: KettuApi = {
   hosts: {
     status: () => invoke('hosts:status'),
     pair: (link) => invoke('hosts:pair', link),
-    addSsh: (target) => invoke('hosts:add-ssh', target),
+    sshConfig: () => invoke('hosts:ssh-config'),
+    addSsh: (address) => invoke('hosts:add-ssh', address),
+    chooseKeyFile: () => invoke('hosts:choose-key-file'),
     closePairing: (pairId) => invoke('hosts:pair-close', pairId),
     discover: () => invoke('hosts:discover'),
     pairDiscovered: (relayId) => invoke('hosts:pair-discovered', relayId),
@@ -180,6 +188,10 @@ const api: KettuApi = {
     setAddresses: (id, addresses) => invoke('hosts:set-addresses', id, addresses),
     remove: (id) => invoke('hosts:remove', id),
     retry: () => invoke('hosts:retry'),
+    updateSsh: (id) => invoke('hosts:update-ssh', id),
+    changeSsh: (id, address) => invoke('hosts:change-ssh', id, address),
+    reconnect: (id) => invoke('hosts:reconnect', id),
+    uninstall: (id, data) => invoke('hosts:uninstall', id, data),
     onChanged: onHostsChanged,
     onPairing: onHostPairing,
     request: (hostId, method, params) => otherHosts.request(hostId, method, params),

@@ -38,9 +38,10 @@ npmRebuild: false
 electronFuses:
   enableNodeCliInspectArguments: false
 publish:
-  provider: generic
-  # Domestic mirror in front of this fork releases, so updates download fast.
-  url: https://ghproxy.net/https://github.com/liuchaowei666/kettu-local/releases/latest/download/
+  provider: github
+  owner: KettuAI
+  repo: Kettu
+  releaseType: draft
 
 mac:
   category: public.app-category.developer-tools

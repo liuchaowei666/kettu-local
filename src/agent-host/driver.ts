@@ -31,6 +31,7 @@ export interface DirectReads {
   limits?: boolean
   /** Its connections have `readContext`. */
   context?: boolean
+  contextEstimates?: boolean
 }
 
 export interface DriverContext {
@@ -76,6 +77,11 @@ export interface HostedContext extends DriverContext {
   spec: LaunchSpec
   env: Env
   spawn: HostedSpawn
+  /**
+   * The user's CLI to start a process with: `started` while it is still there, else the one
+   * detection finds again. Rejects with why none can run. A test may leave it out.
+   */
+  currentCli?(started: string): Promise<string>
 }
 
 export interface HostedDriver extends StoredConfig {

@@ -138,6 +138,9 @@ const INSTALL_METHODS: ReadonlySet<unknown> = new Set<AgentInstallMethod['id']>(
 
 type Fields = Record<string, unknown>
 
+// A request's byte ranges; a request holds a few dozen lines at most.
+const RAW_HANDLE_CHARS = 16_384
+
 function isRecord(value: unknown): value is Fields {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -1668,6 +1671,28 @@ export function createValidators(platform: Platform): Validators {
     },
     'sessions.requests': session,
     'sessions.outline': session,
+    'sessions.modelRequests': (params) => {
+      const o = fields(params)
+      // A byte offset into a session file, or OpenCode's base64url cursor.
+      const before = optionalString(o, 'before', 1024)
+      if (before !== undefined && !/^[A-Za-z0-9_-]+$/.test(before))
+        throw invalidParams('before must be a position a page gave')
+      return { sessionId: sessionId(o), ...(before === undefined ? {} : { before }) }
+    },
+    'sessions.modelRequestsOverview': session,
+    'sessions.modelRequestRaw': (params) => {
+      const o = fields(params)
+      const raw = string(o, 'raw', RAW_HANDLE_CHARS)
+      if (
+        raw !== 'system' &&
+        !/^\d+-\d+(,\d+-\d+)*$/.test(raw) &&
+        !/^msg_[A-Za-z0-9]+(,msg_[A-Za-z0-9]+)*$/.test(raw)
+      ) {
+        throw invalidParams('raw must name records of a page')
+      }
+      const full = optionalFlag(o, 'full')
+      return { sessionId: sessionId(o), raw, ...(full === undefined ? {} : { full }) }
+    },
     'sessions.search': (params) => ({ query: string(fields(params), 'query', SEARCH_QUERY_CHARS) }),
     'sessions.find': (params) => {
       const o = fields(params)
@@ -1778,6 +1803,7 @@ export function createValidators(platform: Platform): Validators {
       }
     },
     'sessions.context': session,
+    'sessions.contextEstimates': session,
     'sessions.queue': (params) => {
       const o = fields(params)
       return { sessionId: sessionId(o), content: promptContent(o.content) }

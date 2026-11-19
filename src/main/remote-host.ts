@@ -31,8 +31,12 @@ import {
 import {
   parseHostPairingState,
   parseHostStatus,
+  parseSshManageResult,
   type HostPairingState,
   type HostStatus,
+  type SshAddress,
+  type SshManageAction,
+  type SshManageResult,
 } from '@shared/remote/hosts'
 import { isPairingState, type PairingState } from '@shared/remote/pairing'
 import type { HostAdminEvent } from '@shared/remote/host-admin'
@@ -55,6 +59,9 @@ const MAX_HOSTS = 100
 const MAX_ACTIVITY = 500
 /** How long a request to the remote host may take before it answers with nothing. */
 const REQUEST_TIMEOUT_MS = 10_000
+/** How long an action on a host added over SSH may take: two logins and an install's download. */
+const MANAGE_SSH_TIMEOUT_MS = 13 * 60_000
+
 /** How long listing the account's hosts may take: the relay's regions, then each relay's list. */
 const DISCOVER_TIMEOUT_MS = 20_000
 
@@ -482,7 +489,7 @@ export class RemoteHost {
    * null when the device key cannot be read.
    */
   async addSshHost(
-    target: string,
+    address: SshAddress,
     model: string,
     listener: HostPairingListener,
   ): Promise<number | null> {
@@ -491,7 +498,7 @@ export class RemoteHost {
     this.hostPairings.set(pairId, listener)
     await this.reconcile()
     if (!this.hostPairings.has(pairId)) return pairId
-    if (!this.host?.post({ type: 'remote-host:add-ssh-host', pairId, target, model })) {
+    if (!this.host?.post({ type: 'remote-host:add-ssh-host', pairId, address, model })) {
       this.finishPairing(pairId, { state: 'failed', reason: 'ssh_failed' })
     }
     return pairId
@@ -544,6 +551,22 @@ export class RemoteHost {
   /** The session's page is gone: its forwards on that host close. */
   closeForwards(hostId: string, sessionId: string): void {
     this.host?.post({ type: 'remote-host:forward-close', hostId, sessionId })
+  }
+
+  /**
+   * Runs an action of the page of a host added over SSH; an update downloads and installs a
+   * release there, so it may take minutes.
+   */
+  async manageSshHost(id: string, action: SshManageAction): Promise<SshManageResult> {
+    if (!this.hostList?.some((entry) => entry.id === id && entry.ssh)) {
+      return { ok: false, reason: 'unknown_host' }
+    }
+    const answer = await this.request(
+      (requestId) => ({ type: 'remote-host:manage-ssh', requestId, id, action }),
+      MANAGE_SSH_TIMEOUT_MS,
+    )
+    if (answer?.type !== 'remote-host:ssh-managed') return { ok: false, reason: 'ssh_failed' }
+    return parseSshManageResult(answer.result) ?? { ok: false, reason: 'ssh_failed' }
   }
 
   /** Forgets a host here; false when it is not known. */
@@ -1033,6 +1056,7 @@ export class RemoteHost {
       case 'remote-host:reset':
       case 'remote-host:stop-serving':
       case 'remote-host:forwarding':
+      case 'remote-host:ssh-managed':
       case 'remote-host:discovered':
         if (this.host === host) this.requests.get(message.requestId)?.(message)
         break

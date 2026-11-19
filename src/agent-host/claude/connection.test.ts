@@ -126,7 +126,11 @@ afterEach(async () => {
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
 })
 
-async function setup(env: Record<string, string> = {}, spec: Partial<LaunchSpec> = {}) {
+async function setup(
+  env: Record<string, string> = {},
+  spec: Partial<LaunchSpec> = {},
+  extra: Partial<HostedContext> = {},
+) {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'kettu-claude-sdk-'))
   dirs.push(dir)
   const entry = path.join(dir, 'sdk.mjs')
@@ -160,6 +164,7 @@ async function setup(env: Record<string, string> = {}, spec: Partial<LaunchSpec>
       children.push(child)
       return child as never
     },
+    ...extra,
   }
   const driver = claudeSdkDriver(async (file) => {
     loaded.push(file)
@@ -342,6 +347,34 @@ describe('the Claude Agent SDK driver', () => {
       'auto',
       ...(process.getuid?.() === 0 ? [] : ['bypassPermissions']),
     ])
+  })
+
+  it('starts Claude Code from the CLI the host finds again once the first one is gone', async () => {
+    const asked: string[] = []
+    const { sdk, connection, spawned } = await setup(
+      {},
+      {},
+      {
+        currentCli: async (started) => {
+          asked.push(started)
+          return '/opt/homebrew/bin/claude'
+        },
+      },
+    )
+    await connection.newSession('/repo', {})
+    expect(asked).toEqual(['/opt/claude/bin/claude'])
+    expect(sdk.last.options.pathToClaudeCodeExecutable).toBe('/opt/homebrew/bin/claude')
+    expect(spawned.at(-1)?.command).toBe('/opt/homebrew/bin/claude')
+    // The next start asks about the CLI it now runs.
+    await connection.newSession('/repo', {})
+    expect(asked).toEqual(['/opt/claude/bin/claude', '/opt/homebrew/bin/claude'])
+  })
+
+  it('fails a start with why when no CLI is found again, before the SDK runs', async () => {
+    const gone = new AgentRequestError('agent_error', '/opt/claude/bin/claude is gone.')
+    const { sdk, connection } = await setup({}, {}, { currentCli: () => Promise.reject(gone) })
+    await expect(connection.newSession('/repo', {})).rejects.toBe(gone)
+    expect(sdk.queries).toEqual([])
   })
 
   it("appends Kettu's memory to the system prompt and turns Claude Code's own memory off", async () => {
@@ -752,6 +785,44 @@ describe('a turn', () => {
     expect(s.sdk.last.inputs[0]!.message.content).toEqual([{ type: 'text', text: 'Hi' }])
   })
 
+  it('takes the latest request input from its response when its start counts none', async () => {
+    s.sdk.script = (query) => {
+      query.running()
+      query.emit(
+        stream(query, {
+          type: 'message_start',
+          message: {
+            id: 'msg_1',
+            usage: { input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+          },
+        }),
+        assistant(query, 'msg_1', [{ type: 'text', text: 'a.txt' }], {
+          message: {
+            id: 'msg_1',
+            model: 'claude-opus-5',
+            content: [{ type: 'text', text: 'a.txt' }],
+            usage: {
+              input_tokens: 12,
+              cache_read_input_tokens: 900,
+              cache_creation_input_tokens: 40,
+              output_tokens: 7,
+            },
+          },
+        }),
+        stream(query, { type: 'message_delta', usage: { output_tokens: 7 } }),
+        stream(query, { type: 'message_stop' }),
+      )
+      query.finish()
+    }
+    await s.connection.prompt(sessionId, [{ type: 'text', text: 'Hi' }])
+    expect(target.thread.session.lastRequest).toMatchObject({
+      input: 12,
+      cacheRead: 900,
+      cacheWrite: 40,
+      output: 7,
+    })
+  })
+
   it('says what each main-thread request read from the prompt cache and wrote to it', async () => {
     s.sdk.script = (query) => {
       query.running()
@@ -886,6 +957,15 @@ describe('a turn', () => {
         recent: [{ rate: 100, approx: false }],
         turn: { since: 9_000, tokens: 200, ms: 2_000, requests: 1, approx: 0 },
         session: { tokens: 200, ms: 2_000, requests: 1, approx: 0 },
+      })
+      // The latest request, from when it went out to its end.
+      expect(target.thread.session.lastRequest).toEqual({
+        at: 9_000,
+        input: null,
+        cacheRead: null,
+        cacheWrite: null,
+        output: 200,
+        ms: 3_000,
       })
 
       await at(15_000, toolResult)

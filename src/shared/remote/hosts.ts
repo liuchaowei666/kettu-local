@@ -19,14 +19,53 @@ export const MAX_HOST_ADDRESSES = 64
 /** The longest SSH address kept, as long as a host name may be. */
 export const MAX_SSH_TARGET = 255
 
+/** The longest key file path kept. */
+export const MAX_IDENTITY_FILE = 1024
+
 /**
- * How a host added over SSH is reached: the address the user typed, which their SSH config
- * resolves, and the port its daemon takes channels on, on that machine's loopback alone.
+ * How ssh reaches a machine: the address the user typed or the alias their SSH config names,
+ * and, for an address typed by hand, the SSH server's port and the key file ssh is to use alone.
  */
-export interface SshRoute {
+export interface SshAddress {
   target: string
+  /** Passed to ssh as `-p`, over the config's `Port`. */
+  sshPort?: number
+  /** An absolute path, passed to ssh as `-i` with `IdentitiesOnly=yes`; only ssh reads it. */
+  identityFile?: string
+}
+
+/** How a host added over SSH is reached, and the port its daemon takes channels on there. */
+export interface SshRoute extends SshAddress {
+  /** On that machine's loopback alone. */
   port: number
 }
+
+/** The most machines Add host lists from the user's SSH config. */
+export const MAX_SSH_CONFIG_HOSTS = 200
+
+/** A machine of the user's SSH config, as `ssh -G` resolves its alias. */
+export interface SshConfigHost {
+  alias: string
+  user: string
+  hostname: string
+  port: number
+  /** The jump hosts it is reached through, as the config writes them. */
+  proxyJump?: string
+  /** The known host whose SSH address is this alias. */
+  hostId?: string
+}
+
+/** The machines of the user's SSH config Add host may add, or why there are none to show. */
+export type SshConfigHosts =
+  | { state: 'ok'; hosts: SshConfigHost[] }
+  /** No ssh program to resolve the aliases with. */
+  | { state: 'failed'; reason: 'ssh_missing' }
+  /** A file of the config, at `path`, could not be read; `detail` is the system's error. */
+  | { state: 'failed'; reason: 'unreadable'; path: string; detail: string }
+
+/** Whether two SSH addresses log in to the same place, which reaches one daemon. */
+export const sameSshAddress = (a: SshAddress, b: SshAddress): boolean =>
+  a.target === b.target && a.sshPort === b.sshPort
 
 /** A host this computer was added to. */
 export interface KnownHost {
@@ -128,6 +167,78 @@ export type SshAddFailure =
   /** Anything else; the detail is the end of what ssh said. */
   | 'ssh_failed'
 
+/** What the page of a host added over SSH does to it over SSH. */
+export type SshManageAction =
+  /** Installs this computer's version there, as adding does, and connects again. */
+  | { kind: 'update' }
+  /** Reaches it at another address, once the daemon there has its key. */
+  | { kind: 'address'; address: SshAddress }
+  /** Uninstalls Kettu there, its sessions and settings too with `data`, then forgets it here. */
+  | { kind: 'uninstall'; data: boolean }
+  /** Tries it at once, not waiting for the next try; settles once the try did. */
+  | { kind: 'reconnect' }
+
+/** Why an action on a host added over SSH did not happen. */
+export type SshManageFailure =
+  | SshAddFailure
+  /** Not known here, or not added over SSH. */
+  | 'unknown_host'
+  /** Another action on it is under way. */
+  | 'busy'
+  /** The daemon at the address has another key, or there is none: it is another machine. */
+  | 'other_host'
+  /** The install script did not install `kettu` there, at `detail`, which was left alone. */
+  | 'uninstall_foreign'
+  /** A daemon runs there outside its service; only the service was removed. */
+  | 'uninstall_running'
+  /** The uninstall script failed; the detail is the end of its output. */
+  | 'uninstall_failed'
+
+export type SshManageResult =
+  { ok: true } | { ok: false; reason: SshManageFailure; detail?: string }
+
+const MANAGE_FAILURES: readonly string[] = [
+  'ssh_missing',
+  'ssh_unreachable',
+  'ssh_auth',
+  'ssh_host_unknown',
+  'ssh_host_changed',
+  'ssh_forwarding',
+  'ssh_unsupported',
+  'ssh_install',
+  'ssh_not_running',
+  'ssh_failed',
+  'unknown_host',
+  'busy',
+  'other_host',
+  'uninstall_foreign',
+  'uninstall_running',
+  'uninstall_failed',
+]
+
+/** An action's result as it crosses a process, or null when it is not one. */
+export function parseSshManageResult(value: unknown): SshManageResult | null {
+  if (typeof value !== 'object' || value === null) return null
+  const { ok, reason, detail } = value as Record<string, unknown>
+  if (ok === true) return { ok }
+  if (ok !== false || !MANAGE_FAILURES.includes(reason as string)) return null
+  const failed = { ok, reason: reason as SshManageFailure } as const
+  return typeof detail === 'string' && detail.length > 0
+    ? { ...failed, detail: detail.slice(-MAX_FAILURE_DETAIL) }
+    : failed
+}
+
+/** An action as it crosses a process, its address checked, or null when it is not one. */
+export function parseSshManageAction(value: unknown): SshManageAction | null {
+  if (typeof value !== 'object' || value === null) return null
+  const { kind, address, data } = value as Record<string, unknown>
+  if (kind === 'update' || kind === 'reconnect') return { kind }
+  if (kind === 'uninstall') return typeof data === 'boolean' ? { kind, data } : null
+  if (kind !== 'address') return null
+  const parsed = parseSshAddress(address)
+  return parsed ? { kind, address: parsed } : null
+}
+
 /** Why pasting a link added no host. */
 export type HostPairingFailure =
   /** The host ended the handshake: the code expired, was used, or a new one replaced it. */
@@ -202,14 +313,54 @@ export function parseSshTarget(value: unknown): string | null {
   return /[\s\u0000-\u001f\u007f]/.test(target) ? null : target
 }
 
+const isPort = (value: unknown): value is number =>
+  Number.isSafeInteger(value) && (value as number) >= 1 && (value as number) <= 65535
+
+/** An SSH server's port as typed or kept, 1 to 65535; null otherwise. */
+export function parseSshPort(value: unknown): number | null {
+  return isPort(value) ? value : null
+}
+
+/**
+ * A key file's path as chosen or kept: absolute, on POSIX or Windows, and free of control
+ * characters, so it reaches ssh as one argument it reads as a file; null otherwise.
+ */
+export function parseIdentityFile(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length === 0 || value.length > MAX_IDENTITY_FILE) {
+    return null
+  }
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f]/.test(value)) return null
+  return value.startsWith('/') || /^[A-Za-z]:[\\/]/.test(value) || value.startsWith('\\\\')
+    ? value
+    : null
+}
+
+/**
+ * An SSH address with its options, as it crosses a process: the target as typed, trimmed, and
+ * each option absent or valid; null when any part is not.
+ */
+export function parseSshAddress(value: unknown): SshAddress | null {
+  if (typeof value !== 'object' || value === null) return null
+  const { target, sshPort, identityFile } = value as Record<string, unknown>
+  const parsed = parseSshTarget(target)
+  if (parsed === null) return null
+  const port = sshPort === undefined ? undefined : parseSshPort(sshPort)
+  const file = identityFile === undefined ? undefined : parseIdentityFile(identityFile)
+  if (port === null || file === null) return null
+  return {
+    target: parsed,
+    ...(port === undefined ? {} : { sshPort: port }),
+    ...(file === undefined ? {} : { identityFile: file }),
+  }
+}
+
 function parseSshRoute(value: unknown): SshRoute | null {
   if (typeof value !== 'object' || value === null) return null
   const { target, port } = value as Record<string, unknown>
-  const parsed = parseSshTarget(target)
-  if (parsed === null || parsed !== target || !Number.isSafeInteger(port)) return null
-  return (port as number) >= 1 && (port as number) <= 65535
-    ? { target: parsed, port: port as number }
-    : null
+  const address = parseSshAddress(value)
+  if (address === null || address.target !== target || !isPort(port)) return null
+  return { ...address, port }
 }
 
 /** A known host as it is kept and reported, or null when the value is not one. */
