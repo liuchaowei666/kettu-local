@@ -13,7 +13,6 @@ import {
 } from 'electron'
 import { ATTACHMENT_LIMIT } from '@shared/attachments'
 import { addressKey, parseDirectAddress } from '@shared/remote/address'
-import { readPower } from './power'
 import { DEVICE_ID } from '@shared/remote/device'
 import {
   MAX_HOST_ADDRESSES,
@@ -506,7 +505,6 @@ export function registerIpcHandlers({
     quit.respond(id as number, answer)
   })
 
-  handle('power:read', 0, () => readPower())
   handle('settings:get', 0, () => settings.get())
   handle('settings:update', 1, (_, patch) => {
     const next = settings.update(patch)

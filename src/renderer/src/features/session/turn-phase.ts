@@ -165,6 +165,9 @@ export function endedOnRejection(state: ThreadState | null | undefined): boolean
  */
 export function writingId(state: ThreadState | null | undefined): string | null {
   if (!state) return null
+  // Only a running turn writes: a message left streaming after its turn ended is not still coming.
+  if (state.session.status !== 'running' && state.session.status !== 'awaiting_permission')
+    return null
   for (let i = state.order.length - 1; i >= 0; i--) {
     const entry = state.byId[state.order[i]!]
     // A plan or a notice may land while the message still streams; a subagent's card follows it.

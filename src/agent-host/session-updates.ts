@@ -39,6 +39,12 @@ export interface MapperContext {
   readonly replaying: boolean
   /** The user stopped the turn and the agent has not answered its prompt yet. */
   readonly cancelling: boolean
+  /**
+   * Whether one of Kettu's turns owns this update. Some agents keep sending output after their
+   * prompt has answered, and that output starts no turn: it is shown settled, never as still being
+   * written. Undefined counts as true, for a mapper used without a live session.
+   */
+  readonly inTurn?: boolean
   readonly scope: TurnScope
   readonly now: number
   /** The next `e:<n>` id of this session. */

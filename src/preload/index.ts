@@ -226,9 +226,6 @@ const api: KettuApi = {
     setAgentEnv: (agentId, variable, value) =>
       invoke('marketplace:set-agent-env', agentId, variable, value),
   },
-  power: {
-    read: () => invoke('power:read'),
-  },
   settings: {
     get: () => invoke('settings:get'),
     update: (patch) => invoke('settings:update', patch),

@@ -319,7 +319,8 @@ function mapMessageChunk(
   }
 
   const id = targetId ?? ctx.nextId()
-  const streaming = !ctx.replaying
+  // antigravity keeps sending output after its prompt answered; no turn owns it, so it is settled.
+  const streaming = !ctx.replaying && ctx.inTurn !== false
   if (kind === 'agent') {
     addEntry(ctx, out, {
       kind: 'agent',

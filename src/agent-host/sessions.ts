@@ -3174,6 +3174,7 @@ export class SessionManager {
         thread: live.thread,
         replaying: live.replaying,
         cancelling: live.turn ? live.turn.cancelRequested : live.unansweredCancel !== null,
+        inTurn: live.turn !== null && !live.turn.ended,
         scope: live.scope,
         now: this.now(),
         nextId: () => this.nextId(live),
@@ -10241,6 +10242,9 @@ export class SessionManager {
       })
     }
     if (kept) {
+      // Output an agent sent after its prompt answered has no turn to close it, so it is settled
+      // here, before the thread is stored, rather than left streaming in a reopened session.
+      this.closeOpenEntries(live)
       // A renderer still showing it keeps it, closed.
       if (live.thread.session.status !== 'closed') {
         this.update(live, { status: 'closed', turnStartedAt: null, turnStartUsed: null })

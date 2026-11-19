@@ -65,6 +65,7 @@ const baseSession: SessionView = {
 interface RunOptions {
   replaying?: boolean
   cancelling?: boolean
+  inTurn?: boolean
   thread?: ThreadState
   scope?: TurnScope
   session?: Partial<SessionView>
@@ -84,6 +85,7 @@ function run(updates: SessionUpdate[], options: RunOptions = {}) {
       thread,
       replaying: options.replaying ?? false,
       cancelling: options.cancelling ?? false,
+      inTurn: options.inTurn,
       scope,
       now,
       nextId: () => `e:${++counter}`,
@@ -259,6 +261,11 @@ describe('message chunks', () => {
   it('adds replayed entries as not streaming', () => {
     const { entries } = run([text('Old answer', 'h1')], { replaying: true })
     expect(entries[0]).toMatchObject({ streaming: false })
+  })
+
+  it('adds output that arrives after the prompt answered as settled', () => {
+    const { entries } = run([text('Late answer', 'l1')], { inTurn: false })
+    expect(entries[0]).toMatchObject({ kind: 'agent', streaming: false })
   })
 
   it('runs the parts of a replayed thought together as sent', () => {

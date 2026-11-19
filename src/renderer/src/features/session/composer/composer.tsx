@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDataTransferHorizontalIcon } from '@hugeicons/core-free-icons'
 import { AnimatePresence } from 'motion/react'
 import { useTranslation } from 'react-i18next'
-import type { PowerReading } from '@shared/power'
 import { cacheExpiry, knownExpiry } from '@shared/prompt-cache'
 import {
   harnessOf,
@@ -714,7 +713,6 @@ export function Composer({
             )}
             <span className="kettu-tray__group kettu-tray__group--end">
               <SpeedButton speed={session.speed} />
-              <PowerPill />
               {agent?.balance && agent.balance.balances.length > 0 && (
                 <span
                   className="kettu-tray-balance"
@@ -774,42 +772,3 @@ function steerKeys(sendKey: string): string {
   return sendKey === 'enter' ? 'Ctrl+Enter' : 'Ctrl+Shift+Enter'
 }
 
-/** The computer's power draw, as the desktop meter writes it; nothing shows while it is off. */
-function PowerPill() {
-  const [reading, setReading] = useState<PowerReading | null>(null)
-  useEffect(() => {
-    let alive = true
-    const read = (): void => {
-      void window.kettu.power
-        ?.read()
-        .then((next) => {
-          if (alive) setReading(next)
-        })
-        .catch(() => undefined)
-    }
-    read()
-    const timer = window.setInterval(read, 5000)
-    return () => {
-      alive = false
-      window.clearInterval(timer)
-    }
-  }, [])
-  if (!reading) return null
-  const parts = [
-    reading.cpu !== null ? `CPU ${Math.round(reading.cpu)}` : null,
-    reading.gpu !== null ? `显卡 ${Math.round(reading.gpu)}` : null,
-    `其他 ${Math.round(reading.baseline)}`,
-  ]
-    .filter(Boolean)
-    .join(' · ')
-  return (
-    <span
-      className="kettu-tray-power"
-      data-tone={reading.total >= 400 ? 'low' : reading.total >= 250 ? 'warn' : 'ok'}
-      title={`整机功率约 ${Math.round(reading.total)} W（${parts}，估算）`}
-    >
-      <span className="kettu-tray-power__bolt">⚡</span>
-      <span className="kettu-tray-power__amount">{Math.round(reading.total)} W</span>
-    </span>
-  )
-}
