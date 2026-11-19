@@ -19,6 +19,8 @@ export interface Team {
   id: string
   name: string
   bots: TeamBot[]
+  /** The assistant session this team answers in, once it has one. */
+  assistantId?: string
 }
 
 /** The most bots a team may hold, the chief included. */
@@ -115,7 +117,9 @@ export function chiefPrompt(team: Team, task: string): string {
     task.trim(),
     '---',
     '',
-    members.length > 0 ? `## 团队成员\n${list}` : '这个团队没有成员：你自己完成后直接交付。',
+    members.length > 0
+      ? `## 团队成员\n${list}`
+      : '## 团队成员\n（没有预置成员：你自己按任务用 start_session 开合适的会话，写清每个会话的角色和交付要求。）',
     '',
     '## 怎么做',
     '1. **第一个动作**必须是 `start_session`：给每个成员开一个会话，agent 用上面写的、model 有写就带上。',
@@ -166,7 +170,94 @@ export function validateTeams(value: unknown): Team[] {
     if (bots.length === 0 || bots.length > MAX_TEAM_BOTS) continue
     // A team without a chief cannot start its members, so the first bot is made the chief.
     if (!bots.some((bot) => bot.role === 'chief')) bots[0]!.role = 'chief'
-    teams.push({ id: team.id, name: text(team.name, '团队'), bots })
+    teams.push({
+      id: team.id,
+      name: text(team.name, '团队'),
+      bots,
+      ...(typeof team.assistantId === 'string' && team.assistantId !== ''
+        ? { assistantId: team.assistantId }
+        : {}),
+    })
   }
   return teams
+}
+
+/** What a member session starts with: the task, the team's terms, and its own part. */
+export function memberPrompt(team: Team, task: string, bot: TeamBot): string {
+  const chief = chiefOf(team)
+  return [
+    '你是团队成员「' + bot.name + '」，团队「' + team.name + '」' +
+      (chief ? '，主管是「' + chief.name + '」' : '') + '。',
+    '',
+    '## 任务（用户原话）',
+    '---',
+    task.trim(),
+    '---',
+    '',
+    '## 团队的约定',
+    '- 范围克制：只做与这个任务直接相关的改动，不顺手重构别处；',
+    '- 改动要能构建、有测试（或说明为什么没有），并说清怎么验证；',
+    '- 不确定的地方写进交付说明，不要猜着改。',
+    '',
+    '## 你的职责',
+    bot.prompt || '按任务自行判断该做什么，并把范围写清楚。',
+    '',
+    '## 记忆',
+    '开工前先读 .team/bots/' + bot.id + '.md（不存在就跳过）；结束前把这次做了什么、关键决定追加进去。',
+    '',
+    '## 交付',
+    '最后一轮回复写清：改了哪些文件、怎么验证、还剩什么问题或风险。',
+  ].join('\n')
+}
+
+/** What the assistant's session opens with: who it is, and the rules it works by. */
+export function chiefStandbyPrompt(team: Team): string {
+  return [
+    '你是我的助理' + (chiefOf(team)?.name ? '「' + chiefOf(team)!.name + '」' : '') + '，团队「' + team.name + '」。',
+    '以后我所有的活都直接发在这个会话里，由你安排，不用我操心怎么拆、找谁做。',
+    '',
+    '## 你只做这四件事',
+    '1. 拆解我交代的事，写清范围与验收标准；',
+    '2. 用 start_session 给团队里合适的成员各开一个会话，把分工发下去（agent 按成员配置，model 有写就带上）；',
+    '   **成员不用我预先配置**：团队里没有合适的人，你就按任务自己开（例如一个实现的、一个审查的），在开场消息里写清它的角色、任务和交付要求；',
+    '3. 等成员结束，用 get_session 收成果，不合格就用 send_message 打回重做；',
+    '4. 给我一份简短汇报：做了什么、改了哪些文件、怎么验证、还有什么风险。',
+    '',
+    '你不做实现：不写代码、不改文件、不跑会写入的命令。发现自己动手了就停下来，转给成员。',
+    '派活只发一次；不要发「收到」「谢谢」；成员没开完之前不要调别的工具。',
+    '收尾前跑一次 git status --short 自查：出现你自己改的文件就是违规，回退并改派。',
+    '',
+    '## 现在',
+    '还没有任务。只回复一句「准备就绪，把活发我就行」，然后等我安排。',
+  ].join('\n')
+}
+export function chiefReviewPrompt(
+  team: Team,
+  task: string,
+  members: { name: string; sessionId: string }[],
+): string {
+  const list = members.map((entry) => '- ' + entry.name + '：' + entry.sessionId).join('\n')
+  return [
+    '你是团队主管' + (chiefOf(team)?.name ? '「' + chiefOf(team)!.name + '」' : '') +
+      '，团队「' + team.name + '」。',
+    '',
+    '## 用户交给团队的任务',
+    '---',
+    task.trim(),
+    '---',
+    '',
+    '## 已经发生的事',
+    'Kettu 已经按你的团队配置，为每个成员开好了会话，并把各自的分工发了下去：',
+    list || '（这个团队没有成员）',
+    '',
+    '你的会话是只读的：你改不了文件、跑不了写入命令。这是故意的——实现由成员负责，你只做判断。',
+    '',
+    '## 你要做的',
+    '1. 用 get_session 读每个成员的最终回复（细节不够就用 read_session_history）；',
+    '2. 对照任务的验收标准逐条判断：通过，还是需要返工、具体要改什么；',
+    '3. 给用户一份简短的交付说明：达成了什么、改了哪些文件、怎么验证、已知问题与建议；',
+    '4. 把这次的判断与经验追加到 .team/bots/chief.md。',
+    '',
+    '不要自己去补成员没做完的部分。缺口就如实写出来，并说明该由谁补、补什么。',
+  ].join('\n')
 }

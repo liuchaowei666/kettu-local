@@ -20,8 +20,8 @@
   "copyPrompt": "复制开场提示词",
   "copied": "已复制",
   "needChief": "这个团队没有主管",
-  "startsWith": "由「{{name}}」（{{agent}}）开场",
-  "startHint": "会新建一个会话并把主管的开场消息填进输入框，你确认后按回车才开始。",
+  "startsWith": "助理：{{name}}（{{agent}}）",
+  "startHint": "第一次点「开始任务」会创建团队的助理会话（主管）；以后每次都是给这个会话发消息——你只需要跟它一个聊，它去安排成员。",
   "model": "模型",
   "modelHint": "默认（跟随智能体）"
 }
