@@ -204,9 +204,14 @@ export function providersPatch(only?: LocalProvider[]): string {
       if (model.contextWindow !== undefined) lines.push(`            contextWindow: ${model.contextWindow}`)
       if (model.maxTokens !== undefined) lines.push(`            maxTokens: ${model.maxTokens}`)
       if (model.input && model.input.length > 0) lines.push(`            input: [${model.input.join(', ')}]`)
-      if (model.reasoningEfforts) {
+      // A routing-group model always takes all four, so a config that forgets the field is not
+      // read as "supports none"; other models declare their own, since vendors differ.
+      const efforts =
+        model.reasoningEfforts ??
+        (model.id.startsWith('group/') ? { off: 'none', low: 'low', high: 'high', max: 'max' } : null)
+      if (efforts) {
         lines.push('            reasoningEfforts:')
-        for (const [level, effort] of Object.entries(model.reasoningEfforts)) {
+        for (const [level, effort] of Object.entries(efforts)) {
           lines.push(`              ${quote(level)}: ${effort}`)
         }
       }
