@@ -7,5 +7,6 @@
   "src/renderer/src/features/session/composer/composer.tsx": "c94a46777f6e4af79a4908e12d7856b7a6062bbc2723353819085908b529bc03",
   "src/renderer/src/features/usage/plan-limits.tsx": "af02d6e8952ddb61e1486a3e2ce3337e34ad9207412aa3c390030059dab15775",
   "src/renderer/src/features/usage/usage.css": "d1884790cf91eaacf9f0320d4295b9cabba1f2d82168af59d0d5b69f2e320fb8",
-  "src/renderer/src/styles/affect.css": "7b39575126f6a5ad1c64124616b67e0a527fe25bb66deadc21711ad7f8d1981d"
+  "src/renderer/src/styles/affect.css": "7b39575126f6a5ad1c64124616b67e0a527fe25bb66deadc21711ad7f8d1981d",
+  "src/agent-host/guide/skill-files.ts": "90e70ae34c691987af5ed818dd445b5a34cc3e0a05174176795bfd8c567efdb4"
 }

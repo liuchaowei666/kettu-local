@@ -26,6 +26,9 @@ export async function writeKettuSkills(root: string): Promise<void> {
       const dir = path.join(partial, skill.name)
       await mkdir(dir, { recursive: true })
       await writeFile(path.join(dir, 'SKILL.md'), skill.text)
+      // Readers differ on where a skill's SKILL.md sits: both the skill's own folder and the
+      // folder above it keep a copy, so either convention finds it.
+      await writeFile(path.join(partial, 'SKILL.md'), skill.text)
       for (const file of skill.files) await writeFile(path.join(dir, file.name), file.text)
       await rename(partial, path.join(root, folder))
     } catch (error) {
