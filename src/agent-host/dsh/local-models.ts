@@ -74,7 +74,13 @@ function starter(): LocalConfig {
         baseURL: 'http://127.0.0.1:3425/v1',
         api: 'openai-completions',
         apiKeyEnv: 'MAGPIE_GATEWAY_KEY',
-        models: [{ id: 'group/deepseek-2', name: 'DeepSeek (Magpie)' }],
+        models: [
+          {
+            id: 'group/deepseek-2',
+            name: 'DeepSeek (Magpie)',
+            reasoningEfforts: { off: 'none', low: 'low', high: 'high', max: 'max' },
+          },
+        ],
       },
     ],
   }
