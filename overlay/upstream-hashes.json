@@ -8,5 +8,11 @@
   "src/renderer/src/features/usage/plan-limits.tsx": "af02d6e8952ddb61e1486a3e2ce3337e34ad9207412aa3c390030059dab15775",
   "src/renderer/src/features/usage/usage.css": "d1884790cf91eaacf9f0320d4295b9cabba1f2d82168af59d0d5b69f2e320fb8",
   "src/renderer/src/styles/affect.css": "7b39575126f6a5ad1c64124616b67e0a527fe25bb66deadc21711ad7f8d1981d",
-  "src/agent-host/guide/skill-files.ts": "90e70ae34c691987af5ed818dd445b5a34cc3e0a05174176795bfd8c567efdb4"
+  "src/agent-host/guide/skill-files.ts": "90e70ae34c691987af5ed818dd445b5a34cc3e0a05174176795bfd8c567efdb4",
+  "src/shared/power.ts": "missing",
+  "src/shared/ipc.ts": "9060519c93a77f7016d612f1b8e52872776db85e115da6ead0617a63ec52b192",
+  "src/main/power.ts": "missing",
+  "src/main/ipc.ts": "9e06f41aa24c58d83fa5785e00a6aaa156ec9c2c207f8ecec44a3ea1955c02b6",
+  "src/preload/index.ts": "8f2002f7c14a134b43418167be598c720506644ee7026064857ba8a6f3f143ea",
+  "src/renderer/src/web/api.ts": "8907ae1dfe17942dd7fcd8b64a7993a52d3db137cc21e392ed5528c7b95c0fc9"
 }
