@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { RunningWork } from '@shared/agent-host'
 import type { Caller } from './artifacts/tools'
@@ -179,5 +180,128 @@ describe('archive_session', () => {
     const out = await t.call(caller, 'archive_session', { id: 'started' })
     expect(out.isError).toBeUndefined()
     expect(archiveNow).toHaveBeenCalledWith('started', 'Claude Code')
+  })
+})
+
+const target = path.resolve('target-project')
+const other = path.resolve('other-project')
+
+function starting(overrides: { resolveProject?: SessionToolsDeps['resolveProject'] } = {}): {
+  tools: SessionTools
+  start: ReturnType<typeof vi.fn<SessionToolsDeps['start']>>
+  resolveProject: SessionToolsDeps['resolveProject']
+  projects: { path: string; name: string }[]
+} {
+  const sessions = [
+    session('starter', null),
+    { ...session('started', 'starter'), parentId: null, projectPath: target },
+    { ...session('stranger', null), projectPath: other },
+  ]
+  const start = vi.fn<SessionToolsDeps['start']>(async () => 'started')
+  const resolveProject = overrides.resolveProject ?? vi.fn(async () => target)
+  const projects = [
+    { path: target, name: 'target-project' },
+    { path: other, name: 'other-project' },
+  ]
+  const deps = {
+    info: (id: string) => sessions.find((item) => item.id === id) ?? null,
+    start,
+    resolveProject,
+    started: () => [],
+    mode: async () => null,
+    agents: () => [],
+    startMode: () => undefined,
+    starterRank: () => null,
+    lastReply: async () => null,
+    send: vi.fn(async () => ({ delivered: 'sent' as const })),
+    name: () => 'Starter',
+    projects: () => projects,
+  } as unknown as SessionToolsDeps
+  return { tools: new SessionTools(deps), start, resolveProject, projects }
+}
+
+describe('start_session project', () => {
+  it('starts a session in the project it names', async () => {
+    const { tools: t, start, resolveProject } = starting()
+    const out = await t.call(caller, 'start_session', { prompt: 'build it', project: target })
+    expect(out.isError).toBeUndefined()
+    expect(resolveProject).toHaveBeenCalledWith(target)
+    expect(start).toHaveBeenCalledWith(
+      'starter',
+      expect.objectContaining({ prompt: 'build it', project: target }),
+    )
+    expect(out.structuredContent).toMatchObject({ id: 'started', project: target })
+  })
+
+  it('uses the caller project when project is left out', async () => {
+    const { tools: t, start } = starting()
+    const out = await t.call(caller, 'start_session', { prompt: 'x' })
+    expect(out.isError).toBeUndefined()
+    expect(start.mock.calls[0]![1]).not.toHaveProperty('project')
+  })
+
+  it('refuses a relative project path', async () => {
+    const { tools: t, start } = starting()
+    const out = await t.call(caller, 'start_session', { prompt: 'x', project: 'relative/folder' })
+    expect(out.isError).toBe(true)
+    expect(start).not.toHaveBeenCalled()
+  })
+
+  it('refuses a project that is not an existing folder', async () => {
+    const resolveProject = vi.fn<SessionToolsDeps['resolveProject']>(async () => {
+      throw new Error(`${path.resolve('missing')} does not exist`)
+    })
+    const { tools: t, start } = starting({ resolveProject })
+    const out = await t.call(caller, 'start_session', {
+      prompt: 'x',
+      project: path.resolve('missing'),
+    })
+    expect(out.isError).toBe(true)
+    expect(start).not.toHaveBeenCalled()
+  })
+
+  it('refuses a blank project', async () => {
+    const { tools: t, start } = starting()
+    const out = await t.call(caller, 'start_session', { prompt: 'x', project: '   ' })
+    expect(out.isError).toBe(true)
+    expect(start).not.toHaveBeenCalled()
+  })
+})
+
+describe('a session started in another project', () => {
+  it('is readable by get_session', async () => {
+    const { tools: t } = starting()
+    const out = await t.call(caller, 'get_session', { id: 'started' })
+    expect(out.isError).toBeUndefined()
+    expect(out.structuredContent).toMatchObject({ id: 'started', project: target })
+  })
+
+  it('takes send_message', async () => {
+    const { tools: t } = starting()
+    const out = await t.call(caller, 'send_message', { id: 'started', text: 'go on' })
+    expect(out.isError).toBeUndefined()
+    expect(out.structuredContent).toEqual({ id: 'started', delivered: 'sent' })
+  })
+
+  it("reads the caller's own session by default", async () => {
+    const { tools: t } = starting()
+    const out = await t.call(caller, 'get_session', {})
+    expect(out.isError).toBeUndefined()
+  })
+
+  it('never reaches a session in another project the caller did not start', async () => {
+    const { tools: t } = starting()
+    const out = await t.call(caller, 'get_session', { id: 'stranger' })
+    expect(out.isError).toBe(true)
+  })
+})
+
+describe('list_projects', () => {
+  it('lists the projects the host knows, with paths', async () => {
+    const { tools: t, projects } = starting()
+    const out = await t.call(caller, 'list_projects', {})
+    expect(out.isError).toBeUndefined()
+    expect(out.structuredContent).toEqual({ projects })
+    expect(text(out)).toContain('target-project')
   })
 })

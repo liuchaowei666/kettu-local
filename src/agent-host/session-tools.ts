@@ -2,6 +2,7 @@
 // scope and limit rules, and the session manager calls behind them. The caller's session and its
 // project come from the service, which knows them from the token or the call's `_meta`.
 
+import path from 'node:path'
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js'
 import type { AgentStatus, RunningWork } from '@shared/agent-host'
 import { harnessOf, START_MODE_CHARS } from '@shared/agents'
@@ -83,8 +84,20 @@ export interface SessionToolsDeps {
   /** Starts a sub-session of the caller with its first prompt; returns its id. */
   start(
     callerId: string,
-    params: { prompt: string; title?: string; agentId?: AgentId; mode?: string; report: boolean },
+    params: {
+      prompt: string
+      title?: string
+      agentId?: AgentId
+      mode?: string
+      report: boolean
+      /** An existing folder to run it in, for a session in another project than the caller's. */
+      project?: string
+    },
   ): Promise<string>
+  /** The folders Kettu knows as projects, for list_projects. */
+  projects(): { path: string; name: string }[]
+  /** The canonical path of an existing folder the caller named; refuses a path that is not one. */
+  resolveProject(value: string): Promise<string>
   /**
    * Prompts a session the caller started, or queues the prompt while it works; with `now`, sends
    * a queued prompt on at once as Send now does.
@@ -282,6 +295,13 @@ const MODE: Schema = {
     'mode the user set for its new sessions. Kettu starts it no wider than yours.',
 }
 const MODE_INFO = object({ id: { type: 'string' }, name: { type: 'string' } }, ['id', 'name'])
+const PROJECT: Schema = {
+  type: 'string',
+  minLength: 1,
+  description:
+    "An existing folder's absolute path to run it in, for a session in another project than " +
+    'yours; list_projects maps a name to its path. Without it, the session runs in your project.',
+}
 const REPORT: Schema = {
   type: 'boolean',
   default: true,
@@ -334,6 +354,7 @@ const INFO: Record<string, Schema> = {
   started_by_you: { type: 'boolean' },
   is_you: { type: 'boolean' },
   archived: { type: 'boolean' },
+  project: { type: 'string' },
   mode: MODE_INFO,
 }
 
@@ -347,6 +368,7 @@ const INFO_REQUIRED = [
   'started_by_you',
   'is_you',
   'archived',
+  'project',
 ]
 
 export const SESSION_TOOLS: Tool[] = [
@@ -374,6 +396,21 @@ export const SESSION_TOOLS: Tool[] = [
             ),
           },
         }),
+      },
+    }),
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: 'list_projects',
+    title: 'List projects',
+    description:
+      'Lists the folders Kettu knows as projects on this computer, with their paths and names. ' +
+      'Use one path as the `project` of start_session to run a session there.',
+    inputSchema: object({}),
+    outputSchema: output({
+      projects: {
+        type: 'array',
+        items: object({ path: { type: 'string' }, name: { type: 'string' } }, ['path', 'name']),
       },
     }),
     annotations: { readOnlyHint: true },
@@ -427,10 +464,11 @@ export const SESSION_TOOLS: Tool[] = [
     name: 'start_session',
     title: 'Start session',
     description:
-      'Starts a session of your own in this project with its first prompt. It runs on its own, ' +
-      'and Kettu tells you when its turn ends; do not wait for it in a loop.',
+      'Starts a session of your own with its first prompt, in this project or in `project` when ' +
+      'you name an existing folder. It runs on its own, and Kettu tells you when its turn ends; ' +
+      'do not wait for it in a loop.',
     inputSchema: object(
-      { prompt: PROMPT, title: TITLE, agent: AGENT, mode: MODE, report: REPORT },
+      { prompt: PROMPT, title: TITLE, agent: AGENT, mode: MODE, project: PROJECT, report: REPORT },
       ['prompt'],
     ),
     outputSchema: output({ ...INFO, mode_lowered: { type: 'boolean' } }, INFO_REQUIRED),
@@ -719,6 +757,7 @@ function infoOf(
     started_by_you: session.startedBy === callerId,
     is_you: session.id === callerId,
     archived: session.archived,
+    project: session.projectPath,
     ...(mode ? { mode } : {}),
     ...(lastReply ? { last_reply: lastReply } : {}),
   }
@@ -746,6 +785,9 @@ export class SessionTools {
       case 'list_agents':
         args(input, [])
         return this.listAgents(caller)
+      case 'list_projects':
+        args(input, [])
+        return this.listProjects()
       case 'list_sessions':
         return this.list(caller, args(input, ['query', 'include_archived', 'limit']))
       case 'get_session':
@@ -755,7 +797,10 @@ export class SessionTools {
       case 'archive_session':
         return this.archive(caller, args(input, ['id']))
       case 'start_session':
-        return this.start(caller, args(input, ['prompt', 'title', 'agent', 'mode', 'report']))
+        return this.start(
+          caller,
+          args(input, ['prompt', 'title', 'agent', 'mode', 'project', 'report']),
+        )
       case 'send_message':
         return this.send(caller, args(input, ['id', 'text', 'report', 'now']))
       case HISTORY_TOOL:
@@ -765,11 +810,16 @@ export class SessionTools {
     }
   }
 
-  /** The session named, or the caller: not found when it lies in another project. */
+  /**
+   * The session named, or the caller: not found when it is in another project the caller did not
+   * start. A session the caller started in another project is allowed, and nothing else is.
+   */
   private target(caller: Caller, sessionId: string | undefined): ToolSession {
     const id = sessionId ?? caller.sessionId
     const session = this.deps.info(id)
-    if (!session || session.projectPath !== caller.project) throw notFound(id)
+    if (!session) throw notFound(id)
+    const inProject = session.projectPath === caller.project
+    if (!inProject && session.startedBy !== caller.sessionId) throw notFound(id)
     return session
   }
 
@@ -804,6 +854,15 @@ export class SessionTools {
             )
             .join('\n')
     return result(text, { agents })
+  }
+
+  private async listProjects(): Promise<CallToolResult> {
+    const projects = this.deps.projects()
+    const text =
+      projects.length === 0
+        ? 'No projects on this computer yet.'
+        : projects.map((project) => `${project.name}: ${project.path}`).join('\n')
+    return result(text, { projects })
   }
 
   /**
@@ -937,6 +996,7 @@ export class SessionTools {
     const agentId = agent(o)
     const wanted = mode(o)
     const reported = report(o)
+    const project = await this.projectOf(o)
     const callerInfo = this.deps.info(caller.sessionId)
     if (!callerInfo) throw notFound(caller.sessionId)
     if (callerInfo.startedBy !== null) {
@@ -954,6 +1014,7 @@ export class SessionTools {
       ...(value === undefined ? {} : { title: value }),
       ...(agentId === undefined ? {} : { agentId }),
       ...(wanted === undefined ? {} : { mode: wanted }),
+      ...(project === undefined ? {} : { project }),
       report: reported,
     })
     const session = this.deps.info(started)
@@ -968,6 +1029,27 @@ export class SessionTools {
         ...(lowered ? { mode_lowered: true } : {}),
       },
     )
+  }
+
+  /**
+   * The canonical folder a start runs in, or none for the caller's project. A path that is not an
+   * existing folder is a tool error, never a request failure.
+   */
+  private async projectOf(o: Args): Promise<string | undefined> {
+    const value = o.project
+    if (value === undefined) return undefined
+    if (typeof value !== 'string' || value.trim() === '') {
+      throw invalid('project must be the absolute path of an existing folder.')
+    }
+    if (!path.isAbsolute(value)) {
+      throw invalid(`project must be an absolute path, not "${value}".`)
+    }
+    try {
+      return await this.deps.resolveProject(value)
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      throw invalid(`project must be an existing folder: ${reason}`)
+    }
   }
 
   /** The caller's turns or a started session's: no other conversation is the agent's to read. */

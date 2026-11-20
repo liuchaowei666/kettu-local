@@ -44,6 +44,7 @@ describe('the servers a session attaches with', () => {
       'update_memory',
       'forget_memory',
       'list_agents',
+      'list_projects',
       'list_sessions',
       'get_session',
       'rename_session',

@@ -9587,13 +9587,24 @@ export class SessionManager {
   }
 
   /**
-   * Starts a sub-session of the caller with its first prompt, as New sub-session would: the
-   * caller's project and parent, and with the caller's agent its model and level. Its mode is the
-   * one asked for or the start mode, never wider than the caller's or than full access allows.
+   * Starts a session of the caller with its first prompt, as New sub-session would: the caller's
+   * project and parent, and with the caller's agent its model and level. With `project`, an
+   * existing folder, it starts at the top level of that project with `startedBy` and `from` so the
+   * caller can read it and receive its reports, since a sub-session belongs to its parent's
+   * project. Its mode is the one asked for or the start mode, never wider than the caller's or
+   * than full access allows.
    */
   async startFromTool(
     callerId: string,
-    params: { prompt: string; title?: string; agentId?: AgentId; mode?: string; report: boolean },
+    params: {
+      prompt: string
+      title?: string
+      agentId?: AgentId
+      mode?: string
+      report: boolean
+      /** An existing folder to run it in; without it, the caller's project. */
+      project?: string
+    },
   ): Promise<string> {
     const caller = this.recordOf(callerId)
     const agentId = params.agentId ?? caller.agentId
@@ -9614,10 +9625,13 @@ export class SessionManager {
       Object.assign(options, this.deps.options?.rememberedOf(agentId) ?? {})
     }
     Object.assign(options, this.startModeOf(agentId))
+    const projectPath = params.project ?? caller.projectPath
+    const sameProject =
+      params.project === undefined || samePath(projectPath, caller.projectPath, this.deps.platform)
     const summary = await this.create({
       agentId,
-      projectPath: caller.projectPath,
-      parentId: callerId,
+      projectPath,
+      ...(sameProject ? { parentId: callerId } : {}),
       options,
       prompt: [{ type: 'text', text: params.prompt }],
       startedBy: callerId,

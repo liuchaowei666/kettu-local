@@ -804,6 +804,8 @@ export class AgentHost {
           this.sessions.archiveWhenIdle(sessionId, agentName),
         archiveNow: (sessionId, agentName) => this.sessions.archiveByAgent(sessionId, agentName),
         start: (callerId, params) => this.sessions.startFromTool(callerId, params),
+        projects: () => this.projects.list().map(({ path, name }) => ({ path, name })),
+        resolveProject: (value) => this.projects.resolveDirectory(value),
         send: (sessionId, text, from, now) =>
           this.sessions.sendFromTool(sessionId, text, from, now),
         started: (callerId) => this.sessions.startedBy(callerId),

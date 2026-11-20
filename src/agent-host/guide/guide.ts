@@ -168,7 +168,8 @@ export function serviceInstructions(flags: GuideFlags): string {
       "rather than a long reply, without being asked; never for the project's own files. Topic " +
       'artifacts; files, canvas and runtime go into detail.',
     "Sessions: start_session hands work to another Kettu session, on another of the user's agents " +
-      'from list_agents when it fits, such as a review in a read-only mode. Start one when the ' +
+      'from list_agents when it fits, such as a review in a read-only mode; pass project with a ' +
+      "folder's absolute path from list_projects to run it in another project. Start one when the " +
       'user asks for a review or parallel work; after a substantial change, offer one in your ' +
       'reply. Kettu tells you when its turn ends, so never wait for it in a loop. Topic sessions.',
     'Workflows: ' +
