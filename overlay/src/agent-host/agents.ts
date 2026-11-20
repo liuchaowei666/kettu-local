@@ -33,6 +33,7 @@ import {
   parseGrokBilling,
   type GrokSignIn,
 } from './vendor-usage/grok'
+import { readCodexUsage } from './codex-balance'
 import { parseMistralAccount } from './vendor-usage/mistral-vibe'
 import { KeychainRefused, parseCursorAbout, type CursorSignIn } from './vendor-usage/cursor'
 import { readAuggieAccount } from './vendor-usage/auggie'
@@ -780,16 +781,15 @@ export class AgentManager {
       this.noteStartMoves()
       // Local: read the DeepSeek balance once the host is up, so the usage page and the
       // composer have it without opening the agent's settings first, and keep it fresh.
-      setTimeout(() => {
-        try {
-          void this.refreshBalance(this.slot('deepseek'), true).catch(() => {})
-        } catch {}
-      }, 3000).unref?.()
-      setInterval(() => {
-        try {
-          void this.refreshBalance(this.slot('deepseek'), true).catch(() => {})
-        } catch {}
-      }, 900000).unref?.()
+      const refreshBalances = (): void => {
+        for (const id of ['deepseek', 'codex'] as const) {
+          try {
+            void this.refreshBalance(this.slot(id), true).catch(() => {})
+          } catch {}
+        }
+      }
+      setTimeout(refreshBalances, 3000).unref?.()
+      setInterval(refreshBalances, 900000).unref?.()
     })()
     return this.detected
   }
@@ -4249,6 +4249,20 @@ export class AgentManager {
    */
   private async readBalance(slot: Slot): Promise<void> {
     await this.detectAll()
+    const now0 = Date.now()
+    // A Codex slot's provider is the one its own config names, so its balance comes from there.
+    if (slot.def.id === 'codex') {
+      const previous0 = slot.balance
+      const usage = await readCodexUsage(now0)
+      slot.balance =
+        usage.state === 'error' && previous0 && previous0.balances.length > 0
+          ? { ...usage, balances: previous0.balances, observedAt: previous0.observedAt }
+          : usage
+      slot.balances = slot.balance ? slot.balance.balances : []
+      slot.balanceReadAt = now0
+      this.emit(slot)
+      return
+    }
     const env = { ...this.deps.env.agentEnv(slot.id), DSH_HOME: this.dshFolder(slot) }
     const key = await readDshKey(env)
     const now = Date.now()
